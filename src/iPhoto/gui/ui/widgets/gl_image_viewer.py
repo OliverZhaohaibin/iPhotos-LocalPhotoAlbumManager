@@ -55,6 +55,7 @@ class GLImageViewer(QOpenGLWidget):
     fullscreenExitRequested = Signal()
     fullscreenToggleRequested = Signal()
     cropChanged = Signal(float, float, float, float)
+    cropModelTransformChanged = Signal(float, float, float)
 
     def __init__(self, parent: QOpenGLWidget | None = None) -> None:
         super().__init__(parent)
@@ -114,6 +115,7 @@ class GLImageViewer(QOpenGLWidget):
             clamp_image_center_to_crop=self._clamp_image_center_to_crop,
             transform_controller=self._transform_controller,
             on_crop_changed=self.cropChanged.emit,
+            on_model_transform_changed=self.cropModelTransformChanged.emit,
             on_cursor_change=self._handle_cursor_change,
             on_request_update=self.update,
             timer_parent=self,

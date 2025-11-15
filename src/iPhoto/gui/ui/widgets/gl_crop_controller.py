@@ -33,6 +33,7 @@ class CropInteractionController:
         on_crop_changed: Callable[[float, float, float, float], None],
         on_cursor_change: Callable[[Qt.CursorShape | None], None],
         on_request_update: Callable[[], None],
+        on_model_transform_changed: Callable[[float, float, float], None],
         timer_parent: QObject | None = None,
     ) -> None:
         """Initialize the crop interaction controller.
@@ -60,6 +61,7 @@ class CropInteractionController:
         self._on_crop_changed = on_crop_changed
         self._on_cursor_change = on_cursor_change
         self._on_request_update = on_request_update
+        self._on_model_transform_changed = on_model_transform_changed
 
         # Crop state
         self._active: bool = False
@@ -255,6 +257,7 @@ class CropInteractionController:
 
             clamped_offset = self._clamp_crop_img_offset(tentative_offset, self._crop_img_scale)
             self._crop_img_offset = clamped_offset
+            self._emit_model_transform_changed()
         else:
             # Dragging edge/corner: resize the crop using world-space deltas so the
             # drag feels identical regardless of crop zoom level, mirroring the
@@ -422,6 +425,7 @@ class CropInteractionController:
 
         self._crop_img_scale = new_scale
         self._crop_img_offset = new_offset
+        self._emit_model_transform_changed()
         self._on_request_update()
         self._restart_crop_idle()
         event.accept()
@@ -822,4 +826,12 @@ class CropInteractionController:
         state = self._crop_state
         self._on_crop_changed(
             float(state.cx), float(state.cy), float(state.width), float(state.height)
+        )
+
+    def _emit_model_transform_changed(self) -> None:
+        """Emit the crop model transform changed signal."""
+        self._on_model_transform_changed(
+            float(self._crop_img_scale),
+            float(self._crop_img_offset.x()),
+            float(self._crop_img_offset.y()),
         )

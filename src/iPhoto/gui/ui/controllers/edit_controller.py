@@ -230,6 +230,15 @@ class EditController(QObject):
         except (TypeError, RuntimeError):
             pass
         viewer.cropChanged.connect(self._handle_crop_changed)
+        try:
+            viewer.cropModelTransformChanged.disconnect(
+                self._handle_crop_model_transform_changed
+            )
+        except (TypeError, RuntimeError):
+            pass
+        viewer.cropModelTransformChanged.connect(
+            self._handle_crop_model_transform_changed
+        )
         viewer.setCropMode(False, session.values())
         current_source = viewer.current_image_source()
         self._skip_next_preview_frame = current_source == source
@@ -539,6 +548,19 @@ class EditController(QObject):
             "Crop_CY": float(cy),
             "Crop_W": float(width),
             "Crop_H": float(height),
+        }
+        self._session.set_values(updates, emit_individual=False)
+
+    def _handle_crop_model_transform_changed(
+        self, scale: float, ox: float, oy: float
+    ) -> None:
+        """Handle real-time changes to the crop model transform (zoom/pan)."""
+        if self._session is None:
+            return
+        updates = {
+            "Crop_Scale": float(scale),
+            "Crop_OX": float(ox),
+            "Crop_OY": float(oy),
         }
         self._session.set_values(updates, emit_individual=False)
 
