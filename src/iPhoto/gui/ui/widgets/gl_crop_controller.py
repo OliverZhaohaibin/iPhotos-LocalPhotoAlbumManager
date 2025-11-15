@@ -28,7 +28,6 @@ class CropInteractionController:
         self,
         *,
         texture_size_provider: Callable[[], tuple[int, int]],
-        clamp_image_center_to_crop: Callable[[QPointF, float], QPointF],
         transform_controller,  # ViewTransformController
         on_crop_changed: Callable[[float, float, float, float], None],
         on_cursor_change: Callable[[Qt.CursorShape | None], None],
@@ -41,8 +40,6 @@ class CropInteractionController:
         ----------
         texture_size_provider:
             Callable that returns (width, height) of the current texture.
-        clamp_image_center_to_crop:
-            Callable to clamp image center to crop bounds.
         transform_controller:
             ViewTransformController instance for zoom/pan and coordinate transforms.
         on_crop_changed:
@@ -55,7 +52,6 @@ class CropInteractionController:
             Parent QObject for timers (optional).
         """
         self._texture_size_provider = texture_size_provider
-        self._clamp_image_center_to_crop = clamp_image_center_to_crop
         self._transform_controller = transform_controller
         self._on_crop_changed = on_crop_changed
         self._on_cursor_change = on_cursor_change
@@ -418,20 +414,19 @@ class CropInteractionController:
         self._crop_img_scale = 1.0
 
     def _apply_crop_values(self, values: Mapping[str, float] | None) -> None:
-        """Apply crop values to the crop state."""
+        """Apply *values* to the crop model without touching the shared view transform."""
+
         if values:
             self._crop_state.set_from_mapping(values)
         else:
             self._crop_state.set_full()
 
-        tex_w, tex_h = self._texture_size_provider()
-        if tex_w <= 0 or tex_h <= 0:
-            return
-
-        center = self._crop_state.center_pixels(tex_w, tex_h)
-        scale = self._transform_controller.get_effective_scale()
-        clamped_center = self._clamp_image_center_to_crop(center, scale)
-        self._transform_controller.apply_image_center_pixels(clamped_center, scale)
+        # ``setCropMode`` resets the :class:`ViewTransformController` to a "fit entire texture"
+        # baseline before this method runs.  Leaving the controller untouched here keeps the crop
+        # overlay firmly anchored in the original image coordinate system, preventing the "fit to
+        # crop" adjustments from the preview/adjust views from leaking back into crop mode.  The
+        # crop overlay is re-rendered explicitly below so the UI reflects the latest rectangle.
+        self._on_request_update()
 
     def _clamp_crop_img_offset(self, offset: QPointF, scale: float) -> QPointF:
         """Clamp the model transform so the crop never exposes empty pixels."""
