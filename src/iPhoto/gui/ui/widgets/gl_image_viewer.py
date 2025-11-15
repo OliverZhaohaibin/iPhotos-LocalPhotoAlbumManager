@@ -464,7 +464,28 @@ class GLImageViewer(QOpenGLWidget):
     # --------------------------- Crop helpers ---------------------------
 
     def setCropMode(self, enabled: bool, values: Mapping[str, float] | None = None) -> None:
-        self._crop_controller.set_active(enabled, values)
+        """Toggle crop interactions while isolating the view transform state."""
+
+        was_active = self._crop_controller.is_active()
+
+        if enabled:
+            if not was_active:
+                # ``reset_zoom`` clears any crop override applied by the adjust view and recentres
+                # the transform so the crop overlay performs its math in the original texture
+                # coordinate system.  Without this reset the crop controller would inherit the
+                # zoom/pan tailored for the preview of the already-cropped image, leading to
+                # incorrect box placement when the user re-enters crop mode.
+                self._transform_controller.reset_zoom()
+            self._crop_controller.set_active(True, values)
+            return
+
+        # When disabling crop mode we first tear down the interaction controller so the overlay
+        # stops drawing, then immediately reapply the crop-aware framing expected by the adjust
+        # preview.  This keeps the two experiences visually consistent while still ensuring the
+        # crop workflow computed its state against the uncropped texture above.
+        self._crop_controller.set_active(False, values)
+        if was_active:
+            self.reset_zoom_to_crop(self._adjustments)
 
     def crop_values(self) -> dict[str, float]:
         return self._crop_controller.get_crop_values()
