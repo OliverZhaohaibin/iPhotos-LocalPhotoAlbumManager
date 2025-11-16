@@ -297,7 +297,7 @@ class GLImageViewer(QOpenGLWidget):
         self._transform_controller.set_zoom(float(factor), anchor_point)
 
     def reset_zoom(self) -> None:
-        self._transform_controller.reset_zoom()
+        self._transform_controller.reset_zoom(self._adjustments)
 
     def zoom_in(self) -> None:
         current = self._transform_controller.get_zoom_factor()
