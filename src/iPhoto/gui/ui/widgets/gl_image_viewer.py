@@ -421,10 +421,6 @@ class GLImageViewer(QOpenGLWidget):
         time_value = time.monotonic() - self._time_base
         
         view_pan = self._transform_controller.get_pan_pixels()
-        img_scale = 1.0
-        img_offset = QPointF(0.0, 0.0)
-        if self._crop_controller.is_active():
-            img_offset, img_scale = self._crop_controller.get_crop_model_transform()
 
         self._renderer.render(
             view_width=float(vw),
@@ -433,8 +429,6 @@ class GLImageViewer(QOpenGLWidget):
             pan=view_pan,
             adjustments=self._adjustments,
             time_value=time_value,
-            img_scale=img_scale,
-            img_offset=img_offset,
         )
 
         if self._crop_controller.is_active():
