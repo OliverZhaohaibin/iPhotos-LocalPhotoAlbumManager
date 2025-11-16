@@ -38,7 +38,12 @@ def _normalise_bw_value(key: str, value: float) -> float:
 
 _SIDE_CAR_ROOT = "iPhotoAdjustments"
 _LIGHT_NODE = "Light"
-_CROP_NODE = "Crop"
+_CROP_NODE = "crop"
+_CROP_CHILD_X = "x"
+_CROP_CHILD_Y = "y"
+_CROP_CHILD_W = "w"
+_CROP_CHILD_H = "h"
+_LEGACY_CROP_NODE = "Crop"
 _ATTR_CX = "cx"
 _ATTR_CY = "cy"
 _ATTR_WIDTH = "w"
@@ -49,6 +54,138 @@ _CURRENT_VERSION = "1.0"
 
 def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
+
+
+def _float_or_default(value: object | None, default: float) -> float:
+    """Return ``value`` converted to ``float`` or ``default`` when conversion fails."""
+
+    try:
+        return float(value) if value is not None else float(default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _new_sidecar_root() -> ET.Element:
+    """Return a fresh ``<iPhotoAdjustments>`` element with the current version."""
+
+    root = ET.Element(_SIDE_CAR_ROOT)
+    root.set(_VERSION_ATTR, _CURRENT_VERSION)
+    return root
+
+
+def _load_or_create_root(sidecar_path: Path) -> ET.Element:
+    """Parse *sidecar_path* if possible, otherwise return a new root element."""
+
+    if sidecar_path.exists():
+        try:
+            tree = ET.parse(sidecar_path)
+            root = tree.getroot()
+        except (ET.ParseError, OSError):
+            return _new_sidecar_root()
+        if root.tag != _SIDE_CAR_ROOT:
+            return _new_sidecar_root()
+        root.set(_VERSION_ATTR, _CURRENT_VERSION)
+        return root
+    return _new_sidecar_root()
+
+
+def _remove_children_case_insensitive(parent: ET.Element, tag: str) -> None:
+    """Remove all children of *parent* whose tag matches *tag* (case-insensitive)."""
+
+    lowered = tag.lower()
+    for child in list(parent):
+        if child.tag.lower() == lowered:
+            parent.remove(child)
+
+
+def _find_child_case_insensitive(parent: ET.Element, tag: str) -> ET.Element | None:
+    """Return the first child whose tag matches *tag* ignoring case."""
+
+    lowered = tag.lower()
+    for child in parent:
+        if child.tag.lower() == lowered:
+            return child
+    return None
+
+
+def _normalised_crop_components(values: Mapping[str, float | bool]) -> tuple[float, float, float, float]:
+    """Return ``(left, top, width, height)`` from centre-based crop adjustments."""
+
+    cx = _clamp01(_float_or_default(values.get("Crop_CX"), 0.5))
+    cy = _clamp01(_float_or_default(values.get("Crop_CY"), 0.5))
+    width = _clamp01(_float_or_default(values.get("Crop_W"), 1.0))
+    height = _clamp01(_float_or_default(values.get("Crop_H"), 1.0))
+
+    half_w = width * 0.5
+    half_h = height * 0.5
+    cx = max(half_w, min(1.0 - half_w, cx))
+    cy = max(half_h, min(1.0 - half_h, cy))
+    left = max(0.0, min(1.0 - width, cx - half_w))
+    top = max(0.0, min(1.0 - height, cy - half_h))
+    return (left, top, width, height)
+
+
+def _centre_crop_from_top_left(left: float, top: float, width: float, height: float) -> dict[str, float]:
+    """Convert top-left crop coordinates to the centre-based representation."""
+
+    width = _clamp01(width)
+    height = _clamp01(height)
+    left = max(0.0, min(1.0 - width, _clamp01(left)))
+    top = max(0.0, min(1.0 - height, _clamp01(top)))
+    cx = left + width * 0.5
+    cy = top + height * 0.5
+    return {
+        "Crop_CX": cx,
+        "Crop_CY": cy,
+        "Crop_W": width,
+        "Crop_H": height,
+    }
+
+
+def _read_crop_from_node(node: ET.Element) -> dict[str, float]:
+    """Return crop adjustments described by the structured ``<crop>`` *node*."""
+
+    def _child_value(tag: str, default: float) -> float:
+        child = _find_child_case_insensitive(node, tag)
+        text = child.text.strip() if child is not None and child.text is not None else None
+        return _float_or_default(text, default)
+
+    left = _child_value(_CROP_CHILD_X, 0.0)
+    top = _child_value(_CROP_CHILD_Y, 0.0)
+    width = _child_value(_CROP_CHILD_W, 1.0)
+    height = _child_value(_CROP_CHILD_H, 1.0)
+    return _centre_crop_from_top_left(left, top, width, height)
+
+
+def _read_crop_from_legacy_attributes(node: ET.Element) -> dict[str, float]:
+    """Return crop adjustments stored as legacy ``<Crop cx=...`` attributes."""
+
+    cx = _clamp01(_float_or_default(node.get(_ATTR_CX), 0.5))
+    cy = _clamp01(_float_or_default(node.get(_ATTR_CY), 0.5))
+    width = _clamp01(_float_or_default(node.get(_ATTR_WIDTH), 1.0))
+    height = _clamp01(_float_or_default(node.get(_ATTR_HEIGHT), 1.0))
+    return {
+        "Crop_CX": cx,
+        "Crop_CY": cy,
+        "Crop_W": width,
+        "Crop_H": height,
+    }
+
+
+def _write_crop_node(root: ET.Element, values: Mapping[str, float | bool]) -> None:
+    """Insert/replace the ``<crop>`` section under *root* using *values*."""
+
+    _remove_children_case_insensitive(root, _CROP_NODE)
+    crop = ET.SubElement(root, _CROP_NODE)
+    left, top, width, height = _normalised_crop_components(values)
+    for tag, numeric in (
+        (_CROP_CHILD_X, left),
+        (_CROP_CHILD_Y, top),
+        (_CROP_CHILD_W, width),
+        (_CROP_CHILD_H, height),
+    ):
+        child = ET.SubElement(crop, tag)
+        child.text = f"{numeric:.6f}"
 
 
 def sidecar_path_for_asset(asset_path: Path) -> Path:
@@ -78,89 +215,73 @@ def load_adjustments(asset_path: Path) -> Dict[str, float | bool]:
     if root.tag != _SIDE_CAR_ROOT:
         return {}
 
-    light_node = root.find(_LIGHT_NODE)
-    if light_node is None:
-        return {}
-
     result: Dict[str, float | bool] = {}
-    master_element = light_node.find("Light_Master")
-    if master_element is not None and master_element.text is not None:
-        try:
-            result["Light_Master"] = float(master_element.text.strip())
-        except ValueError:
-            result["Light_Master"] = 0.0
-    enabled_element = light_node.find("Light_Enabled")
-    if enabled_element is not None and enabled_element.text is not None:
-        text = enabled_element.text.strip().lower()
-        result["Light_Enabled"] = text in {"1", "true", "yes", "on"}
-    else:
-        result["Light_Enabled"] = True
-    for key in LIGHT_KEYS:
-        element = light_node.find(key)
-        if element is None or element.text is None:
-            continue
-        try:
-            result[key] = float(element.text.strip())
-        except ValueError:
-            continue
-    color_master = light_node.find("Color_Master")
-    if color_master is not None and color_master.text is not None:
-        try:
-            result["Color_Master"] = float(color_master.text.strip())
-        except ValueError:
-            result["Color_Master"] = 0.0
-    color_enabled = light_node.find("Color_Enabled")
-    if color_enabled is not None and color_enabled.text is not None:
-        text = color_enabled.text.strip().lower()
-        result["Color_Enabled"] = text in {"1", "true", "yes", "on"}
-    else:
-        result["Color_Enabled"] = True
-    for key in COLOR_KEYS:
-        element = light_node.find(key)
-        if element is None or element.text is None:
-            continue
-        try:
-            result[key] = float(element.text.strip())
-        except ValueError:
-            continue
-    bw_enabled = light_node.find("BW_Enabled")
-    if bw_enabled is not None and bw_enabled.text is not None:
-        text = bw_enabled.text.strip().lower()
-        result["BW_Enabled"] = text in {"1", "true", "yes", "on"}
-    else:
-        result["BW_Enabled"] = False
+    light_node = root.find(_LIGHT_NODE)
+    if light_node is not None:
+        master_element = light_node.find("Light_Master")
+        if master_element is not None and master_element.text is not None:
+            try:
+                result["Light_Master"] = float(master_element.text.strip())
+            except ValueError:
+                result["Light_Master"] = 0.0
+        enabled_element = light_node.find("Light_Enabled")
+        if enabled_element is not None and enabled_element.text is not None:
+            text = enabled_element.text.strip().lower()
+            result["Light_Enabled"] = text in {"1", "true", "yes", "on"}
+        else:
+            result["Light_Enabled"] = True
+        for key in LIGHT_KEYS:
+            element = light_node.find(key)
+            if element is None or element.text is None:
+                continue
+            try:
+                result[key] = float(element.text.strip())
+            except ValueError:
+                continue
+        color_master = light_node.find("Color_Master")
+        if color_master is not None and color_master.text is not None:
+            try:
+                result["Color_Master"] = float(color_master.text.strip())
+            except ValueError:
+                result["Color_Master"] = 0.0
+        color_enabled = light_node.find("Color_Enabled")
+        if color_enabled is not None and color_enabled.text is not None:
+            text = color_enabled.text.strip().lower()
+            result["Color_Enabled"] = text in {"1", "true", "yes", "on"}
+        else:
+            result["Color_Enabled"] = True
+        for key in COLOR_KEYS:
+            element = light_node.find(key)
+            if element is None or element.text is None:
+                continue
+            try:
+                result[key] = float(element.text.strip())
+            except ValueError:
+                continue
+        bw_enabled = light_node.find("BW_Enabled")
+        if bw_enabled is not None and bw_enabled.text is not None:
+            text = bw_enabled.text.strip().lower()
+            result["BW_Enabled"] = text in {"1", "true", "yes", "on"}
+        else:
+            result["BW_Enabled"] = False
 
-    for key in BW_KEYS:
-        element = light_node.find(key)
-        if element is None or element.text is None:
-            continue
-        try:
-            result[key] = float(element.text.strip())
-        except ValueError:
-            continue
+        for key in BW_KEYS:
+            element = light_node.find(key)
+            if element is None or element.text is None:
+                continue
+            try:
+                result[key] = float(element.text.strip())
+            except ValueError:
+                continue
 
-    crop_node = root.find(_CROP_NODE)
+    crop_node = _find_child_case_insensitive(root, _CROP_NODE)
+    if crop_node is None:
+        crop_node = root.find(_LEGACY_CROP_NODE)
     if crop_node is not None:
-        cx = crop_node.get(_ATTR_CX)
-        cy = crop_node.get(_ATTR_CY)
-        width = crop_node.get(_ATTR_WIDTH)
-        height = crop_node.get(_ATTR_HEIGHT)
-        try:
-            result["Crop_CX"] = _clamp01(float(cx)) if cx is not None else 0.5
-        except (TypeError, ValueError):
-            result["Crop_CX"] = 0.5
-        try:
-            result["Crop_CY"] = _clamp01(float(cy)) if cy is not None else 0.5
-        except (TypeError, ValueError):
-            result["Crop_CY"] = 0.5
-        try:
-            result["Crop_W"] = _clamp01(float(width)) if width is not None else 1.0
-        except (TypeError, ValueError):
-            result["Crop_W"] = 1.0
-        try:
-            result["Crop_H"] = _clamp01(float(height)) if height is not None else 1.0
-        except (TypeError, ValueError):
-            result["Crop_H"] = 1.0
+        if any(child.tag.lower() == _CROP_CHILD_X for child in crop_node):
+            result.update(_read_crop_from_node(crop_node))
+        else:
+            result.update(_read_crop_from_legacy_attributes(crop_node))
 
     return result
 
@@ -171,8 +292,8 @@ def save_adjustments(asset_path: Path, adjustments: Mapping[str, float | bool]) 
     sidecar_path = sidecar_path_for_asset(asset_path)
     sidecar_path.parent.mkdir(parents=True, exist_ok=True)
 
-    root = ET.Element(_SIDE_CAR_ROOT)
-    root.set(_VERSION_ATTR, _CURRENT_VERSION)
+    root = _load_or_create_root(sidecar_path)
+    _remove_children_case_insensitive(root, _LIGHT_NODE)
     light = ET.SubElement(root, _LIGHT_NODE)
     master_element = ET.SubElement(light, "Light_Master")
     master_value = float(adjustments.get("Light_Master", 0.0))
@@ -209,11 +330,7 @@ def save_adjustments(asset_path: Path, adjustments: Mapping[str, float | bool]) 
         child = ET.SubElement(light, key)
         child.text = f"{value:.2f}"
 
-    crop = ET.SubElement(root, _CROP_NODE)
-    crop.set(_ATTR_CX, f"{_clamp01(adjustments.get('Crop_CX', 0.5)):.6f}")
-    crop.set(_ATTR_CY, f"{_clamp01(adjustments.get('Crop_CY', 0.5)):.6f}")
-    crop.set(_ATTR_WIDTH, f"{_clamp01(adjustments.get('Crop_W', 1.0)):.6f}")
-    crop.set(_ATTR_HEIGHT, f"{_clamp01(adjustments.get('Crop_H', 1.0)):.6f}")
+    _write_crop_node(root, adjustments)
 
     tmp_path = sidecar_path.with_suffix(sidecar_path.suffix + ".tmp")
     tree = ET.ElementTree(root)
