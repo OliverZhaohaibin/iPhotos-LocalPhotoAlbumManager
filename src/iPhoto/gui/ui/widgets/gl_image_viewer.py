@@ -426,7 +426,17 @@ class GLImageViewer(QOpenGLWidget):
         img_scale = 1.0
         img_offset = QPointF(0.0, 0.0)
         if self._crop_controller.is_active():
+            # In crop mode, use the live transform from the crop controller
             img_offset, img_scale = self._crop_controller.get_crop_model_transform()
+        else:
+            # When not in crop mode, apply saved crop transform from adjustments
+            if self._adjustments:
+                crop_scale = self._adjustments.get("Crop_Scale", 1.0)
+                crop_ox = self._adjustments.get("Crop_OX", 0.0)
+                crop_oy = self._adjustments.get("Crop_OY", 0.0)
+                # Apply the saved transform
+                img_scale = float(crop_scale)
+                img_offset = QPointF(float(crop_ox), float(crop_oy))
 
         self._renderer.render(
             view_width=float(vw),

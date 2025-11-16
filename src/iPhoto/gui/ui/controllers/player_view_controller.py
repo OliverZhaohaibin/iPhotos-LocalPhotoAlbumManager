@@ -293,66 +293,10 @@ class PlayerViewController(QObject):
             image_source=source,
             reset_view=True,
         )
-        # Apply crop-based zoom if crop exists in adjustments
-        self._apply_crop_zoom_if_needed(adjustments)
         self._image_viewer.update()
 
         if self._loading_source == source:
             self._loading_source = None
-
-    def _apply_crop_zoom_if_needed(self, adjustments: dict) -> None:
-        """Apply crop-based zoom to center and scale the view on the crop region."""
-        if not adjustments:
-            return
-        
-        # Get crop values from adjustments
-        crop_w = adjustments.get("Crop_W", 1.0)
-        crop_h = adjustments.get("Crop_H", 1.0)
-        
-        # Only apply crop zoom if there's an actual crop (not full image)
-        if crop_w >= 0.99 and crop_h >= 0.99:
-            # No significant crop, keep default view
-            return
-        
-        # Get crop center
-        crop_cx = adjustments.get("Crop_CX", 0.5)
-        crop_cy = adjustments.get("Crop_CY", 0.5)
-        
-        # Use a deferred approach to apply zoom after image is fully loaded
-        from PySide6.QtCore import QTimer
-        
-        def apply_zoom():
-            # Get texture dimensions
-            tex_w, tex_h = self._image_viewer._texture_dimensions()
-            if tex_w <= 0 or tex_h <= 0:
-                return
-            
-            # Calculate crop center in pixel coordinates
-            center_x = crop_cx * tex_w
-            center_y = crop_cy * tex_h
-            
-            # Get viewport dimensions
-            vw, vh = self._image_viewer._transform_controller._get_view_dimensions_device_px()
-            if vw <= 0 or vh <= 0:
-                return
-            
-            # Crop dimensions in pixels
-            crop_width_px = crop_w * tex_w
-            crop_height_px = crop_h * tex_h
-            
-            # Calculate scale to fit crop region with padding
-            padding_factor = 0.9
-            scale_x = (vw * padding_factor) / crop_width_px if crop_width_px > 0 else 1.0
-            scale_y = (vh * padding_factor) / crop_height_px if crop_height_px > 0 else 1.0
-            target_scale = min(scale_x, scale_y)
-            
-            # Apply zoom and center
-            from PySide6.QtCore import QPointF
-            center_pt = QPointF(center_x, center_y)
-            self._image_viewer._transform_controller.apply_image_center_pixels(center_pt, target_scale)
-        
-        # Defer zoom application
-        QTimer.singleShot(50, apply_zoom)
 
     def _on_adjusted_image_failed(self, source: Path, message: str) -> None:
         """Propagate worker failures while ensuring stale results are ignored."""

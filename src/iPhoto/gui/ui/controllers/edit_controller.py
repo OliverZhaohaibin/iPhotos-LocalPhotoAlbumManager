@@ -243,8 +243,7 @@ class EditController(QObject):
         current_source = viewer.current_image_source()
         self._skip_next_preview_frame = current_source == source
         if not self._skip_next_preview_frame:
-            # Apply crop-based zoom if crop values exist
-            self._apply_crop_zoom_to_viewer(session)
+            viewer.reset_zoom()
 
         # Clear any stale preview content before attaching the fresh session.  The sidebar reuses
         # its last preview image until it receives an explicit replacement, so resetting it ahead
@@ -564,77 +563,6 @@ class EditController(QObject):
             "Crop_OY": float(oy),
         }
         self._session.set_values(updates, emit_individual=False)
-
-    def _apply_crop_zoom_to_viewer(self, session: EditSession) -> None:
-        """Apply crop-based zoom to center and scale the view on the crop region."""
-        viewer = self._ui.edit_image_viewer
-        
-        # Get crop values from session
-        crop_w = float(session.value("Crop_W"))
-        crop_h = float(session.value("Crop_H"))
-        
-        # Only apply crop zoom if there's an actual crop (not full image)
-        if crop_w >= 0.99 and crop_h >= 0.99:
-            # No significant crop, just reset zoom
-            viewer.reset_zoom()
-            return
-        
-        # Get crop center in normalized coordinates
-        crop_cx = float(session.value("Crop_CX"))
-        crop_cy = float(session.value("Crop_CY"))
-        
-        # We need to wait for the image to be loaded to get its dimensions
-        # For now, we'll use a deferred approach via the viewer's texture size
-        # Schedule the zoom application after image is set
-        from PySide6.QtCore import QTimer
-        
-        def apply_zoom_after_load():
-            # Get the texture dimensions from the viewer
-            tex_w, tex_h = viewer._texture_dimensions()
-            if tex_w <= 0 or tex_h <= 0:
-                viewer.reset_zoom()
-                return
-            
-            # Calculate crop center in pixel coordinates
-            center_x = crop_cx * tex_w
-            center_y = crop_cy * tex_h
-            
-            # Calculate the scale needed to fit the crop region in the viewport
-            # Get viewport dimensions
-            vw, vh = viewer._transform_controller._get_view_dimensions_device_px()
-            if vw <= 0 or vh <= 0:
-                viewer.reset_zoom()
-                return
-            
-            # Crop dimensions in pixels
-            crop_width_px = crop_w * tex_w
-            crop_height_px = crop_h * tex_h
-            
-            # Calculate scale to fit crop region with some padding
-            padding_factor = 0.9  # Use 90% of viewport to leave some margin
-            scale_x = (vw * padding_factor) / crop_width_px if crop_width_px > 0 else 1.0
-            scale_y = (vh * padding_factor) / crop_height_px if crop_height_px > 0 else 1.0
-            target_scale = min(scale_x, scale_y)
-            
-            # Get base scale and calculate zoom factor
-            from .view_transform_controller import compute_fit_to_view_scale
-            base_scale = compute_fit_to_view_scale((tex_w, tex_h), vw, vh)
-            if base_scale > 0:
-                zoom_factor = target_scale / base_scale
-                # Clamp to viewer's zoom limits
-                min_zoom = viewer._transform_controller.minimum_zoom()
-                max_zoom = viewer._transform_controller.maximum_zoom()
-                zoom_factor = max(min_zoom, min(max_zoom, zoom_factor))
-                
-                # Apply the zoom and center
-                from PySide6.QtCore import QPointF
-                center_pt = QPointF(center_x, center_y)
-                viewer._transform_controller.apply_image_center_pixels(center_pt, target_scale)
-            else:
-                viewer.reset_zoom()
-        
-        # Defer the zoom application slightly to ensure image is loaded
-        QTimer.singleShot(50, apply_zoom_after_load)
 
     def _apply_session_adjustments_to_viewer(self) -> None:
         """Forward the latest session values to the GL viewer."""
