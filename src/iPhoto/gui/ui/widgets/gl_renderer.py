@@ -26,7 +26,6 @@ from PySide6.QtOpenGL import (
     QOpenGLVertexArrayObject,
 )
 from OpenGL import GL as gl
-from shiboken6.Shiboken import VoidPtr
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -425,13 +424,17 @@ class GLRenderer:
         ) -> None:
             # Use Qt's setUniformValue with QVector4D for reliable uniform transmission
             program.setUniformValue("uColor", QVector4D(*colour))
-            # Use Qt's OpenGL functions consistently
+            # Disable depth test and culling to prevent overlay from being hidden
+            gf.glDisable(gl.GL_DEPTH_TEST)
+            gf.glDisable(gl.GL_CULL_FACE)
+            # Use PyOpenGL for buffer data upload for better compatibility with PySide6
             gf.glBindBuffer(gl.GL_ARRAY_BUFFER, int(self._overlay_vbo))
-            gf.glBufferData(
+            gl.glBufferData(
                 gl.GL_ARRAY_BUFFER, vertices.nbytes, vertices.tobytes(), gl.GL_DYNAMIC_DRAW
             )
             gf.glEnableVertexAttribArray(0)
-            gf.glVertexAttribPointer(0, 2, gl.GL_FLOAT, False, 0, VoidPtr(0))
+            # Use None instead of VoidPtr(0) for zero offset in PySide6
+            gf.glVertexAttribPointer(0, 2, gl.GL_FLOAT, False, 0, None)
             gf.glDrawArrays(mode, 0, int(vertices.size // 2))
             gf.glDisableVertexAttribArray(0)
             gf.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)

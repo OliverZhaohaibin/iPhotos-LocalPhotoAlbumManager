@@ -216,9 +216,17 @@ class CropInteractionController:
             if self._has_crop_state_changed(snapshot):
                 self._emit_crop_changed()
         else:
-            # Dragging edge/corner: resize the crop using world-space deltas so the
-            # drag feels identical regardless of crop zoom level, mirroring the
-            # demo implementation.
+            # Dragging edge/corner: First apply auto zoom-out to update view transform,
+            # then calculate crop UV based on the new view state. This prevents jumping
+            # because crop calculation will use the already-adjusted view transform.
+            
+            # STEP 1: Apply auto zoom-out when pushing edges near viewport boundaries
+            # This updates the view transform (zoom and pan) FIRST
+            self._auto_shrink_on_drag(delta_view)
+            
+            # STEP 2: Now calculate crop box resize using the UPDATED view transform
+            # Resize the crop using world-space deltas so the drag feels identical
+            # regardless of crop zoom level, mirroring the demo implementation.
             view_scale = self._transform_controller.get_effective_scale()
             if view_scale <= 1e-6:
                 return
@@ -306,9 +314,6 @@ class CropInteractionController:
                     self._crop_state.width = new_width / tex_w
                     self._crop_state.height = new_height / tex_h
                     self._crop_state.clamp()
-
-            # Apply auto zoom-out when pushing edges near viewport boundaries
-            self._auto_shrink_on_drag(delta_view)
 
             self._emit_crop_changed()
 
