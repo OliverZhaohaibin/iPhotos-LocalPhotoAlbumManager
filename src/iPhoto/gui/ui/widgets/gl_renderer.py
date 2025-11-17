@@ -10,6 +10,7 @@ API tailored to the viewer.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from pathlib import Path
 from typing import Mapping, Optional
@@ -58,6 +59,44 @@ def _load_shader_source(filename: str) -> str:
         return shader_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise RuntimeError(f"Failed to load shader '{filename}': {exc}") from exc
+
+
+def _build_perspective_matrix(vertical: float, horizontal: float) -> np.ndarray:
+    """Return a projective matrix that counteracts the stored skew."""
+
+    clamped_v = max(-1.0, min(1.0, float(vertical)))
+    clamped_h = max(-1.0, min(1.0, float(horizontal)))
+    if abs(clamped_v) <= 1e-5 and abs(clamped_h) <= 1e-5:
+        return np.identity(3, dtype=np.float32)
+
+    angle_scale = math.radians(20.0)
+    angle_x = clamped_v * angle_scale
+    angle_y = clamped_h * angle_scale
+
+    cos_x = math.cos(angle_x)
+    sin_x = math.sin(angle_x)
+    cos_y = math.cos(angle_y)
+    sin_y = math.sin(angle_y)
+
+    rx = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, cos_x, -sin_x],
+            [0.0, sin_x, cos_x],
+        ],
+        dtype=np.float32,
+    )
+    ry = np.array(
+        [
+            [cos_y, 0.0, sin_y],
+            [0.0, 1.0, 0.0],
+            [-sin_y, 0.0, cos_y],
+        ],
+        dtype=np.float32,
+    )
+
+    matrix = np.matmul(ry, rx)
+    return matrix.astype(np.float32)
 
 
 class GLRenderer:
@@ -144,6 +183,7 @@ class GLRenderer:
                 "uCropCY",
                 "uCropW",
                 "uCropH",
+                "uPerspectiveMatrix",
             ):
                 self._uniform_locations[name] = program.uniformLocation(name)
         finally:
@@ -362,6 +402,11 @@ class GLRenderer:
             self._set_uniform1f("uCropCY", adjustment_value("Crop_CY", 0.5))
             self._set_uniform1f("uCropW", adjustment_value("Crop_W", 1.0))
             self._set_uniform1f("uCropH", adjustment_value("Crop_H", 1.0))
+            perspective_matrix = _build_perspective_matrix(
+                adjustment_value("Perspective_Vertical", 0.0),
+                adjustment_value("Perspective_Horizontal", 0.0),
+            )
+            self._set_uniform_matrix3("uPerspectiveMatrix", perspective_matrix)
 
             gf.glDrawArrays(gl.GL_TRIANGLES, 0, 3)
         finally:
@@ -561,6 +606,17 @@ class GLRenderer:
         location = self._uniform_locations.get(name, -1)
         if location != -1:
             self._gl_funcs.glUniform4f(location, float(x), float(y), float(z), float(w))
+
+    def _set_uniform_matrix3(self, name: str, matrix: np.ndarray) -> None:
+        location = self._uniform_locations.get(name, -1)
+        if location == -1:
+            return
+        self._gl_funcs.glUniformMatrix3fv(
+            location,
+            1,
+            gl.GL_TRUE,
+            np.asarray(matrix, dtype=np.float32),
+        )
 
     def render_offscreen_image(
         self,
