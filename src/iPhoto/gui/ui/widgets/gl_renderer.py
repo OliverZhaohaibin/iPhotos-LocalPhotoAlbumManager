@@ -365,7 +365,7 @@ class GLRenderer:
             self._set_uniform1f("uCropCY", adjustment_value("Crop_CY", 0.5))
             self._set_uniform1f("uCropW", adjustment_value("Crop_W", 1.0))
             self._set_uniform1f("uCropH", adjustment_value("Crop_H", 1.0))
-            perspective_matrix = _build_perspective_matrix(
+            perspective_matrix = build_perspective_matrix(
                 adjustment_value("Perspective_Vertical", 0.0),
                 adjustment_value("Perspective_Horizontal", 0.0),
             )
@@ -574,6 +574,7 @@ class GLRenderer:
         location = self._uniform_locations.get(name, -1)
         if location == -1:
             return
+        matrix = np.asarray(matrix, dtype=np.float32).ravel()
         self._gl_funcs.glUniformMatrix3fv(
             location,
             1,

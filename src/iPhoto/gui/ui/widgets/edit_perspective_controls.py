@@ -1,7 +1,8 @@
+from __future__ import annotations
 """Perspective correction controls for the crop sidebar page."""
 """Widgets that implement the crop sidebar perspective slider group."""
 
-from __future__ import annotations
+
 
 from typing import Optional
 
