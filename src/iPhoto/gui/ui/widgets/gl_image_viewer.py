@@ -421,20 +421,33 @@ class GLImageViewer(QOpenGLWidget):
         time_value = time.monotonic() - self._time_base
         
         view_pan = self._transform_controller.get_pan_pixels()
-        img_scale = 1.0
-        img_offset = QPointF(0.0, 0.0)
+
+        effective_adjustments: dict[str, float] | Mapping[str, float]
         if self._crop_controller.is_active():
-            img_offset, img_scale = self._crop_controller.get_crop_model_transform()
+            effective_adjustments = dict(self._adjustments)
+            # During crop interactions we want to preview the entire photo with
+            # a translucent overlay.  The fragment shader drives the crop
+            # window entirely from the ``Crop_*`` uniforms, therefore we
+            # override those values on-the-fly instead of mutating
+            # ``self._adjustments`` (which stores the persisted edit state).
+            effective_adjustments.update(
+                {
+                    "Crop_CX": 0.5,
+                    "Crop_CY": 0.5,
+                    "Crop_W": 1.0,
+                    "Crop_H": 1.0,
+                }
+            )
+        else:
+            effective_adjustments = self._adjustments
 
         self._renderer.render(
             view_width=float(vw),
             view_height=float(vh),
             scale=effective_scale,
             pan=view_pan,
-            adjustments=self._adjustments,
+            adjustments=effective_adjustments,
             time_value=time_value,
-            img_scale=img_scale,
-            img_offset=img_offset,
         )
 
         if self._crop_controller.is_active():

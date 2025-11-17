@@ -122,6 +122,33 @@ class CropBoxState:
         self.cy += float(delta.y()) / float(ih)
         self.clamp()
 
+    def zoom_about_point(self, anchor_x: float, anchor_y: float, factor: float) -> None:
+        """Scale the crop rectangle around *anchor* while preserving constraints."""
+
+        safe_factor = max(1e-4, abs(float(factor)))
+        anchor_norm_x = max(0.0, min(1.0, float(anchor_x)))
+        anchor_norm_y = max(0.0, min(1.0, float(anchor_y)))
+
+        current_cx = float(self.cx)
+        current_cy = float(self.cy)
+        current_width = float(self.width)
+        current_height = float(self.height)
+
+        new_width = current_width / safe_factor
+        new_height = current_height / safe_factor
+
+        new_width = max(self.min_width, min(1.0, new_width))
+        new_height = max(self.min_height, min(1.0, new_height))
+
+        new_cx = anchor_norm_x - (anchor_norm_x - current_cx) / safe_factor
+        new_cy = anchor_norm_y - (anchor_norm_y - current_cy) / safe_factor
+
+        self.cx = new_cx
+        self.cy = new_cy
+        self.width = new_width
+        self.height = new_height
+        self.clamp()
+
     def drag_edge_pixels(
         self, handle: CropHandle, delta: QPointF, image_size: tuple[int, int]
     ) -> None:
