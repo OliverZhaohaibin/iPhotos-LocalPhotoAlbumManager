@@ -243,7 +243,7 @@ uv.y = 1.0 - uv.y;
 * **作用**: 透视变换的输入源。
 * **示例**: 一张 1920×1080 的图片，纹理坐标从左上角 `(0, 0)` 到右下角 `(1920, 1080)`。
 
-#### B. 投影空间坐标系 (Projected/Distorted Space) — **<span style="color:red;">核心计算空间</span>**
+#### B. 投影空间坐标系 (Projected/Distorted Space) — **核心计算空间**
 
 * **定义**: 应用了透视变换矩阵（Perspective Matrix）后的二维空间。
 * **形态**: 原始图片的矩形边界在此空间中变为一个任意凸四边形 (Convex Quadrilateral)，记为 `Q_valid`。
