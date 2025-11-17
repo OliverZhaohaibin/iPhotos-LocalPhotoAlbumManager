@@ -16,7 +16,7 @@ from typing import Mapping, Optional
 
 import numpy as np
 from PySide6.QtCore import QObject, QPointF, QSize
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QImage, QVector4D
 from PySide6.QtOpenGL import (
     QOpenGLFramebufferObject,
     QOpenGLFramebufferObjectFormat,
@@ -423,18 +423,18 @@ class GLRenderer:
         def _draw(
             vertices: np.ndarray, mode: int, colour: tuple[float, float, float, float]
         ) -> None:
-            # Use glUniform4f directly to match the demo implementation for
-            # reliable uniform transmission
-            color_loc = gl.glGetUniformLocation(program.programId(), "uColor")
-            if color_loc != -1:
-                gl.glUniform4f(color_loc, colour[0], colour[1], colour[2], colour[3])
-            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, int(self._overlay_vbo))
-            gl.glBufferData(gl.GL_ARRAY_BUFFER, vertices.nbytes, vertices, gl.GL_DYNAMIC_DRAW)
+            # Use Qt's setUniformValue with QVector4D for reliable uniform transmission
+            program.setUniformValue("uColor", QVector4D(*colour))
+            # Use Qt's OpenGL functions consistently
+            gf.glBindBuffer(gl.GL_ARRAY_BUFFER, int(self._overlay_vbo))
+            gf.glBufferData(
+                gl.GL_ARRAY_BUFFER, vertices.nbytes, vertices.tobytes(), gl.GL_DYNAMIC_DRAW
+            )
             gf.glEnableVertexAttribArray(0)
             gf.glVertexAttribPointer(0, 2, gl.GL_FLOAT, False, 0, VoidPtr(0))
             gf.glDrawArrays(mode, 0, int(vertices.size // 2))
             gf.glDisableVertexAttribArray(0)
-            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+            gf.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
 
         gf.glEnable(gl.GL_BLEND)
         gf.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)

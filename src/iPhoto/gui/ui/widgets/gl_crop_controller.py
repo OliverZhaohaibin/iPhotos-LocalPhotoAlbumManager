@@ -741,11 +741,9 @@ class CropInteractionController:
             new_center.y() + final_pan_delta.y()
         )
         
-        # Synchronize crop box position: translate it by the same pan delta
-        # so it maintains visual stability in viewport space
-        self._crop_state.cx += final_pan_delta.x() / tex_w
-        self._crop_state.cy += final_pan_delta.y() / tex_h
-        self._crop_state.clamp()
+        # Note: Do NOT modify self._crop_state here. The crop state uses UV coordinates
+        # (normalized 0.0-1.0) which are texture-relative and automatically follow
+        # texture transforms. Manually modifying cx/cy would cause double movement.
         
         # Clamp the image center to ensure no black bars
         clamped_center = self._clamp_image_center_to_cover_crop(new_center, new_scale)
