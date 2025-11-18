@@ -23,6 +23,8 @@ class _PerspectiveSliderRow(QWidget):
 
     valueChanged = Signal(float)
     valueCommitted = Signal(float)
+    interactionStarted = Signal()
+    interactionFinished = Signal()
 
     def __init__(self, label: str, icon_name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -42,6 +44,8 @@ class _PerspectiveSliderRow(QWidget):
 
         self._slider.valueChanged.connect(self.valueChanged)
         self._slider.valueCommitted.connect(self.valueCommitted)
+        self._slider.interactionStarted.connect(self.interactionStarted)
+        self._slider.interactionFinished.connect(self.interactionFinished)
 
     def set_value(self, value: float, *, emit: bool = False) -> None:
         """Update the slider without re-broadcasting the signal by default."""
@@ -54,6 +58,12 @@ class _PerspectiveSliderRow(QWidget):
 
 class PerspectiveControls(QWidget):
     """Fixed control group that exposes vertical and horizontal sliders."""
+
+    interactionStarted = Signal()
+    """Relayed when either slider begins a user interaction."""
+
+    interactionFinished = Signal()
+    """Emitted once the current slider interaction concludes."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -85,6 +95,10 @@ class PerspectiveControls(QWidget):
 
         self._vertical_row.valueChanged.connect(self._on_vertical_value_changed)
         self._horizontal_row.valueChanged.connect(self._on_horizontal_value_changed)
+        self._vertical_row.interactionStarted.connect(self.interactionStarted)
+        self._horizontal_row.interactionStarted.connect(self.interactionStarted)
+        self._vertical_row.interactionFinished.connect(self.interactionFinished)
+        self._horizontal_row.interactionFinished.connect(self.interactionFinished)
 
     # ------------------------------------------------------------------
     def bind_session(self, session: Optional[EditSession]) -> None:

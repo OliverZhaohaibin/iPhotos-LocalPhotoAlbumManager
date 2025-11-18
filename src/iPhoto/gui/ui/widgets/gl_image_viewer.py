@@ -487,6 +487,16 @@ class GLImageViewer(QOpenGLWidget):
     def crop_values(self) -> dict[str, float]:
         return self._crop_controller.get_crop_values()
 
+    def start_perspective_interaction(self) -> None:
+        """Snapshot the crop before a perspective slider drag begins."""
+
+        self._crop_controller.start_perspective_interaction()
+
+    def end_perspective_interaction(self) -> None:
+        """Clear the cached baseline crop captured for perspective drags."""
+
+        self._crop_controller.end_perspective_interaction()
+
     def _update_crop_perspective_state(self) -> None:
         """Forward the latest perspective sliders to the crop controller."""
 

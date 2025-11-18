@@ -38,6 +38,12 @@ class EditSidebar(QWidget):
     bwParamsCommitted = Signal(BWParams)
     """Emitted when Black & White adjustments should be written to the session."""
 
+    perspectiveInteractionStarted = Signal()
+    """Emitted when the user begins dragging a perspective slider."""
+
+    perspectiveInteractionFinished = Signal()
+    """Emitted once the user releases a perspective slider."""
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._session: Optional[EditSession] = None
@@ -195,6 +201,8 @@ class EditSidebar(QWidget):
         crop_layout.setContentsMargins(24, 24, 24, 24)
         self._perspective_controls = PerspectiveControls(crop_container)
         crop_layout.addWidget(self._perspective_controls)
+        self._perspective_controls.interactionStarted.connect(self.perspectiveInteractionStarted)
+        self._perspective_controls.interactionFinished.connect(self.perspectiveInteractionFinished)
         crop_layout.addStretch(1)
         crop_container.setLayout(crop_layout)
         self._stack.addWidget(crop_container)

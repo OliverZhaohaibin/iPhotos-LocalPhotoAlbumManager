@@ -102,6 +102,12 @@ class EditController(QObject):
         self._preview_manager = EditPreviewManager(self._ui.edit_image_viewer, self)
         self._ui.edit_sidebar.bwParamsPreviewed.connect(self._handle_bw_previewed)
         self._ui.edit_sidebar.bwParamsCommitted.connect(self._handle_bw_committed)
+        self._ui.edit_sidebar.perspectiveInteractionStarted.connect(
+            self._ui.edit_image_viewer.start_perspective_interaction
+        )
+        self._ui.edit_sidebar.perspectiveInteractionFinished.connect(
+            self._ui.edit_image_viewer.end_perspective_interaction
+        )
 
         self._transition_manager = EditViewTransitionManager(self._ui, self._window, self)
         self._transition_manager.transition_finished.connect(self._on_transition_finished)
