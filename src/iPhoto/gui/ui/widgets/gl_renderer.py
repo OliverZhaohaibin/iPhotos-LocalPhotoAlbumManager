@@ -370,7 +370,21 @@ class GLRenderer:
             flip_enabled = bool(adjustments.get("Crop_FlipH", False))
             tex_w = max(1, self._texture_width)
             tex_h = max(1, self._texture_height)
-            aspect_ratio = float(tex_w) / float(tex_h)
+            # ``build_perspective_matrix`` must reason about the image in the same
+            # orientation that the GL view presents to the user.  When the
+            # session rotates the photo by 90° steps the logical width/height
+            # swap even though the underlying texture upload stays untouched.
+            # Feeding the rotated aspect ratio keeps the shader's coordinate
+            # space aligned with the crop controller and prevents the frame from
+            # being squeezed into the old landscape proportions.
+            display_w = float(tex_w)
+            display_h = float(tex_h)
+            if rotate_steps % 2:
+                display_w, display_h = display_h, display_w
+            if display_h <= 0.0:
+                aspect_ratio = 1.0
+            else:
+                aspect_ratio = max(display_w / display_h, 1e-6)
             perspective_matrix = build_perspective_matrix(
                 adjustment_value("Perspective_Vertical", 0.0),
                 adjustment_value("Perspective_Horizontal", 0.0),
