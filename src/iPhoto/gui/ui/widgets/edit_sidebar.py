@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, Slot, Signal
+from PySide6.QtCore import Slot, Signal
 from PySide6.QtGui import QPalette, QColor
 from PySide6.QtWidgets import (
     QFrame,
-    QLabel,
     QScrollArea,
     QStackedWidget,
     QToolButton,
