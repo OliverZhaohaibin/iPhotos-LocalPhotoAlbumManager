@@ -126,14 +126,30 @@ class CropInteractionController:
         return self._crop_faded_out
 
     def start_perspective_interaction(self) -> None:
-        """Snapshot the current crop rectangle for elastic perspective drags."""
+        """Snapshot the crop and reveal the translucent preview for sliders."""
 
+        # Cache the pre-interaction rectangle so perspective drags always reference
+        # the untouched crop, allowing the box to expand back to its original size
+        # when distortion is reduced.
         self._baseline_crop_state = self._snapshot_crop_state()
+
+        # Perspective sliders share the same immersive preview rules as direct crop
+        # drags: halt the pending fade-out, stop any running fit-to-view animation,
+        # and force the overlay to render in its semi-transparent state.
+        self._stop_crop_idle()
+        self._stop_crop_animation()
+        if self._active:
+            self._crop_faded_out = False
+            self._on_request_update()
 
     def end_perspective_interaction(self) -> None:
         """Clear the cached baseline crop once the slider interaction ends."""
 
         self._baseline_crop_state = None
+        # Restart the idle timer so the controller keeps the translucent preview
+        # visible for one second before replaying the fade-to-black animation and
+        # the automatic fit-to-view transition.
+        self._restart_crop_idle()
 
     def update_perspective(self, vertical: float, horizontal: float) -> None:
         """Refresh the cached perspective quad and enforce crop constraints."""
