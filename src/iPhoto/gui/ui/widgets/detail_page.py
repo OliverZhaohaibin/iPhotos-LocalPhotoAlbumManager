@@ -316,6 +316,16 @@ class DetailPageWidget(QWidget):
         self.edit_sidebar.hide()
 
         self.edit_header_container.hide()
+        
+        # Connect perspective interaction signals to crop controller
+        perspective_controls = self.edit_sidebar.perspective_controls()
+        crop_controller = self.image_viewer.crop_controller()
+        perspective_controls.interactionStarted.connect(
+            lambda: crop_controller.set_perspective_interaction(True)
+        )
+        perspective_controls.interactionEnded.connect(
+            lambda: crop_controller.set_perspective_interaction(False)
+        )
 
         parent_layout.addWidget(edit_container, 1)
 

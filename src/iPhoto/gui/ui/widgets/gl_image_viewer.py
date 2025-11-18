@@ -487,6 +487,10 @@ class GLImageViewer(QOpenGLWidget):
     def crop_values(self) -> dict[str, float]:
         return self._crop_controller.get_crop_values()
 
+    def crop_controller(self):
+        """Return the crop interaction controller for signal binding."""
+        return self._crop_controller
+
     def _update_crop_perspective_state(self) -> None:
         """Forward the latest perspective sliders to the crop controller."""
 

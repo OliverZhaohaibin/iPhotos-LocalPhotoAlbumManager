@@ -104,6 +104,11 @@ class CropInteractionController:
         self._perspective_vertical: float = 0.0
         self._perspective_horizontal: float = 0.0
         self._perspective_quad: list[tuple[float, float]] = unit_quad()
+        
+        # Perspective interaction state
+        self._perspective_interaction_active: bool = False
+        self._interaction_base_size: tuple[float, float] = (1.0, 1.0)
+        self._interaction_aspect_ratio: float = 1.0
 
     # ------------------------------------------------------------------
     # Public API
@@ -124,6 +129,22 @@ class CropInteractionController:
         """Return True if the crop overlay is currently faded out."""
         return self._crop_faded_out
 
+    def set_perspective_interaction(self, active: bool) -> None:
+        """Set whether perspective adjustment interaction is active.
+        
+        When active is True, captures the current crop state as a baseline.
+        This baseline is used to restore maximum size when possible during
+        perspective adjustments.
+        """
+        if active:
+            # Snapshot the current crop state
+            self._perspective_interaction_active = True
+            self._interaction_base_size = (self._crop_state.width, self._crop_state.height)
+            aspect = self._crop_state.width / max(self._crop_state.height, 1e-6)
+            self._interaction_aspect_ratio = aspect
+        else:
+            self._perspective_interaction_active = False
+
     def update_perspective(self, vertical: float, horizontal: float) -> None:
         """Refresh the cached perspective quad and enforce crop constraints."""
 
@@ -140,9 +161,16 @@ class CropInteractionController:
         matrix = build_perspective_matrix(new_vertical, new_horizontal)
         self._perspective_quad = compute_projected_quad(matrix)
 
-        changed = self._ensure_crop_center_inside_quad()
-        if not self._is_crop_inside_perspective_quad():
-            changed = self._auto_scale_crop_to_quad() or changed
+        changed = False
+        
+        if self._perspective_interaction_active:
+            # Interactive mode: try to restore base size at quad centroid
+            changed = self._adjust_crop_interactive()
+        else:
+            # Non-interactive mode: shrink if needed, don't expand
+            changed = self._ensure_crop_center_inside_quad()
+            if not self._is_crop_inside_perspective_quad():
+                changed = self._auto_scale_crop_to_quad() or changed
 
         if changed:
             self._crop_state.clamp()
@@ -669,6 +697,64 @@ class CropInteractionController:
         self._crop_state.height = max(self._crop_state.min_height, self._crop_state.height / scale)
         self._crop_state.clamp()
         return True
+
+    def _adjust_crop_interactive(self) -> bool:
+        """Adjust crop box during interactive perspective changes.
+        
+        This method implements the "smart" behavior during perspective slider
+        dragging: it tries to restore the crop box to its base size (captured
+        when dragging started) while keeping it centered at the quad centroid
+        for optimal fill. If the base size doesn't fit, it scales down
+        proportionally.
+        
+        Returns True if the crop state was modified.
+        """
+        quad = self._perspective_quad or unit_quad()
+        
+        # Calculate the centroid of the current perspective quad
+        centroid = quad_centroid(quad)
+        
+        # Build a candidate rectangle at the centroid with base size and aspect ratio
+        base_width, base_height = self._interaction_base_size
+        
+        # Create a normalized rect centered at the quad centroid
+        candidate_rect = NormalisedRect(
+            left=centroid[0] - base_width * 0.5,
+            top=centroid[1] - base_height * 0.5,
+            right=centroid[0] + base_width * 0.5,
+            bottom=centroid[1] + base_height * 0.5,
+        )
+        
+        # Check if this candidate fits inside the quad
+        scale = calculate_min_zoom_to_fit(candidate_rect, quad)
+        
+        if not math.isfinite(scale):
+            scale = 1.0
+        
+        # Apply the scale factor to get the final size
+        final_width = base_width / scale
+        final_height = base_height / scale
+        
+        # Ensure we respect minimum dimensions
+        final_width = max(self._crop_state.min_width, final_width)
+        final_height = max(self._crop_state.min_height, final_height)
+        
+        # Check if anything changed
+        changed = (
+            abs(self._crop_state.cx - centroid[0]) > 1e-6
+            or abs(self._crop_state.cy - centroid[1]) > 1e-6
+            or abs(self._crop_state.width - final_width) > 1e-6
+            or abs(self._crop_state.height - final_height) > 1e-6
+        )
+        
+        # Update the crop state
+        self._crop_state.cx = centroid[0]
+        self._crop_state.cy = centroid[1]
+        self._crop_state.width = final_width
+        self._crop_state.height = final_height
+        self._crop_state.clamp()
+        
+        return changed
 
     def _ensure_crop_valid_or_revert(
         self,

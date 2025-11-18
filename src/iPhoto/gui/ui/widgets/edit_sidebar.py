@@ -297,6 +297,10 @@ class EditSidebar(QWidget):
         index = 0 if mode == "adjust" else 1
         self._stack.setCurrentIndex(index)
 
+    def perspective_controls(self) -> PerspectiveControls:
+        """Return the perspective controls widget for signal binding."""
+        return self._perspective_controls
+
     def refresh(self) -> None:
         """Force the currently visible sections to sync with the session."""
 
