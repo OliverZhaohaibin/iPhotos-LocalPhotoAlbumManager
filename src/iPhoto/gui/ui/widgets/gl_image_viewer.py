@@ -487,6 +487,16 @@ class GLImageViewer(QOpenGLWidget):
     def crop_values(self) -> dict[str, float]:
         return self._crop_controller.get_crop_values()
 
+    def on_perspective_drag_started(self) -> None:
+        """Called when user begins dragging a perspective slider."""
+        if hasattr(self, "_crop_controller") and self._crop_controller is not None:
+            self._crop_controller.start_perspective_drag()
+
+    def on_perspective_drag_ended(self) -> None:
+        """Called when user releases a perspective slider."""
+        if hasattr(self, "_crop_controller") and self._crop_controller is not None:
+            self._crop_controller.end_perspective_drag()
+
     def _update_crop_perspective_state(self) -> None:
         """Forward the latest perspective sliders to the crop controller."""
 

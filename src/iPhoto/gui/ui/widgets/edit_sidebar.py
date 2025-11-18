@@ -290,6 +290,10 @@ class EditSidebar(QWidget):
     def session(self) -> Optional[EditSession]:
         return self._session
 
+    def perspective_controls(self) -> PerspectiveControls:
+        """Return the perspective controls widget for signal connection."""
+        return self._perspective_controls
+
     # ------------------------------------------------------------------
     def set_mode(self, mode: str) -> None:
         """Switch the visible page to *mode* (``"adjust"`` or ``"crop"``)."""

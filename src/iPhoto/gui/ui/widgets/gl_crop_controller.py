@@ -104,6 +104,10 @@ class CropInteractionController:
         self._perspective_vertical: float = 0.0
         self._perspective_horizontal: float = 0.0
         self._perspective_quad: list[tuple[float, float]] = unit_quad()
+        
+        # Perspective drag session tracking
+        self._perspective_dragging: bool = False
+        self._locked_crop_aspect: float | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -124,6 +128,22 @@ class CropInteractionController:
         """Return True if the crop overlay is currently faded out."""
         return self._crop_faded_out
 
+    def start_perspective_drag(self) -> None:
+        """Called when user begins dragging a perspective slider."""
+        if not self._active:
+            return
+        self._perspective_dragging = True
+        # Lock the current crop box aspect ratio
+        if self._crop_state.width > 1e-6 and self._crop_state.height > 1e-6:
+            self._locked_crop_aspect = self._crop_state.width / self._crop_state.height
+        else:
+            self._locked_crop_aspect = None
+
+    def end_perspective_drag(self) -> None:
+        """Called when user releases a perspective slider."""
+        self._perspective_dragging = False
+        self._locked_crop_aspect = None
+
     def update_perspective(self, vertical: float, horizontal: float) -> None:
         """Refresh the cached perspective quad and enforce crop constraints."""
 
@@ -140,9 +160,21 @@ class CropInteractionController:
         matrix = build_perspective_matrix(new_vertical, new_horizontal)
         self._perspective_quad = compute_projected_quad(matrix)
 
+        # If dragging with locked aspect ratio, restore it after adjustments
+        locked_aspect = self._locked_crop_aspect if self._perspective_dragging else None
+        
         changed = self._ensure_crop_center_inside_quad()
         if not self._is_crop_inside_perspective_quad():
             changed = self._auto_scale_crop_to_quad() or changed
+        
+        # Restore locked aspect ratio if we're in a drag session
+        if locked_aspect is not None and self._crop_state.height > 1e-6:
+            self._crop_state.width = self._crop_state.height * locked_aspect
+            self._crop_state.clamp()
+        
+        # Apply automatic view scaling to fill crop box without black edges
+        if self._perspective_dragging and self._active:
+            self._auto_scale_view_to_fill_crop()
 
         if changed:
             self._crop_state.clamp()
@@ -684,6 +716,85 @@ class CropInteractionController:
             return True
         self._restore_crop_snapshot(snapshot)
         return False
+
+    def _auto_scale_view_to_fill_crop(self) -> None:
+        """Automatically adjust view scale to fill the crop box without black edges.
+        
+        This method calculates the optimal zoom scale such that:
+        1. The crop box is completely filled with image content
+        2. No black edges appear within the crop box
+        3. The scale change is minimal (closest to current scale)
+        
+        This implements the bidirectional auto-scaling requirement: the view can
+        both zoom in (when content is too large) or zoom out (when content is too small)
+        to maintain the optimal fill.
+        """
+        tex_w, tex_h = self._texture_size_provider()
+        if tex_w <= 0 or tex_h <= 0:
+            return
+        
+        vw, vh = self._transform_controller._get_view_dimensions_device_px()
+        if vw <= 0.0 or vh <= 0.0:
+            return
+        
+        # Get the current crop box in normalized coordinates
+        crop_rect = self._current_normalised_rect()
+        quad = self._perspective_quad or unit_quad()
+        
+        # Calculate the minimum scale needed to ensure the crop box fits inside
+        # the perspective-transformed quad without black edges
+        min_scale_factor = calculate_min_zoom_to_fit(crop_rect, quad)
+        
+        if not math.isfinite(min_scale_factor) or min_scale_factor <= 1e-6:
+            return
+        
+        # Convert crop box to pixel dimensions
+        crop_width_px = self._crop_state.width * tex_w
+        crop_height_px = self._crop_state.height * tex_h
+        
+        if crop_width_px <= 1e-6 or crop_height_px <= 1e-6:
+            return
+        
+        # The min_scale_factor tells us how much we need to scale the crop box
+        # to fit inside the quad. We need to invert this logic to calculate
+        # how much to scale the VIEW to compensate.
+        # 
+        # If min_scale_factor > 1.0, the crop box needs to shrink to fit,
+        # which means we need to zoom OUT the view.
+        # If min_scale_factor < 1.0, we could zoom IN.
+        
+        # Calculate target scale that would make the (scaled) crop fill the viewport optimally
+        # while respecting the perspective transformation
+        current_scale = self._transform_controller.get_effective_scale()
+        base_scale = compute_fit_to_view_scale((tex_w, tex_h), vw, vh)
+        
+        # Target scale adjustment: if crop needs to shrink by factor X to fit quad,
+        # then we should zoom out by approximately factor X
+        target_scale = current_scale / min_scale_factor
+        
+        # Apply zoom limits
+        min_zoom = self._transform_controller.minimum_zoom()
+        max_zoom = self._transform_controller.maximum_zoom()
+        min_scale_limit = base_scale * min_zoom
+        max_scale_limit = base_scale * max_zoom
+        target_scale = max(min_scale_limit, min(max_scale_limit, target_scale))
+        
+        # Smoothly transition to target scale
+        # Use a damping factor to make the transition smooth during continuous dragging
+        damping = 0.3
+        new_scale = current_scale + (target_scale - current_scale) * damping
+        
+        # Convert to zoom factor
+        if base_scale > 1e-6:
+            target_zoom = new_scale / base_scale
+            target_zoom = max(min_zoom, min(max_zoom, target_zoom))
+            
+            # Apply the zoom centered on the crop box center
+            crop_center = self._crop_state.center_pixels(tex_w, tex_h)
+            crop_center_view = self._transform_controller.convert_image_to_viewport(
+                crop_center.x(), crop_center.y()
+            )
+            self._transform_controller.set_zoom(target_zoom, anchor=crop_center_view)
 
     # ------------------------------------------------------------------
     # Edge-push auto zoom helpers

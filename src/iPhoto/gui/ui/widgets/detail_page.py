@@ -126,6 +126,11 @@ class DetailPageWidget(QWidget):
         self._build_player_area()
         self._build_edit_container(main_window, layout)
         layout.addWidget(self.filmstrip_view)
+        
+        # Connect perspective drag signals to image viewer
+        perspective_ctrl = self.edit_sidebar.perspective_controls()
+        perspective_ctrl.perspectiveDragStarted.connect(self.image_viewer.on_perspective_drag_started)
+        perspective_ctrl.perspectiveDragEnded.connect(self.image_viewer.on_perspective_drag_ended)
 
     def _build_header(self, main_window: QWidget, parent_layout: QVBoxLayout) -> None:
         """Create the header row containing navigation and metadata controls."""

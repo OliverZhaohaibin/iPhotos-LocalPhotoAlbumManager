@@ -18,6 +18,12 @@ class BWSlider(QWidget):
     valueCommitted = Signal(float)
     """Emitted after the user finishes an interaction and settles on a value."""
 
+    dragStarted = Signal()
+    """Emitted when the user begins dragging the slider."""
+
+    dragEnded = Signal()
+    """Emitted when the user releases the slider after dragging."""
+
     def __init__(
         self,
         name: str = "Intensity",
@@ -101,6 +107,7 @@ class BWSlider(QWidget):
     def mousePressEvent(self, event):  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = True
+            self.dragStarted.emit()
             self._set_by_pos(event.position().x())
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
@@ -112,6 +119,7 @@ class BWSlider(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self._dragging:
             self._dragging = False
             self.unsetCursor()
+            self.dragEnded.emit()
             self.valueCommitted.emit(self._value)
 
     def wheelEvent(self, event):  # type: ignore[override]

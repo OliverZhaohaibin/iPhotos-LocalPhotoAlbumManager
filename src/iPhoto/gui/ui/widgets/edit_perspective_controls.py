@@ -23,6 +23,8 @@ class _PerspectiveSliderRow(QWidget):
 
     valueChanged = Signal(float)
     valueCommitted = Signal(float)
+    dragStarted = Signal()
+    dragEnded = Signal()
 
     def __init__(self, label: str, icon_name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -42,6 +44,8 @@ class _PerspectiveSliderRow(QWidget):
 
         self._slider.valueChanged.connect(self.valueChanged)
         self._slider.valueCommitted.connect(self.valueCommitted)
+        self._slider.dragStarted.connect(self.dragStarted)
+        self._slider.dragEnded.connect(self.dragEnded)
 
     def set_value(self, value: float, *, emit: bool = False) -> None:
         """Update the slider without re-broadcasting the signal by default."""
@@ -54,6 +58,12 @@ class _PerspectiveSliderRow(QWidget):
 
 class PerspectiveControls(QWidget):
     """Fixed control group that exposes vertical and horizontal sliders."""
+
+    perspectiveDragStarted = Signal()
+    """Emitted when user begins dragging any perspective slider."""
+
+    perspectiveDragEnded = Signal()
+    """Emitted when user releases any perspective slider."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -85,6 +95,10 @@ class PerspectiveControls(QWidget):
 
         self._vertical_row.valueChanged.connect(self._on_vertical_value_changed)
         self._horizontal_row.valueChanged.connect(self._on_horizontal_value_changed)
+        self._vertical_row.dragStarted.connect(self.perspectiveDragStarted)
+        self._vertical_row.dragEnded.connect(self.perspectiveDragEnded)
+        self._horizontal_row.dragStarted.connect(self.perspectiveDragStarted)
+        self._horizontal_row.dragEnded.connect(self.perspectiveDragEnded)
 
     # ------------------------------------------------------------------
     def bind_session(self, session: Optional[EditSession]) -> None:
