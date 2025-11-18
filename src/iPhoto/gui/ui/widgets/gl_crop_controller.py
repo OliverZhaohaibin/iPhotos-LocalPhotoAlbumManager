@@ -179,6 +179,11 @@ class CropInteractionController:
         ):
             return
 
+        tex_w, tex_h = self._texture_size_provider()
+        aspect_ratio = 1.0
+        if tex_w > 0 and tex_h > 0:
+            aspect_ratio = float(tex_w) / float(tex_h)
+
         self._perspective_vertical = new_vertical
         self._perspective_horizontal = new_horizontal
         self._straighten_degrees = new_straighten
@@ -187,6 +192,7 @@ class CropInteractionController:
         matrix = build_perspective_matrix(
             new_vertical,
             new_horizontal,
+            image_aspect_ratio=aspect_ratio,
             straighten_degrees=new_straighten,
             rotate_steps=new_rotate,
             flip_horizontal=new_flip,

@@ -38,11 +38,18 @@ def build_perspective_matrix(
     vertical: float,
     horizontal: float,
     *,
+    image_aspect_ratio: float,
     straighten_degrees: float = 0.0,
     rotate_steps: int = 0,
     flip_horizontal: bool = False,
 ) -> np.ndarray:
-    """Return the 3×3 matrix that maps projected UVs back to texture UVs."""
+    """Return the 3×3 matrix that maps projected UVs back to texture UVs.
+
+    The caller supplies ``image_aspect_ratio`` so the straightening rotation can
+    be evaluated in a coordinate space that preserves the original image
+    proportions.  Without this correction non-square images would be rotated in
+    a squashed reference frame which visually manifests as a shear.
+    """
 
     clamped_v = max(-1.0, min(1.0, float(vertical)))
     clamped_h = max(-1.0, min(1.0, float(horizontal)))
@@ -78,6 +85,10 @@ def build_perspective_matrix(
     else:
         matrix = np.identity(3, dtype=np.float32)
 
+    safe_aspect = float(image_aspect_ratio)
+    if not math.isfinite(safe_aspect) or safe_aspect <= 1e-6:
+        safe_aspect = 1.0
+
     total_degrees = float(straighten_degrees) + float(int(rotate_steps)) * -90.0
     if abs(total_degrees) > 1e-5:
         theta = math.radians(total_degrees)
@@ -91,6 +102,29 @@ def build_perspective_matrix(
             ],
             dtype=np.float32,
         )
+        if abs(safe_aspect - 1.0) > 1e-6:
+            # Apply the rotation in "physical" pixel space by stretching the
+            # normalised coordinates to match the image ratio, rotating, then
+            # compressing back to the shader's unit square.  This avoids the
+            # shear artefacts that appear when a non-square texture is rotated
+            # in normalised space directly.
+            stretch = np.array(
+                [
+                    [safe_aspect, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ],
+                dtype=np.float32,
+            )
+            shrink = np.array(
+                [
+                    [1.0 / safe_aspect, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ],
+                dtype=np.float32,
+            )
+            rz = shrink @ rz @ stretch
         matrix = np.matmul(rz, matrix)
 
     if flip_horizontal:

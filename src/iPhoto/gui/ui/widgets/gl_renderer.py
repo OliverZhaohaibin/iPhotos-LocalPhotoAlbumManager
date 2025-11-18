@@ -368,9 +368,13 @@ class GLRenderer:
             straighten_value = adjustment_value("Crop_Straighten", 0.0)
             rotate_steps = int(float(adjustments.get("Crop_Rotate90", 0.0)))
             flip_enabled = bool(adjustments.get("Crop_FlipH", False))
+            tex_w = max(1, self._texture_width)
+            tex_h = max(1, self._texture_height)
+            aspect_ratio = float(tex_w) / float(tex_h)
             perspective_matrix = build_perspective_matrix(
                 adjustment_value("Perspective_Vertical", 0.0),
                 adjustment_value("Perspective_Horizontal", 0.0),
+                image_aspect_ratio=aspect_ratio,
                 straighten_degrees=straighten_value,
                 rotate_steps=rotate_steps,
                 flip_horizontal=flip_enabled,
