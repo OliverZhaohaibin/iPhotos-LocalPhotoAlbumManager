@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from typing import Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -35,7 +35,7 @@ class NormalisedRect:
 
 
 def build_perspective_matrix(vertical: float, horizontal: float) -> np.ndarray:
-    """Return the 3×3 matrix that maps projected UVs back to texture UVs."""
+    """Return the 3x3 matrix that maps projected UVs back to texture UVs."""
 
     clamped_v = max(-1.0, min(1.0, float(vertical)))
     clamped_h = max(-1.0, min(1.0, float(horizontal)))
@@ -110,11 +110,15 @@ def _cross(ax: float, ay: float, bx: float, by: float) -> float:
     return ax * by - ay * bx
 
 
-def _point_orientation(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
+def _point_orientation(
+    a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]
+) -> float:
     return _cross(b[0] - a[0], b[1] - a[1], c[0] - a[0], c[1] - a[1])
 
 
-def point_in_convex_polygon(point: tuple[float, float], polygon: Sequence[tuple[float, float]]) -> bool:
+def point_in_convex_polygon(
+    point: tuple[float, float], polygon: Sequence[tuple[float, float]]
+) -> bool:
     """Return ``True`` if *point* lies inside the convex *polygon*."""
 
     if len(polygon) < 3:
@@ -221,3 +225,197 @@ def unit_quad() -> list[tuple[float, float]]:
     """Return the default quad covering the full normalised texture."""
 
     return [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+
+
+def inverse_project_point(
+    screen_point: tuple[float, float], matrix: np.ndarray
+) -> tuple[float, float]:
+    """Map a screen-space point back to texture UV coordinates.
+    
+    This performs the inverse transformation: given a point in the projected
+    (screen) coordinate space, returns its corresponding UV texture coordinate.
+    
+    Parameters
+    ----------
+    screen_point:
+        Point in normalized screen space [0, 1] x [0, 1].
+    matrix:
+        The perspective transformation matrix (maps texture to screen).
+        
+    Returns
+    -------
+    tuple[float, float]
+        UV coordinates in texture space [0, 1] x [0, 1].
+    """
+    x, y = screen_point
+    # Convert from [0, 1] to [-1, 1] (NDC space)
+    centered = np.array([(x * 2.0) - 1.0, (y * 2.0) - 1.0, 1.0], dtype=np.float32)
+    
+    # Apply the forward matrix (which is actually the inverse of the projection)
+    # Note: build_perspective_matrix returns the matrix that maps projected->texture,
+    # so we can use it directly here
+    warped = matrix @ centered
+    
+    # Perspective divide
+    denom = float(warped[2])
+    if abs(denom) < 1e-6:
+        denom = 1e-6 if denom >= 0.0 else -1e-6
+    
+    nx = float(warped[0]) / denom
+    ny = float(warped[1]) / denom
+    
+    # Convert back from [-1, 1] to [0, 1]
+    return ((nx + 1.0) * 0.5, (ny + 1.0) * 0.5)
+
+
+def calculate_texture_safety_padding(
+    texture_width: int, texture_height: int, padding_pixels: int = 3
+) -> tuple[float, float]:
+    """Calculate safety padding in normalized UV space based on texture resolution.
+    
+    This ensures that the crop box stays a safe distance from the texture edges
+    to prevent bilinear filtering from sampling outside the valid texture region,
+    which would cause black borders.
+    
+    Parameters
+    ----------
+    texture_width:
+        Width of the texture in pixels.
+    texture_height:
+        Height of the texture in pixels.
+    padding_pixels:
+        Number of pixels to pad (default: 3 pixels).
+        
+    Returns
+    -------
+    tuple[float, float]
+        (epsilon_u, epsilon_v) - normalized padding for U and V coordinates.
+    """
+    if texture_width <= 0 or texture_height <= 0:
+        return (0.0, 0.0)
+    
+    epsilon_u = float(padding_pixels) / float(texture_width)
+    epsilon_v = float(padding_pixels) / float(texture_height)
+    
+    return (epsilon_u, epsilon_v)
+
+
+def validate_crop_corners_in_uv_space(
+    rect: NormalisedRect,
+    matrix: np.ndarray,
+    texture_size: tuple[int, int],
+    padding_pixels: int = 3,
+) -> tuple[bool, list[tuple[float, float]]]:
+    """Validate that crop box corners stay within safe UV bounds.
+    
+    This is the "truth test" - it checks whether the crop corners, when
+    inverse-projected to texture UV space, fall within the valid region
+    with appropriate safety padding to prevent texture filtering artifacts.
+    
+    Parameters
+    ----------
+    rect:
+        The crop rectangle in normalized screen space.
+    matrix:
+        The perspective transformation matrix.
+    texture_size:
+        (width, height) of the texture in pixels.
+    padding_pixels:
+        Number of pixels to pad (default: 3 pixels).
+        
+    Returns
+    -------
+    tuple[bool, list[tuple[float, float]]]
+        (is_valid, uv_corners) - Whether all corners are within bounds,
+        and the UV coordinates of all four corners.
+    """
+    tex_w, tex_h = texture_size
+    if tex_w <= 0 or tex_h <= 0:
+        return (True, [])
+    
+    # Calculate safety padding in UV space
+    epsilon_u, epsilon_v = calculate_texture_safety_padding(tex_w, tex_h, padding_pixels)
+    
+    # Get crop box corners in screen space
+    corners = [
+        (rect.left, rect.top),
+        (rect.right, rect.top),
+        (rect.right, rect.bottom),
+        (rect.left, rect.bottom),
+    ]
+    
+    # Project each corner to UV space and check bounds
+    uv_corners = []
+    all_valid = True
+    
+    for corner in corners:
+        u, v = inverse_project_point(corner, matrix)
+        uv_corners.append((u, v))
+        
+        # Check if UV coordinates are within safe bounds [epsilon, 1-epsilon]
+        if u < epsilon_u or u > (1.0 - epsilon_u):
+            all_valid = False
+        if v < epsilon_v or v > (1.0 - epsilon_v):
+            all_valid = False
+    
+    return (all_valid, uv_corners)
+
+
+def constrain_rect_to_uv_bounds(
+    rect: NormalisedRect,
+    matrix: np.ndarray,
+    texture_size: tuple[int, int],
+    padding_pixels: int = 3,
+    max_iterations: int = 10,
+) -> NormalisedRect:
+    """Iteratively constrain a crop rectangle to stay within UV texture bounds.
+    
+    This implements the core iterative solver: it repeatedly checks if the crop
+    corners are within safe UV bounds, and if not, shrinks the rectangle uniformly
+    until all corners are valid.
+    
+    Parameters
+    ----------
+    rect:
+        The initial crop rectangle in normalized screen space.
+    matrix:
+        The perspective transformation matrix.
+    texture_size:
+        (width, height) of the texture in pixels.
+    padding_pixels:
+        Number of pixels to pad (default: 3 pixels).
+    max_iterations:
+        Maximum number of shrinking iterations (default: 10).
+        
+    Returns
+    -------
+    NormalisedRect
+        A constrained rectangle that guarantees all corners are within safe UV bounds.
+    """
+    current_rect = rect
+    
+    for _ in range(max_iterations):
+        is_valid, _ = validate_crop_corners_in_uv_space(
+            current_rect, matrix, texture_size, padding_pixels
+        )
+        
+        if is_valid:
+            return current_rect
+        
+        # Shrink uniformly by 2% per iteration
+        # This is more conservative than trying to find the exact boundary
+        shrink_factor = 0.98
+        
+        cx, cy = current_rect.center
+        new_width = current_rect.width * shrink_factor
+        new_height = current_rect.height * shrink_factor
+        
+        current_rect = NormalisedRect(
+            left=cx - new_width * 0.5,
+            top=cy - new_height * 0.5,
+            right=cx + new_width * 0.5,
+            bottom=cy + new_height * 0.5,
+        )
+    
+    # If we couldn't converge, return the last attempt
+    return current_rect

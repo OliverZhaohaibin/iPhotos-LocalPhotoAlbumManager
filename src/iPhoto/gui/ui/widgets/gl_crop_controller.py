@@ -12,7 +12,8 @@ import math
 import time
 from collections.abc import Callable, Mapping
 
-from PySide6.QtCore import QPointF, Qt, QTimer, QObject
+import numpy as np
+from PySide6.QtCore import QObject, QPointF, Qt, QTimer
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 
 from .gl_crop_utils import (
@@ -22,17 +23,17 @@ from .gl_crop_utils import (
     ease_in_quad,
     ease_out_cubic,
 )
-from .view_transform_controller import compute_fit_to_view_scale
 from .perspective_math import (
     NormalisedRect,
     build_perspective_matrix,
-    calculate_min_zoom_to_fit,
     compute_projected_quad,
+    constrain_rect_to_uv_bounds,
     point_in_convex_polygon,
     quad_centroid,
     rect_inside_quad,
     unit_quad,
 )
+from .view_transform_controller import compute_fit_to_view_scale
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ class CropInteractionController:
         self._perspective_vertical: float = 0.0
         self._perspective_horizontal: float = 0.0
         self._perspective_quad: list[tuple[float, float]] = unit_quad()
+        self._perspective_matrix: np.ndarray = np.identity(3, dtype=np.float32)
         
         # Perspective interaction state
         self._perspective_interaction_active: bool = False
@@ -159,6 +161,7 @@ class CropInteractionController:
         self._perspective_vertical = new_vertical
         self._perspective_horizontal = new_horizontal
         matrix = build_perspective_matrix(new_vertical, new_horizontal)
+        self._perspective_matrix = matrix
         self._perspective_quad = compute_projected_quad(matrix)
 
         changed = False
@@ -183,8 +186,12 @@ class CropInteractionController:
         if tex_w <= 0 or tex_h <= 0:
             return None
         rect = self._crop_state.to_pixel_rect(tex_w, tex_h)
-        top_left = self._transform_controller.convert_image_to_viewport(rect["left"], rect["top"])
-        bottom_right = self._transform_controller.convert_image_to_viewport(rect["right"], rect["bottom"])
+        top_left = self._transform_controller.convert_image_to_viewport(
+            rect["left"], rect["top"]
+        )
+        bottom_right = self._transform_controller.convert_image_to_viewport(
+            rect["right"], rect["bottom"]
+        )
         dpr = self._transform_controller._get_dpr()
         return {
             "left": top_left.x() * dpr,
@@ -492,10 +499,18 @@ class CropInteractionController:
             return CropHandle.NONE
 
         rect = self._crop_state.to_pixel_rect(tex_w, tex_h)
-        top_left = self._transform_controller.convert_image_to_viewport(rect["left"], rect["top"])
-        top_right = self._transform_controller.convert_image_to_viewport(rect["right"], rect["top"])
-        bottom_right = self._transform_controller.convert_image_to_viewport(rect["right"], rect["bottom"])
-        bottom_left = self._transform_controller.convert_image_to_viewport(rect["left"], rect["bottom"])
+        top_left = self._transform_controller.convert_image_to_viewport(
+            rect["left"], rect["top"]
+        )
+        top_right = self._transform_controller.convert_image_to_viewport(
+            rect["right"], rect["top"]
+        )
+        bottom_right = self._transform_controller.convert_image_to_viewport(
+            rect["right"], rect["bottom"]
+        )
+        bottom_left = self._transform_controller.convert_image_to_viewport(
+            rect["left"], rect["bottom"]
+        )
 
         # Check corners first
         corners = [
@@ -656,12 +671,17 @@ class CropInteractionController:
         """Return ``True`` when the current crop differs from *snapshot*."""
 
         current = self._snapshot_crop_state()
-        return any(abs(a - b) > 1e-6 for a, b in zip(snapshot, current))
+        return any(abs(a - b) > 1e-6 for a, b in zip(snapshot, current, strict=False))
 
     def _restore_crop_snapshot(self, snapshot: tuple[float, float, float, float]) -> None:
         """Restore the crop rectangle from *snapshot*."""
 
-        self._crop_state.cx, self._crop_state.cy, self._crop_state.width, self._crop_state.height = snapshot
+        (
+            self._crop_state.cx,
+            self._crop_state.cy,
+            self._crop_state.width,
+            self._crop_state.height,
+        ) = snapshot
         self._crop_state.clamp()
 
     def _current_normalised_rect(self) -> NormalisedRect:
@@ -686,21 +706,35 @@ class CropInteractionController:
         return True
 
     def _auto_scale_crop_to_quad(self) -> bool:
-        """Shrink the crop uniformly so it sits entirely inside the quad."""
-
-        quad = self._perspective_quad or unit_quad()
-        rect = self._current_normalised_rect()
-        scale = calculate_min_zoom_to_fit(rect, quad)
+        """Shrink the crop uniformly so it sits entirely inside the quad.
         
-        # Add 1% safety margin to prevent floating-point precision errors
-        # from causing the crop box to fall just outside the quad boundary,
-        # which would result in black edges at large perspective angles
-        scale *= 1.01
-        
-        if not math.isfinite(scale) or scale <= 1.0 + 1e-4:
+        This method now uses UV-space validation with texture-resolution-based
+        safety padding instead of a fixed 1.01 multiplier, eliminating black
+        edges at any perspective angle.
+        """
+        tex_w, tex_h = self._texture_size_provider()
+        if tex_w <= 0 or tex_h <= 0:
             return False
-        self._crop_state.width = max(self._crop_state.min_width, self._crop_state.width / scale)
-        self._crop_state.height = max(self._crop_state.min_height, self._crop_state.height / scale)
+
+        rect = self._current_normalised_rect()
+        
+        # Use the iterative UV-space constraint solver
+        # This guarantees that all crop corners will map to valid UV coordinates
+        # with appropriate safety padding based on actual texture resolution
+        constrained_rect = constrain_rect_to_uv_bounds(
+            rect, self._perspective_matrix, (tex_w, tex_h), padding_pixels=3
+        )
+        
+        # Check if the rectangle actually changed
+        width_changed = abs(constrained_rect.width - rect.width) > 1e-6
+        height_changed = abs(constrained_rect.height - rect.height) > 1e-6
+        
+        if not width_changed and not height_changed:
+            return False
+        
+        # Update crop state with the constrained dimensions
+        self._crop_state.width = max(self._crop_state.min_width, constrained_rect.width)
+        self._crop_state.height = max(self._crop_state.min_height, constrained_rect.height)
         self._crop_state.clamp()
         return True
 
@@ -710,11 +744,15 @@ class CropInteractionController:
         This method implements the "smart" behavior during perspective slider
         dragging: it tries to restore the crop box to its base size (captured
         when dragging started) while keeping it centered at the quad centroid
-        for optimal fill. If the base size doesn't fit, it scales down
-        proportionally.
+        for optimal fill. If the base size doesn't fit, it scales down using
+        UV-space validation to guarantee no black edges.
         
         Returns True if the crop state was modified.
         """
+        tex_w, tex_h = self._texture_size_provider()
+        if tex_w <= 0 or tex_h <= 0:
+            return False
+        
         quad = self._perspective_quad or unit_quad()
         
         # Calculate the centroid of the current perspective quad
@@ -731,24 +769,15 @@ class CropInteractionController:
             bottom=centroid[1] + base_height * 0.5,
         )
         
-        # Check if this candidate fits inside the quad
-        scale = calculate_min_zoom_to_fit(candidate_rect, quad)
-        
-        if not math.isfinite(scale):
-            scale = 1.0
-        
-        # Add 1% safety margin to prevent black edges during interaction
-        # This ensures the crop box stays strictly inside the quad even with
-        # floating-point precision errors at large perspective angles
-        scale *= 1.01
-        
-        # Apply the scale factor to get the final size
-        final_width = base_width / scale
-        final_height = base_height / scale
+        # Use UV-space constraint solver to ensure valid crop bounds
+        # This replaces the old scale calculation with texture-resolution-based validation
+        constrained_rect = constrain_rect_to_uv_bounds(
+            candidate_rect, self._perspective_matrix, (tex_w, tex_h), padding_pixels=3
+        )
         
         # Ensure we respect minimum dimensions
-        final_width = max(self._crop_state.min_width, final_width)
-        final_height = max(self._crop_state.min_height, final_height)
+        final_width = max(self._crop_state.min_width, constrained_rect.width)
+        final_height = max(self._crop_state.min_height, constrained_rect.height)
         
         # Check if anything changed
         changed = (
