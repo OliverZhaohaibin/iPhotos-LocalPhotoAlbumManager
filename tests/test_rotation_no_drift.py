@@ -7,8 +7,6 @@ any drift in the crop coordinates.
 These tests validate the rotation logic without requiring GUI components.
 """
 
-import pytest
-
 
 def test_rotate_four_times_no_crop_drift():
     """Rotating 4 times should return crop coordinates to original values.
@@ -32,9 +30,9 @@ def test_rotate_four_times_no_crop_drift():
     initial_w = session_state["Crop_W"]
     initial_h = session_state["Crop_H"]
     
-    # Simulate rotating 4 times (4 × 90° CCW = 360° = back to original orientation)
+    # Simulate rotating 4 times (4 x 90° CCW = 360° = back to original orientation)
     # This mimics what _handle_rotate_left_clicked does: only update Crop_Rotate90
-    for i in range(4):
+    for _ in range(4):
         current = int(float(session_state["Crop_Rotate90"]))
         new_value = (current - 1) % 4
         session_state["Crop_Rotate90"] = float(new_value)
