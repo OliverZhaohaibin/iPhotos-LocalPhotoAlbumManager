@@ -540,7 +540,7 @@ class GLImageViewer(QOpenGLWidget):
         display_w, display_h = self._display_texture_dimensions()
         base_scale = compute_fit_to_view_scale((display_w, display_h), float(view_width), float(view_height))
         cover_scale = compute_rotation_cover_scale(
-            (tex_w, tex_h),
+            (display_w, display_h),
             base_scale,
             straighten_deg,
             rotate_steps,
