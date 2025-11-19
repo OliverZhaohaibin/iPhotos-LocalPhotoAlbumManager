@@ -388,14 +388,16 @@ class GLRenderer:
             straighten_value = adjustment_value("Crop_Straighten", 0.0)
             rotate_steps = int(float(adjustments.get("Crop_Rotate90", 0.0)))
             flip_enabled = bool(adjustments.get("Crop_FlipH", False))
-            # Perspective correction must respect the *physical* texture proportions so the
-            # 90° rotation is applied in the real pixel aspect ratio before the logical size
-            # swap used by the interaction layer. Using the uploaded texture dimensions here
-            # avoids the anisotropic stretch seen when the aspect was derived from the
-            # logical (swapped) size at 90° turns.
-            physical_w = float(max(1.0, self._texture_width))
-            physical_h = float(max(1.0, self._texture_height))
-            aspect_ratio = physical_w / physical_h
+            # The perspective matrix must use the SAME aspect ratio as ``uTexSize``.
+            #
+            # ``uTexSize`` already accounts for 90°/270° rotations by swapping the logical
+            # dimensions so the fragment shader's UV normalisation matches what the UI draws
+            # on screen.  Feeding a different ratio into ``build_perspective_matrix`` causes
+            # the Z-rotation to operate in a mismatched basis (physical pixels vs rotated
+            # logical frame), which manifests as visible stretching when the image is turned
+            # by a quarter turn.  Using the logical ratio keeps the model-space rotation and
+            # UV normalisation aligned, mirroring ``demo/rotate.py``.
+            aspect_ratio = safe_logical_w / safe_logical_h
             perspective_matrix = build_perspective_matrix(
                 adjustment_value("Perspective_Vertical", 0.0),
                 adjustment_value("Perspective_Horizontal", 0.0),
