@@ -99,6 +99,7 @@ class ViewTransformController:
         self._pan_start_pos: QPointF = QPointF()
         self._wheel_action: str = "zoom"
         self._image_cover_scale: float = 1.0
+        self._rotate_steps: int = 0
 
     # ------------------------------------------------------------------
     # Helper methods for getting viewport info
@@ -185,6 +186,11 @@ class ViewTransformController:
         """Switch between wheel zooming and item navigation."""
 
         self._wheel_action = "zoom" if action == "zoom" else "navigate"
+
+    def set_rotation_steps(self, steps: int) -> None:
+        """Set the current rotation steps (0, 1, 2, 3) for coordinate transformation."""
+
+        self._rotate_steps = int(steps) % 4
 
     # ------------------------------------------------------------------
     # Zoom utilities
@@ -363,8 +369,22 @@ class ViewTransformController:
     ) -> QPointF:
         """Convert image pixel coordinates to viewport coordinates."""
         tex_w, tex_h = texture_size
+        # Step 1: Calculate vector relative to texture center (image space)
         tex_vector_x = x - (tex_w / 2.0)
         tex_vector_y = y - (tex_h / 2.0)
+        
+        # Step 2: Apply rotation transformation
+        # When rotate_steps == 1 (90° CCW): (x, y) -> (y, -x)
+        # When rotate_steps == 2 (180°): (x, y) -> (-x, -y)
+        # When rotate_steps == 3 (270° CCW): (x, y) -> (-y, x)
+        if self._rotate_steps == 1:
+            tex_vector_x, tex_vector_y = tex_vector_y, -tex_vector_x
+        elif self._rotate_steps == 2:
+            tex_vector_x, tex_vector_y = -tex_vector_x, -tex_vector_y
+        elif self._rotate_steps == 3:
+            tex_vector_x, tex_vector_y = -tex_vector_y, tex_vector_x
+        
+        # Step 3: Apply scale and pan to get world coordinates
         world_vector = QPointF(
             tex_vector_x * scale + self._pan_px.x(),
             -(tex_vector_y * scale) + self._pan_px.y(),
@@ -384,13 +404,27 @@ class ViewTransformController:
     ) -> QPointF:
         """Convert viewport coordinates to image pixel coordinates."""
         world_vec = self.screen_to_world(point, view_width, view_height, dpr)
+        # Step 1: Convert from world space to texture-relative vector
+        # Note: We need to undo the Y-flip that happens in image_to_viewport
         tex_vector_x = (world_vec.x() - self._pan_px.x()) / scale
-        tex_vector_y = (world_vec.y() - self._pan_px.y()) / scale
+        tex_vector_y = -(world_vec.y() - self._pan_px.y()) / scale
+        
+        # Step 2: Apply inverse rotation transformation
+        # Inverse of rotation is rotating in the opposite direction
+        # For CCW rotation: inverse of 90° CCW is 270° CCW (or 90° CW)
+        # When rotate_steps == 1 (90° CCW): inverse is (x, y) -> (-y, x)
+        # When rotate_steps == 2 (180°): inverse is (x, y) -> (-x, -y)
+        # When rotate_steps == 3 (270° CCW): inverse is (x, y) -> (y, -x)
+        if self._rotate_steps == 1:
+            tex_vector_x, tex_vector_y = -tex_vector_y, tex_vector_x
+        elif self._rotate_steps == 2:
+            tex_vector_x, tex_vector_y = -tex_vector_x, -tex_vector_y
+        elif self._rotate_steps == 3:
+            tex_vector_x, tex_vector_y = tex_vector_y, -tex_vector_x
+        
         tex_w, tex_h = texture_size
         tex_x = tex_w / 2.0 + tex_vector_x
-        # Convert the world-space Y (upwards positive) back into image space
-        # where increasing values travel down the texture.
-        tex_y = tex_h / 2.0 - tex_vector_y
+        tex_y = tex_h / 2.0 + tex_vector_y
         return QPointF(tex_x, tex_y)
 
     def frame_texture_rect(self, rect: QRectF) -> bool:

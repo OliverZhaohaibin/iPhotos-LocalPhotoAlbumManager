@@ -428,6 +428,8 @@ class GLImageViewer(QOpenGLWidget):
             self._renderer.upload_texture(self._image)
             straighten, rotate_steps, _ = self._rotation_parameters()
             self._update_cover_scale(straighten, rotate_steps)
+            # Ensure rotation state is synced for coordinate transformations
+            self._transform_controller.set_rotation_steps(rotate_steps)
         if not self._renderer.has_texture():
             return
 
@@ -509,6 +511,10 @@ class GLImageViewer(QOpenGLWidget):
         vertical = float(self._adjustments.get("Perspective_Vertical", 0.0))
         horizontal = float(self._adjustments.get("Perspective_Horizontal", 0.0))
         straighten, rotate_steps, flip = self._rotation_parameters()
+        
+        # Inject rotation state into the transform controller for coordinate mapping
+        self._transform_controller.set_rotation_steps(rotate_steps)
+        
         self._crop_controller.update_perspective(
             vertical,
             horizontal,
