@@ -3,6 +3,10 @@ Unit tests for gl_image_viewer geometry transformations.
 
 Tests the coordinate transformation logic between texture space and logical space,
 particularly for rotation operations.
+
+Note: We import the geometry module directly rather than through the package
+to avoid Qt dependencies that are triggered by the package __init__.py.
+This allows testing pure Python logic without requiring Qt libraries.
 """
 
 import sys
@@ -10,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-# Import geometry module directly without going through package __init__
+# Direct module import to avoid Qt dependencies in test environment
 geometry_path = (
     Path(__file__).parent.parent
     / "src"

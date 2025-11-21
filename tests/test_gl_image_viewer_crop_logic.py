@@ -2,6 +2,10 @@
 Unit tests for gl_image_viewer crop logic.
 
 Tests the crop calculation and validation logic.
+
+Note: We import the crop_logic module directly rather than through the package
+to avoid Qt dependencies that are triggered by the package __init__.py.
+This allows testing with only the minimal PySide6 imports required.
 """
 
 import sys
@@ -9,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-# Import crop_logic module directly without going through package __init__
+# Direct module import to avoid unnecessary Qt dependencies in test environment
 crop_logic_path = (
     Path(__file__).parent.parent
     / "src"

@@ -210,7 +210,7 @@ class GLImageViewer(QOpenGLWidget):
             # exposes.  ``reset_view`` lets callers preserve the zoom when the
             # user toggles between detail and edit modes.
             self.reset_zoom()
-    def set_placeholder(self, pixmap) -> None:
+    def set_placeholder(self, pixmap: QPixmap | None) -> None:
         """Display *pixmap* without changing the tracked image source."""
 
         if pixmap and not pixmap.isNull():
