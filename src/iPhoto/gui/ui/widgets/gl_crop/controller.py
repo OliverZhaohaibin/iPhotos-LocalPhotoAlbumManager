@@ -19,7 +19,7 @@ from .animator import CropAnimator
 from .hit_tester import HitTester
 from .model import CropSessionModel
 from .strategies import InteractionStrategy, PanStrategy, ResizeStrategy
-from .utils import CropHandle, cursor_for_handle, ease_in_quad
+from .utils import CropBoxState, CropHandle, cursor_for_handle, ease_in_quad
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ class CropInteractionController:
         """Return the current crop state as a mapping."""
         return self._model.get_crop_state().as_mapping()
 
-    def get_crop_state(self):
+    def get_crop_state(self) -> CropBoxState:
         """Return the current crop state object."""
         return self._model.get_crop_state()
 
