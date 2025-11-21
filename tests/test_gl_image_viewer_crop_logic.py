@@ -8,7 +8,6 @@ to avoid Qt dependencies that are triggered by the package __init__.py.
 This allows testing with only the minimal PySide6 imports required.
 """
 
-import sys
 
 import pytest
 
