@@ -101,41 +101,47 @@ def test_hit_none_far_from_edge(hit_tester, crop_corners):
     assert result == CropHandle.NONE
 
 
-def test_distance_to_segment_on_segment():
-    """Test distance calculation when point is on the segment."""
-    hit_tester = HitTester()
-    point = QPointF(50, 50)
-    start = QPointF(0, 50)
-    end = QPointF(100, 50)
-    distance = hit_tester._distance_to_segment(point, start, end)
-    assert distance == pytest.approx(0.0)
+def test_edge_hit_on_edge():
+    """Test edge hit detection when point is exactly on the edge."""
+    hit_tester = HitTester(hit_padding=5.0)
+    # Point on the top edge
+    point = QPointF(150, 100)
+    corners = {
+        "top_left": QPointF(100, 100),
+        "top_right": QPointF(200, 100),
+        "bottom_right": QPointF(200, 200),
+        "bottom_left": QPointF(100, 200),
+    }
+    result = hit_tester.test(point, **corners)
+    assert result == CropHandle.TOP
 
 
-def test_distance_to_segment_perpendicular():
-    """Test distance calculation when point is perpendicular to segment."""
-    hit_tester = HitTester()
-    point = QPointF(50, 60)
-    start = QPointF(0, 50)
-    end = QPointF(100, 50)
-    distance = hit_tester._distance_to_segment(point, start, end)
-    assert distance == pytest.approx(10.0)
+def test_edge_hit_near_edge():
+    """Test edge hit detection when point is near but within padding."""
+    hit_tester = HitTester(hit_padding=10.0)
+    # Point 5 pixels below the top edge (within 10 pixel padding)
+    point = QPointF(150, 105)
+    corners = {
+        "top_left": QPointF(100, 100),
+        "top_right": QPointF(200, 100),
+        "bottom_right": QPointF(200, 200),
+        "bottom_left": QPointF(100, 200),
+    }
+    result = hit_tester.test(point, **corners)
+    assert result == CropHandle.TOP
 
 
-def test_distance_to_segment_beyond_start():
-    """Test distance calculation when point is beyond segment start."""
-    hit_tester = HitTester()
-    point = QPointF(-10, 50)
-    start = QPointF(0, 50)
-    end = QPointF(100, 50)
-    distance = hit_tester._distance_to_segment(point, start, end)
-    assert distance == pytest.approx(10.0)
-
-
-def test_distance_to_segment_beyond_end():
-    """Test distance calculation when point is beyond segment end."""
-    hit_tester = HitTester()
-    point = QPointF(110, 50)
-    start = QPointF(0, 50)
-    end = QPointF(100, 50)
-    distance = hit_tester._distance_to_segment(point, start, end)
-    assert distance == pytest.approx(10.0)
+def test_edge_miss_beyond_padding():
+    """Test edge miss when point is beyond padding distance."""
+    hit_tester = HitTester(hit_padding=5.0)
+    # Point 10 pixels below the top edge (beyond 5 pixel padding)
+    point = QPointF(150, 110)
+    corners = {
+        "top_left": QPointF(100, 100),
+        "top_right": QPointF(200, 100),
+        "bottom_right": QPointF(200, 200),
+        "bottom_left": QPointF(100, 200),
+    }
+    result = hit_tester.test(point, **corners)
+    # Should be INSIDE since it's beyond edge padding but inside the box
+    assert result == CropHandle.INSIDE
