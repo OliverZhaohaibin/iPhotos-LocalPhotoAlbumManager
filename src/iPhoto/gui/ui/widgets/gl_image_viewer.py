@@ -102,7 +102,7 @@ class GLImageViewer(QOpenGLWidget):
         self._loading_overlay.hide()
         self._transform_controller = ViewTransformController(
             self,
-            texture_size_provider=self._texture_dimensions,
+            texture_size_provider=self._display_texture_dimensions,
             on_zoom_changed=self.zoomChanged.emit,
             on_next_item=self.nextItemRequested.emit,
             on_prev_item=self.prevItemRequested.emit,
@@ -112,10 +112,10 @@ class GLImageViewer(QOpenGLWidget):
 
         # Crop interaction controller
         self._crop_controller = CropInteractionController(
-            texture_size_provider=self._texture_dimensions,
+            texture_size_provider=self._display_texture_dimensions,
             clamp_image_center_to_crop=self._clamp_image_center_to_crop,
             transform_controller=self._transform_controller,
-            on_crop_changed=self.cropChanged.emit,
+            on_crop_changed=self._handle_crop_interaction_changed,
             on_cursor_change=self._handle_cursor_change,
             on_request_update=self.update,
             timer_parent=self,
@@ -247,6 +247,11 @@ class GLImageViewer(QOpenGLWidget):
         mapped_adjustments = dict(adjustments or {})
         self._adjustments = mapped_adjustments
         self._update_crop_perspective_state()
+        if self._crop_controller.is_active():
+            # Refresh the crop overlay in logical space so it stays aligned when rotation
+            # or perspective adjustments change while the interaction mode is active.
+            logical_values = self._logical_crop_mapping_from_texture(mapped_adjustments)
+            self._crop_controller.set_active(True, logical_values)
         if self._auto_crop_view_locked and not self._crop_controller.is_active():
             self._reapply_locked_crop_view()
         self.update()
@@ -297,6 +302,47 @@ class GLImageViewer(QOpenGLWidget):
         """Toggle the pure black immersive backdrop used in immersive mode."""
 
         self.set_surface_color_override("#000000" if immersive else None)
+
+    def rotate_image_ccw(self) -> dict[str, float]:
+        """Rotate the photo 90° counter-clockwise without mutating crop geometry.
+
+        The crop box remains defined in texture space so the rotation merely updates the
+        quarter-turn counter.  The zoom stack is reset so the fit-to-view baseline adapts
+        to the swapped logical dimensions after the aspect ratio flips.
+        """
+
+        rotated_steps = (self._current_rotate_steps() - 1) % 4
+
+        # Remap perspective sliders into the rotated coordinate frame so that the visual
+        # effect stays consistent with what the user saw pre-rotation.  Perspective
+        # values are expressed as a 2D vector aligned to the on-screen axes; rotating the
+        # image 90° counter-clockwise corresponds to rotating this vector 90° clockwise
+        # (swap axes and invert the previous vertical component).  If the image is
+        # horizontally flipped, the horizontal axis is mirrored, so we also invert the
+        # remapped horizontal component to preserve the perceived direction.
+        old_v = float(self._adjustments.get("Perspective_Vertical", 0.0))
+        old_h = float(self._adjustments.get("Perspective_Horizontal", 0.0))
+        old_flip = bool(self._adjustments.get("Crop_FlipH", False))
+
+        new_v = old_h
+        new_h = -old_v
+        if old_flip:
+            new_h = -new_h
+
+        updates: dict[str, float] = {
+            "Crop_Rotate90": float(rotated_steps),
+            "Perspective_Vertical": new_v,
+            "Perspective_Horizontal": new_h,
+        }
+
+        # Apply the rotation locally so the viewer updates immediately even before the
+        # session broadcasts the new adjustment mapping.
+        self.set_adjustments({**self._adjustments, **updates})
+
+        # Refresh the transform baseline to mirror the demo's post-rotation framing.
+        self.reset_zoom()
+
+        return updates
 
     def set_zoom(self, factor: float, anchor: QPointF | None = None) -> None:
         """Adjust the zoom while preserving the requested *anchor* pixel."""
@@ -457,6 +503,8 @@ class GLImageViewer(QOpenGLWidget):
         else:
             effective_adjustments = self._adjustments
 
+        logical_tex_w, logical_tex_h = self._display_texture_dimensions()
+
         self._renderer.render(
             view_width=float(vw),
             view_height=float(vh),
@@ -465,6 +513,7 @@ class GLImageViewer(QOpenGLWidget):
             adjustments=effective_adjustments,
             time_value=time_value,
             img_scale=cover_scale,
+            logical_tex_size=(float(logical_tex_w), float(logical_tex_h)),
         )
 
         if self._crop_controller.is_active():
@@ -481,7 +530,8 @@ class GLImageViewer(QOpenGLWidget):
 
     def setCropMode(self, enabled: bool, values: Mapping[str, float] | None = None) -> None:
         was_active = self._crop_controller.is_active()
-        self._crop_controller.set_active(enabled, values)
+        logical_values = self._logical_crop_mapping_from_texture(values)
+        self._crop_controller.set_active(enabled, logical_values)
         if enabled and not was_active:
             self._cancel_auto_crop_lock()
             self._transform_controller.reset_zoom()
@@ -532,20 +582,41 @@ class GLImageViewer(QOpenGLWidget):
         if not self._renderer or not self._renderer.has_texture():
             self._transform_controller.set_image_cover_scale(1.0)
             return
-        tex_w, tex_h = self._renderer.texture_size()
+        
+        # When rotation is handled in the shader (current implementation), cover_scale
+        # only needs to account for straighten angle, not the 90° discrete rotations.
+        # Since logical dimensions are already used in ViewTransformController, and
+        # shader rotation maps logical→physical, we can simplify:
+        if abs(straighten_deg) <= 1e-5:
+            # No straighten angle: no cover scale needed
+            self._transform_controller.set_image_cover_scale(1.0)
+            return
+            
+        # If there's a straighten angle, we still need cover scale calculation
+        tex_w, tex_h = self._texture_dimensions()
         if tex_w <= 0 or tex_h <= 0:
             self._transform_controller.set_image_cover_scale(1.0)
             return
-        view_width, view_height = self._view_dimensions_device_px()
+            
         display_w, display_h = self._display_texture_dimensions()
+        view_width, view_height = self._view_dimensions_device_px()
+        
         base_scale = compute_fit_to_view_scale((display_w, display_h), float(view_width), float(view_height))
+        
+        # For straighten, use logical dims with physical bounds checking
         cover_scale = compute_rotation_cover_scale(
-            (tex_w, tex_h),
+            (display_w, display_h),
             base_scale,
             straighten_deg,
             rotate_steps,
+            physical_texture_size=(tex_w, tex_h),
         )
+        
         self._transform_controller.set_image_cover_scale(cover_scale)
+
+
+
+
 
     # --------------------------- Coordinate transformations ---------------------------
 
@@ -604,7 +675,11 @@ class GLImageViewer(QOpenGLWidget):
         ):
             return center
 
-        tex_w, tex_h = self._renderer.texture_size()
+        # Use the rotation-aware logical dimensions so the clamp aligns with the visible frame
+        # after 90°/270° rotations. Physical texture sizes ignore the width/height swap and would
+        # produce asymmetric bounds (e.g. allowing black bars on one axis and over-clamping on the
+        # other).
+        tex_w, tex_h = self._display_texture_dimensions()
         vw, vh = self._view_dimensions_device_px()
 
         half_view_w = (float(vw) / float(scale)) * 0.5
@@ -769,18 +844,19 @@ class GLImageViewer(QOpenGLWidget):
     def _compute_crop_rect_pixels(self) -> QRectF | None:
         """Return the crop rectangle expressed in texture pixels."""
 
-        texture_size = self._texture_dimensions()
+        texture_size = self._display_texture_dimensions()
         tex_w, tex_h = texture_size
         if tex_w <= 0 or tex_h <= 0:
             return None
 
-        crop_w = float(self._adjustments.get("Crop_W", 1.0))
-        crop_h = float(self._adjustments.get("Crop_H", 1.0))
+        # Convert the session's texture-space crop tuple into the logical/display space so the
+        # overlay and auto-framing routines mirror the visual orientation on screen.  The
+        # conversion swaps axes when the photo is rotated by 90°/270° while keeping the stored
+        # crop coordinates anchored to the unrotated texture, matching the "data stays still,
+        # view moves" policy from the demo reference.
+        crop_cx, crop_cy, crop_w, crop_h = self._logical_crop_from_texture()
         if not self._has_valid_crop(crop_w, crop_h):
             return None
-
-        crop_cx = float(self._adjustments.get("Crop_CX", 0.5))
-        crop_cy = float(self._adjustments.get("Crop_CY", 0.5))
 
         tex_w_f = float(tex_w)
         tex_h_f = float(tex_h)
@@ -812,10 +888,154 @@ class GLImageViewer(QOpenGLWidget):
         epsilon = 1e-3
         return (crop_w < 1.0 - epsilon or crop_h < 1.0 - epsilon) and crop_w > 0.0 and crop_h > 0.0
 
+    def _handle_crop_interaction_changed(
+        self, cx: float, cy: float, width: float, height: float
+    ) -> None:
+        """Convert logical crop updates back to texture space before emitting."""
+
+        tex_cx, tex_cy, tex_w, tex_h = self._logical_crop_to_texture(
+            (float(cx), float(cy), float(width), float(height)),
+            self._current_rotate_steps(),
+        )
+        self.cropChanged.emit(tex_cx, tex_cy, tex_w, tex_h)
+
+    def _current_rotate_steps(self, values: Mapping[str, float] | None = None) -> int:
+        """Return the normalised quarter-turn rotation counter."""
+
+        source = values or self._adjustments
+        return int(float(source.get("Crop_Rotate90", 0.0))) % 4
+
+    @staticmethod
+    def _clamp_unit(value: float) -> float:
+        """Clamp *value* into the ``[0, 1]`` interval."""
+
+        return max(0.0, min(1.0, float(value)))
+
+    def _normalised_crop_from_mapping(
+        self, values: Mapping[str, float] | None = None
+    ) -> tuple[float, float, float, float]:
+        """Extract a normalised crop tuple from the provided mapping."""
+
+        source = values or self._adjustments
+        cx = self._clamp_unit(source.get("Crop_CX", 0.5))
+        cy = self._clamp_unit(source.get("Crop_CY", 0.5))
+        width = self._clamp_unit(source.get("Crop_W", 1.0))
+        height = self._clamp_unit(source.get("Crop_H", 1.0))
+        return (cx, cy, width, height)
+
+    def _logical_crop_from_texture(
+        self, values: Mapping[str, float] | None = None
+    ) -> tuple[float, float, float, float]:
+        """Convert texture-space crop values into the rotation-aware logical space."""
+
+        cx, cy, width, height = self._normalised_crop_from_mapping(values)
+        return self._texture_crop_to_logical(
+            (cx, cy, width, height),
+            self._current_rotate_steps(values),
+        )
+
+    def _logical_crop_mapping_from_texture(
+        self, values: Mapping[str, float] | None = None
+    ) -> dict[str, float]:
+        """Return a mapping of logical crop values derived from texture space."""
+
+        logical_cx, logical_cy, logical_w, logical_h = self._logical_crop_from_texture(values)
+        return {
+            "Crop_CX": logical_cx,
+            "Crop_CY": logical_cy,
+            "Crop_W": logical_w,
+            "Crop_H": logical_h,
+        }
+
+    def _texture_crop_to_logical(
+        self, crop: tuple[float, float, float, float], rotate_steps: int
+    ) -> tuple[float, float, float, float]:
+        """Map texture-space crop values into logical space for UI rendering.
+
+        Texture coordinates remain the canonical storage format (``Crop_*`` in the session),
+        while logical coordinates mirror whatever orientation is currently visible to the user.
+        The mapping therefore rotates the centre and swaps the width/height whenever the image is
+        turned by 90° increments so that overlays and zoom-to-crop computations operate in the same
+        frame as the on-screen preview.
+        """
+
+        tcx, tcy, tw, th = crop
+        if rotate_steps == 0:
+            return (tcx, tcy, tw, th)
+        if rotate_steps == 1:
+            # Step 1: 90° CW (270° CCW) - texture TOP becomes visual RIGHT
+            # Transformation: (x', y') = (1-y, x)
+            return (
+                self._clamp_unit(1.0 - tcy),
+                self._clamp_unit(tcx),
+                self._clamp_unit(th),
+                self._clamp_unit(tw),
+            )
+        if rotate_steps == 2:
+            return (
+                self._clamp_unit(1.0 - tcx),
+                self._clamp_unit(1.0 - tcy),
+                self._clamp_unit(tw),
+                self._clamp_unit(th),
+            )
+        # Step 3: 90° CCW (270° CW) - texture TOP becomes visual LEFT  
+        # Transformation: (x', y') = (y, 1-x)
+        return (
+            self._clamp_unit(tcy),
+            self._clamp_unit(1.0 - tcx),
+            self._clamp_unit(th),
+            self._clamp_unit(tw),
+        )
+
+    def _logical_crop_to_texture(
+        self, crop: tuple[float, float, float, float], rotate_steps: int
+    ) -> tuple[float, float, float, float]:
+        """Convert logical crop values back into the invariant texture-space frame.
+
+        This is the inverse of :meth:`_texture_crop_to_logical`.  Interaction handlers edit crops in
+        logical space (matching the rotated display), so we rotate the updated rectangle back into
+        the texture frame before persisting it.  Keeping the stored data immutable with respect to
+        rotation prevents accumulation of floating-point error across repeated 90° turns and keeps
+        the controller logic aligned with the shader's texture-space crop uniforms.
+        """
+
+        lcx, lcy, lw, lh = crop
+        if rotate_steps == 0:
+            return (
+                self._clamp_unit(lcx),
+                self._clamp_unit(lcy),
+                self._clamp_unit(lw),
+                self._clamp_unit(lh),
+            )
+        if rotate_steps == 1:
+            # Step 1 inverse: (x, y) = (y', 1-x') 
+            # (reverse of the forward 90° CW transformation)
+            return (
+                self._clamp_unit(lcy),
+                self._clamp_unit(1.0 - lcx),
+                self._clamp_unit(lh),
+                self._clamp_unit(lw),
+            )
+        if rotate_steps == 2:
+            return (
+                self._clamp_unit(1.0 - lcx),
+                self._clamp_unit(1.0 - lcy),
+                self._clamp_unit(lw),
+                self._clamp_unit(lh),
+            )
+        # Step 3 inverse: (x, y) = (1-y', x')
+        # (reverse of the forward 90° CCW transformation)
+        return (
+            self._clamp_unit(1.0 - lcy),
+            self._clamp_unit(lcx),
+            self._clamp_unit(lh),
+            self._clamp_unit(lw),
+        )
+
     def _fit_to_view_scale(self, view_width: float, view_height: float) -> float:
         """Return the baseline scale that fits the texture within the viewport."""
 
-        texture_size = self._texture_dimensions()
+        texture_size = self._display_texture_dimensions()
         return compute_fit_to_view_scale(texture_size, view_width, view_height)
 
     @staticmethod

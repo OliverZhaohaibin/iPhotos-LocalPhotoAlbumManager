@@ -376,11 +376,12 @@ class DetailPageWidget(QWidget):
             QSizePolicy.Policy.Preferred,
         )
 
-        self._configure_header_button(
-            self.edit_rotate_left_button,
-            "rotate.left.svg",
-            "Rotate counter-clockwise",
-        )
+        # Edit界面的rotate按钮使用白色图标
+        self.edit_rotate_left_button.setIcon(load_icon("rotate.left.svg", color=(255, 255, 255)))
+        self.edit_rotate_left_button.setIconSize(HEADER_ICON_GLYPH_SIZE)
+        self.edit_rotate_left_button.setFixedSize(HEADER_BUTTON_SIZE)
+        self.edit_rotate_left_button.setAutoRaise(True)
+        self.edit_rotate_left_button.setToolTip("Rotate counter-clockwise")
         right_controls_layout.addWidget(self.edit_rotate_left_button)
 
         self.edit_done_button.setObjectName("editDoneButton")

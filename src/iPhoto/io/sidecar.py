@@ -46,6 +46,8 @@ _CROP_CHILD_H = "h"
 _CROP_CHILD_STRAIGHTEN = "straighten"
 _CROP_CHILD_ROTATE = "rotate90"
 _CROP_CHILD_FLIP = "flipHorizontal"
+_CROP_CHILD_VERTICAL = "vertical"
+_CROP_CHILD_HORIZONTAL = "horizontal"
 _LEGACY_CROP_NODE = "Crop"
 _ATTR_CX = "cx"
 _ATTR_CY = "cy"
@@ -167,12 +169,16 @@ def _read_crop_from_node(node: ET.Element) -> dict[str, float]:
     flip_child = _find_child_case_insensitive(node, _CROP_CHILD_FLIP)
     flip_text = flip_child.text.strip().lower() if flip_child is not None and flip_child.text else "false"
     flip_enabled = flip_text in {"1", "true", "yes", "on"}
+    vertical = _child_value(_CROP_CHILD_VERTICAL, 0.0)
+    horizontal = _child_value(_CROP_CHILD_HORIZONTAL, 0.0)
     values = _centre_crop_from_top_left(left, top, width, height)
     values.update(
         {
             "Crop_Straighten": straighten,
             "Crop_Rotate90": float(max(0, min(3, rotate_steps))),
             "Crop_FlipH": flip_enabled,
+            "Perspective_Vertical": vertical,
+            "Perspective_Horizontal": horizontal,
         }
     )
     return values
@@ -213,6 +219,8 @@ def _write_crop_node(root: ET.Element, values: Mapping[str, float | bool]) -> No
     extra_children = {
         _CROP_CHILD_STRAIGHTEN: float(values.get("Crop_Straighten", 0.0)),
         _CROP_CHILD_ROTATE: float(max(0, min(3, int(round(float(values.get("Crop_Rotate90", 0.0))))))),
+        _CROP_CHILD_VERTICAL: float(values.get("Perspective_Vertical", 0.0)),
+        _CROP_CHILD_HORIZONTAL: float(values.get("Perspective_Horizontal", 0.0)),
     }
     for tag, numeric in extra_children.items():
         child = ET.SubElement(crop, tag)

@@ -139,9 +139,17 @@ class PerspectiveControls(QWidget):
                 self._session.valueChanged.disconnect(self._on_session_value_changed)
             except (TypeError, RuntimeError):
                 pass
+            try:
+                self._session.valuesChanged.disconnect(self._on_session_values_changed)
+            except (TypeError, RuntimeError):
+                pass
         self._session = session
         if session is not None:
             session.valueChanged.connect(self._on_session_value_changed)
+            # Listen for batched updates (for example, a 90° rotation that remaps
+            # the perspective axes) so the sliders mirror the latest geometry even
+            # when individual valueChanged signals are intentionally suppressed.
+            session.valuesChanged.connect(self._on_session_values_changed)
             self._sync_from_session()
         else:
             self._straighten_row.set_value(0.0)
@@ -190,6 +198,15 @@ class PerspectiveControls(QWidget):
         elif key == _FLIP_KEY:
             self._flip_row.set_checked(bool(value))
 
+    def _on_session_values_changed(self, _values: dict) -> None:
+        """Refresh every control after a batch update such as a rotation."""
+
+        # ``valuesChanged`` delivers the full mapping, so simply reload from the
+        # authoritative session state without attempting to diff the payload.  The
+        # slider helpers avoid emitting signals when the value is unchanged,
+        # preventing feedback loops during continuous drags.
+        self._sync_from_session()
+
     def _sync_from_session(self) -> None:
         if self._session is None:
             return
@@ -209,13 +226,13 @@ class _FlipToggleRow(QWidget):
     def __init__(self, label: str, icon_name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(3, 0, 0, 0)
         layout.setSpacing(0)
         self._button = QToolButton(self)
         self._button.setAutoRaise(True)
         self._button.setCheckable(True)
-        self._button.setIcon(load_icon(icon_name))
-        self._button.setIconSize(QSize(28, 28))
+        self._button.setIcon(load_icon(icon_name, color=(180, 180, 180)))
+        self._button.setIconSize(QSize(22, 22))
         self._button.clicked.connect(self._handle_clicked)
         layout.addWidget(self._button)
 
@@ -232,7 +249,13 @@ class _FlipToggleRow(QWidget):
         self._label_button.setDown(checked)
 
     def _toggle(self) -> None:
-        self._button.toggle()
+        # 切换按钮状态并发射信号，与图标按钮保持一致
+        new_state = not self._button.isChecked()
+        self._button.setChecked(new_state)
+        self.interactionStarted.emit()
+        self._label_button.setDown(new_state)
+        self.toggled.emit(new_state)
+        self.interactionFinished.emit()
 
     def _handle_clicked(self, checked: bool) -> None:
         self.interactionStarted.emit()
