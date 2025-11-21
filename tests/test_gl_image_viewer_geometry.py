@@ -11,10 +11,18 @@ from pathlib import Path
 import pytest
 
 # Import geometry module directly without going through package __init__
-geometry_path = Path(__file__).parent.parent / "src" / "iPhoto" / "gui" / "ui" / "widgets" / "gl_image_viewer"
+geometry_path = (
+    Path(__file__).parent.parent
+    / "src"
+    / "iPhoto"
+    / "gui"
+    / "ui"
+    / "widgets"
+    / "gl_image_viewer"
+)
 sys.path.insert(0, str(geometry_path))
 
-import geometry
+import geometry  # noqa: E402
 
 clamp_unit = geometry.clamp_unit
 get_rotate_steps = geometry.get_rotate_steps

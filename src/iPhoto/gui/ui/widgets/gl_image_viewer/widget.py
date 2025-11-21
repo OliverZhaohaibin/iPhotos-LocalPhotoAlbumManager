@@ -166,7 +166,8 @@ class GLImageViewer(QOpenGLWidget):
         """
 
         reuse_existing_texture = (
-            image_source is not None and image_source == getattr(self, "_current_image_source", None)
+            image_source is not None
+            and image_source == getattr(self, "_current_image_source", None)
         )
 
         if reuse_existing_texture and image is not None and not image.isNull():
@@ -474,7 +475,11 @@ class GLImageViewer(QOpenGLWidget):
         gf.glClearColor(bg.redF(), bg.greenF(), bg.blueF(), 1.0)
         gf.glClear(gl.GL_COLOR_BUFFER_BIT)
 
-        if self._image is not None and not self._image.isNull() and not self._renderer.has_texture():
+        if (
+            self._image is not None
+            and not self._image.isNull()
+            and not self._renderer.has_texture()
+        ):
             self._renderer.upload_texture(self._image)
             straighten, rotate_steps, _ = self._rotation_parameters()
             self._update_cover_scale(straighten, rotate_steps)
@@ -606,7 +611,9 @@ class GLImageViewer(QOpenGLWidget):
         display_w, display_h = self._display_texture_dimensions()
         view_width, view_height = self._view_dimensions_device_px()
         
-        base_scale = compute_fit_to_view_scale((display_w, display_h), float(view_width), float(view_height))
+        base_scale = compute_fit_to_view_scale(
+            (display_w, display_h), float(view_width), float(view_height)
+        )
         
         # For straighten, use logical dims with physical bounds checking
         cover_scale = compute_rotation_cover_scale(
