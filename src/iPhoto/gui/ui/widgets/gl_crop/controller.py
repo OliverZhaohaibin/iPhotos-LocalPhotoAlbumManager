@@ -130,22 +130,29 @@ class CropInteractionController:
         if tex_w > 0 and tex_h > 0:
             aspect_ratio = float(tex_w) / float(tex_h)
 
-        changed = self._model.update_perspective(
+        # Track perspective quad changes separately from crop changes
+        quad_changed = self._model.update_perspective(
             vertical, horizontal, straighten, rotate_steps, flip_horizontal, aspect_ratio
         )
-        if not changed:
+        if not quad_changed:
             return
 
+        # Update crop constraints and track if crop state changed
+        crop_changed = False
         if self._model.has_baseline():
-            changed = self._model.apply_baseline_perspective_fit()
+            crop_changed = self._model.apply_baseline_perspective_fit()
         else:
-            changed = self._model.ensure_crop_center_inside_quad()
+            crop_changed = self._model.ensure_crop_center_inside_quad()
             if not self._model.is_crop_inside_quad():
-                changed = self._model.auto_scale_crop_to_quad() or changed
+                crop_changed = self._model.auto_scale_crop_to_quad() or crop_changed
 
-        if changed:
+        # Emit crop changed signal if crop state was modified
+        if crop_changed:
             self._model.get_crop_state().clamp()
             self._emit_crop_changed()
+
+        # Request UI update if either quad or crop changed
+        if quad_changed or crop_changed:
             self._on_request_update()
 
     def current_crop_rect_pixels(self) -> dict[str, float] | None:
