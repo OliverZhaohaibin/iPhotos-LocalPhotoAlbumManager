@@ -15,6 +15,8 @@ from collections.abc import Callable, Mapping
 from PySide6.QtCore import QPointF, Qt, QTimer, QObject
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 
+import numpy as np
+
 from .gl_crop_utils import (
     CropBoxState,
     CropHandle,
@@ -107,6 +109,7 @@ class CropInteractionController:
         self._rotate_steps: int = 0
         self._flip_horizontal: bool = False
         self._perspective_quad: list[tuple[float, float]] = unit_quad()
+        self._perspective_matrix = np.identity(3, dtype=np.float32)
         self._baseline_crop_state: tuple[float, float, float, float] | None = None
 
     # ------------------------------------------------------------------
@@ -182,7 +185,12 @@ class CropInteractionController:
         tex_w, tex_h = self._texture_size_provider()
         aspect_ratio = 1.0
         if tex_w > 0 and tex_h > 0:
-            aspect_ratio = float(tex_w) / float(tex_h)
+            display_w = float(tex_w)
+            display_h = float(tex_h)
+            if new_rotate % 2:
+                display_w, display_h = display_h, display_w
+            if display_h > 0.0:
+                aspect_ratio = max(display_w / display_h, 1e-6)
 
         self._perspective_vertical = new_vertical
         self._perspective_horizontal = new_horizontal
@@ -221,6 +229,7 @@ class CropInteractionController:
             rotate_steps=0,
             flip_horizontal=new_flip,
         )
+        self._perspective_matrix = matrix
         self._perspective_quad = compute_projected_quad(matrix)
 
         if self._baseline_crop_state is not None:
