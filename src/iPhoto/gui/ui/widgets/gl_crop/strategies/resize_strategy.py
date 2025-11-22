@@ -103,25 +103,25 @@ class ResizeStrategy(InteractionStrategy):
         if texture_handle in (CropHandle.LEFT, CropHandle.TOP_LEFT, CropHandle.BOTTOM_LEFT):
             new_left = crop_world["left"] + delta_x
             new_left = min(new_left, crop_world["right"] - min_width_px)
-            new_left = max(new_left, img_bounds_world["left"])
+            # Removed img_bounds_world constraint - validation handled by ensure_valid_or_revert()
             crop_world["left"] = new_left
 
         if texture_handle in (CropHandle.RIGHT, CropHandle.TOP_RIGHT, CropHandle.BOTTOM_RIGHT):
             new_right = crop_world["right"] + delta_x
             new_right = max(new_right, crop_world["left"] + min_width_px)
-            new_right = min(new_right, img_bounds_world["right"])
+            # Removed img_bounds_world constraint - validation handled by ensure_valid_or_revert()
             crop_world["right"] = new_right
 
         if texture_handle in (CropHandle.BOTTOM, CropHandle.BOTTOM_LEFT, CropHandle.BOTTOM_RIGHT):
             new_bottom = crop_world["bottom"] + delta_y
             new_bottom = min(new_bottom, crop_world["top"] - min_height_px)
-            new_bottom = max(new_bottom, img_bounds_world["bottom"])
+            # Removed img_bounds_world constraint - validation handled by ensure_valid_or_revert()
             crop_world["bottom"] = new_bottom
 
         if texture_handle in (CropHandle.TOP, CropHandle.TOP_LEFT, CropHandle.TOP_RIGHT):
             new_top = crop_world["top"] + delta_y
             new_top = max(new_top, crop_world["bottom"] + min_height_px)
-            new_top = min(new_top, img_bounds_world["top"])
+            # Removed img_bounds_world constraint - validation handled by ensure_valid_or_revert()
             crop_world["top"] = new_top
 
         # Convert back to normalised coordinates
