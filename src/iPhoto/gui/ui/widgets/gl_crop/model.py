@@ -195,6 +195,7 @@ class CropSessionModel:
         cx = self._crop_state.cx
         cy = self._crop_state.cy
         if self._rotate_steps != 0:
+            # Use dummy width/height (0.5, 0.5) since only center coordinates matter
             cx, cy, _, _ = texture_crop_to_logical(
                 (cx, cy, 0.5, 0.5),
                 self._rotate_steps
@@ -208,6 +209,7 @@ class CropSessionModel:
         centroid = quad_centroid(quad)
         if self._rotate_steps != 0:
             # Reverse transformation: logical → texture
+            # Use dummy width/height (0.5, 0.5) since only center coordinates matter
             centroid_x, centroid_y, _, _ = logical_crop_to_texture(
                 (centroid[0], centroid[1], 0.5, 0.5),
                 self._rotate_steps
