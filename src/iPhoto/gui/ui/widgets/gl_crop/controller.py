@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping
 from PySide6.QtCore import QObject, QPointF, Qt
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 
+from ..gl_image_viewer.geometry import logical_crop_to_texture, texture_crop_to_logical
 from ..view_transform_controller import compute_fit_to_view_scale
 from .animator import CropAnimator
 from .hit_tester import HitTester
@@ -316,7 +317,42 @@ class CropInteractionController:
 
         snapshot = self._model.create_snapshot()
         crop_state = self._model.get_crop_state()
-        crop_state.zoom_about_point(anchor_norm_x, anchor_norm_y, factor)
+        
+        # Account for rotation: zoom must be performed in logical space
+        rotate_steps = self._model.get_rotate_steps()
+        if rotate_steps != 0:
+            # Convert anchor from texture to logical space
+            anchor_x_log, anchor_y_log, _, _ = texture_crop_to_logical(
+                (anchor_norm_x, anchor_norm_y, 0.5, 0.5),
+                rotate_steps
+            )
+            # Convert current crop state to logical space
+            cx_log, cy_log, w_log, h_log = texture_crop_to_logical(
+                (crop_state.cx, crop_state.cy, crop_state.width, crop_state.height),
+                rotate_steps
+            )
+            # Perform zoom in logical space
+            safe_factor = max(1e-4, abs(float(factor)))
+            new_w_log = w_log / safe_factor
+            new_h_log = h_log / safe_factor
+            new_w_log = max(crop_state.min_width, min(1.0, new_w_log))
+            new_h_log = max(crop_state.min_height, min(1.0, new_h_log))
+            new_cx_log = anchor_x_log - (anchor_x_log - cx_log) / safe_factor
+            new_cy_log = anchor_y_log - (anchor_y_log - cy_log) / safe_factor
+            # Convert back to texture space
+            cx_tex, cy_tex, w_tex, h_tex = logical_crop_to_texture(
+                (new_cx_log, new_cy_log, new_w_log, new_h_log),
+                rotate_steps
+            )
+            crop_state.cx = cx_tex
+            crop_state.cy = cy_tex
+            crop_state.width = w_tex
+            crop_state.height = h_tex
+            crop_state.clamp()
+        else:
+            # No rotation, use original texture space zoom
+            crop_state.zoom_about_point(anchor_norm_x, anchor_norm_y, factor)
+        
         if not self._model.ensure_valid_or_revert(snapshot, allow_shrink=False):
             self._on_request_update()
             self._animator.restart_idle()

@@ -46,6 +46,10 @@ class CropSessionModel:
     def get_perspective_quad(self) -> list[tuple[float, float]]:
         """Return the current perspective quad."""
         return self._perspective_quad
+    
+    def get_rotate_steps(self) -> int:
+        """Return the current rotation steps."""
+        return self._rotate_steps
 
     def create_snapshot(self) -> tuple[float, float, float, float]:
         """Return a tuple describing the current crop rectangle."""
