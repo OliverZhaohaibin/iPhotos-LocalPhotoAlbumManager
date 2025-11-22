@@ -232,10 +232,14 @@ class CropSessionModel:
             True if the crop was scaled, False otherwise.
         """
         quad = self._perspective_quad or unit_quad()
-        rect = self._current_normalised_rect()
+        rect = self._current_normalised_rect()  # Already in logical space after fix
         scale = calculate_min_zoom_to_fit(rect, quad)
         if not math.isfinite(scale) or scale <= 1.0 + 1e-4:
             return False
+        
+        # Scale is calculated in logical space, apply to texture space
+        # Note: width and height are the same in both spaces for axis-aligned rotation (0°, 180°)
+        # For 90°/270° rotation, width/height swap is handled by texture_crop_to_logical
         self._crop_state.width = max(self._crop_state.min_width, self._crop_state.width / scale)
         self._crop_state.height = max(self._crop_state.min_height, self._crop_state.height / scale)
         self._crop_state.clamp()
@@ -254,7 +258,20 @@ class CropSessionModel:
         snapshot = self.create_snapshot()
         quad = self._perspective_quad or unit_quad()
         base_cx, base_cy, base_width, base_height = self._baseline_crop_state
-        center = (float(base_cx), float(base_cy))
+        
+        # Convert baseline center from texture space to logical space for validation
+        center_tx = float(base_cx)
+        center_ty = float(base_cy)
+        width = float(base_width)
+        height = float(base_height)
+        
+        if self._rotate_steps != 0:
+            center_tx, center_ty, width, height = texture_crop_to_logical(
+                (center_tx, center_ty, width, height),
+                self._rotate_steps
+            )
+        
+        center = (center_tx, center_ty)
         if not point_in_convex_polygon(center, quad):
             centroid = quad_centroid(quad)
             center = (
@@ -262,8 +279,8 @@ class CropSessionModel:
                 max(0.0, min(1.0, float(centroid[1]))),
             )
 
-        half_w = max(0.0, float(base_width) * 0.5)
-        half_h = max(0.0, float(base_height) * 0.5)
+        half_w = max(0.0, width * 0.5)
+        half_h = max(0.0, height * 0.5)
         rect = NormalisedRect(
             center[0] - half_w,
             center[1] - half_h,
@@ -274,12 +291,24 @@ class CropSessionModel:
         if not math.isfinite(scale) or scale < 1.0:
             scale = 1.0
 
+        # Apply scale in texture space
+        # Convert center back to texture space if rotation is applied
+        if self._rotate_steps != 0:
+            # Convert center from logical back to texture
+            center_x, center_y, _, _ = logical_crop_to_texture(
+                (center[0], center[1], 0.5, 0.5),
+                self._rotate_steps
+            )
+            self._crop_state.cx = max(0.0, min(1.0, center_x))
+            self._crop_state.cy = max(0.0, min(1.0, center_y))
+        else:
+            self._crop_state.cx = max(0.0, min(1.0, center[0]))
+            self._crop_state.cy = max(0.0, min(1.0, center[1]))
+        
         new_width = max(self._crop_state.min_width, float(base_width) / scale)
         new_height = max(self._crop_state.min_height, float(base_height) / scale)
         self._crop_state.width = min(1.0, new_width)
         self._crop_state.height = min(1.0, new_height)
-        self._crop_state.cx = max(0.0, min(1.0, center[0]))
-        self._crop_state.cy = max(0.0, min(1.0, center[1]))
         self._crop_state.clamp()
         return self.has_changed(snapshot)
 
