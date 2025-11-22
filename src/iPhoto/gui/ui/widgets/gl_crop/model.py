@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 
+from ..gl_image_viewer.geometry import logical_crop_to_texture, texture_crop_to_logical
 from ..perspective_math import (
     NormalisedRect,
     build_perspective_matrix,
@@ -151,8 +152,28 @@ class CropSessionModel:
         return True
 
     def _current_normalised_rect(self) -> NormalisedRect:
-        """Return the current crop as a normalised rect."""
-        left, top, right, bottom = self._crop_state.bounds_normalised()
+        """Return the current crop as a normalised rect in logical space."""
+        # Get crop coordinates in texture space
+        cx = self._crop_state.cx
+        cy = self._crop_state.cy
+        width = self._crop_state.width
+        height = self._crop_state.height
+        
+        # Convert to logical space if rotation is applied
+        if self._rotate_steps != 0:
+            cx, cy, width, height = texture_crop_to_logical(
+                (cx, cy, width, height),
+                self._rotate_steps
+            )
+        
+        # Calculate bounds
+        half_w = width * 0.5
+        half_h = height * 0.5
+        left = cx - half_w
+        top = cy - half_h
+        right = cx + half_w
+        bottom = cy + half_h
+        
         return NormalisedRect(left, top, right, bottom)
 
     def is_crop_inside_quad(self) -> bool:
@@ -169,12 +190,34 @@ class CropSessionModel:
             True if the crop center was moved, False otherwise.
         """
         quad = self._perspective_quad or unit_quad()
-        center = (float(self._crop_state.cx), float(self._crop_state.cy))
+        
+        # Convert center point to logical space for validation
+        cx = self._crop_state.cx
+        cy = self._crop_state.cy
+        if self._rotate_steps != 0:
+            cx, cy, _, _ = texture_crop_to_logical(
+                (cx, cy, 0.5, 0.5),
+                self._rotate_steps
+            )
+        
+        center = (float(cx), float(cy))
         if point_in_convex_polygon(center, quad):
             return False
+        
+        # Find centroid and convert back to texture space
         centroid = quad_centroid(quad)
-        self._crop_state.cx = max(0.0, min(1.0, centroid[0]))
-        self._crop_state.cy = max(0.0, min(1.0, centroid[1]))
+        if self._rotate_steps != 0:
+            # Reverse transformation: logical → texture
+            centroid_x, centroid_y, _, _ = logical_crop_to_texture(
+                (centroid[0], centroid[1], 0.5, 0.5),
+                self._rotate_steps
+            )
+            self._crop_state.cx = max(0.0, min(1.0, centroid_x))
+            self._crop_state.cy = max(0.0, min(1.0, centroid_y))
+        else:
+            self._crop_state.cx = max(0.0, min(1.0, centroid[0]))
+            self._crop_state.cy = max(0.0, min(1.0, centroid[1]))
+        
         self._crop_state.clamp()
         return True
 
