@@ -487,7 +487,12 @@ class GLImageViewer(QOpenGLWidget):
                 }
             )
         else:
-            effective_adjustments = self._adjustments
+            # Convert texture-space crop coordinates to logical-space for the shader.
+            # The shader now expects crop coordinates in logical space (matching the
+            # user's view after rotation), simplifying the UI interaction logic.
+            effective_adjustments = dict(self._adjustments)
+            logical_crop = geometry.logical_crop_mapping_from_texture(self._adjustments)
+            effective_adjustments.update(logical_crop)
 
         logical_tex_w, logical_tex_h = self._display_texture_dimensions()
 

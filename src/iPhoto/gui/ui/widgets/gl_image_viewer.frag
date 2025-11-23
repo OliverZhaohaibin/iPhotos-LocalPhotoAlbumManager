@@ -143,6 +143,25 @@ vec2 apply_rotation_90(vec2 uv, int rotate_steps) {
     return uv;
 }
 
+vec2 apply_inverse_rotation_90(vec2 uv, int rotate_steps) {
+    // Apply the inverse of the rotation to convert from texture space to logical space
+    // Logical space is what the user sees after rotation
+    // This is the inverse of apply_rotation_90
+    int steps = rotate_steps % 4;
+    if (steps == 1) {
+        // Inverse of 90° CW is 270° CW: (x,y) -> (1-y, x)
+        return vec2(1.0 - uv.y, uv.x);
+    } else if (steps == 2) {
+        // Inverse of 180° is 180°: (x,y) -> (1-x, 1-y)
+        return vec2(1.0 - uv.x, 1.0 - uv.y);
+    } else if (steps == 3) {
+        // Inverse of 270° CW is 90° CW: (x,y) -> (y, 1-x)
+        return vec2(uv.y, 1.0 - uv.x);
+    }
+    // steps == 0: no rotation
+    return uv;
+}
+
 vec3 apply_bw(vec3 color, vec2 uv) {
     float intensity = clamp(uBWParams.x, -1.0, 1.0);
     float neutrals = clamp(uBWParams.y, -1.0, 1.0);
@@ -197,27 +216,32 @@ void main() {
     uv.y = 1.0 - uv.y;
     vec2 uv_corrected = uv;
 
-    // Apply crop in texture coordinate space
-    // Calculate normalized crop boundaries
+    // Apply perspective correction first (in texture space)
+    vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
+    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
+        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
+        discard;
+    }
+    
+    // Convert from texture space to logical space (what user sees after rotation)
+    // This allows crop testing in the same coordinate system as the UI
+    vec2 logicalUV = apply_inverse_rotation_90(uv_perspective, uRotate90);
+    
+    // Apply crop in logical coordinate space (matching user's view)
+    // Python layer now passes crop values in logical space, so comparison is simple
     float crop_min_x = uCropCX - uCropW * 0.5;
     float crop_max_x = uCropCX + uCropW * 0.5;
     float crop_min_y = uCropCY - uCropH * 0.5;
     float crop_max_y = uCropCY + uCropH * 0.5;
 
-    // Check if current fragment's texture coordinate is outside the crop box
-    if (uv_corrected.x < crop_min_x || uv_corrected.x > crop_max_x ||
-        uv_corrected.y < crop_min_y || uv_corrected.y > crop_max_y) {
+    // Check if current fragment's logical coordinate is outside the crop box
+    if (logicalUV.x < crop_min_x || logicalUV.x > crop_max_x ||
+        logicalUV.y < crop_min_y || logicalUV.y > crop_max_y) {
         discard; // Discard fragments outside the crop region
     }
-
-    vec2 uv_original = apply_inverse_perspective(uv_corrected);
-    if (uv_original.x < 0.0 || uv_original.x > 1.0 ||
-        uv_original.y < 0.0 || uv_original.y > 1.0) {
-        discard;
-    }
     
-    // Apply 90-degree rotation AFTER perspective correction
-    uv_original = apply_rotation_90(uv_original, uRotate90);
+    // Convert back from logical space to texture space for sampling
+    vec2 uv_original = apply_rotation_90(logicalUV, uRotate90);
 
     vec4 texel = texture(uTex, uv_original);
     vec3 c = texel.rgb;
