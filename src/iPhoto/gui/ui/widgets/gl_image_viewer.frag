@@ -218,7 +218,9 @@ void main() {
         discard;
     }
     
-    // Apply 90-degree rotation for visual display
+    // Apply 90-degree rotation to get final texture sampling coordinates
+    // This rotation transforms the perspective-corrected UVs to display the image
+    // at the user's selected orientation (0°, 90°, 180°, or 270°)
     uv_original = apply_rotation_90(uv_original, uRotate90);
 
     vec4 texel = texture(uTex, uv_original);
