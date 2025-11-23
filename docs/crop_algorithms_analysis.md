@@ -467,6 +467,290 @@ new_scale = old_scale * (1.0 - 0.05 * ease_in_quad(pressure))
 
 ---
 
-**文档版本**: 2.0  
-**最后更新**: 2025-11-22  
-**基于源码**: `src/iPhoto/gui/ui/widgets/` (gl_crop_controller.py, perspective_math.py, gl_renderer.py, gl_image_viewer.frag)
+## 六、已知问题与Bug分析
+
+### 问题 1: Crop Step ≠ 0 时透视变换的坐标空间不一致
+
+#### 问题描述
+
+当裁剪框不是全尺寸（crop step ≠ 0）且应用了透视变换（vertical/horizontal perspective）时，**投影四边形的计算基于错误的坐标空间**，导致黑边限制失效。
+
+#### 根本原因
+
+**坐标空间不匹配：**
+
+1. **GPU着色器实现**（`gl_image_viewer.frag` 181-194行）
+   ```glsl
+   // 先应用裁剪
+   float crop_min_x = uCropCX - uCropW * 0.5;
+   float crop_max_x = uCropCX + uCropW * 0.5;
+   // ... 检查 uv_corrected 是否在裁剪框内 ...
+   if (uv_corrected.x < crop_min_x || uv_corrected.x > crop_max_x ...) {
+       discard;
+   }
+   
+   // 再应用透视逆变换
+   vec2 uv_original = apply_inverse_perspective(uv_corrected);
+   ```
+   
+   **着色器的处理顺序：**
+   - 裁剪框在**归一化纹理坐标 [0,1]** 中定义
+   - 透视变换作用在**已裁剪的坐标**上
+   - 实际效果：透视变换只影响裁剪框内部的区域
+
+2. **CPU四边形计算**（`perspective_math.py` 75-95行）
+   ```python
+   def compute_projected_quad(matrix: np.ndarray):
+       # 对原始图像的四个角点进行投影
+       corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+       return [_project_point(corner) for corner in corners]
+   ```
+   
+   **CPU的假设：**
+   - 投影四边形基于**完整图像 [0,1]×[0,1]**
+   - 没有考虑裁剪框的存在
+   - 实际效果：计算出的边界对应全图透视，不是裁剪后的透视
+
+#### 问题表现
+
+**场景示例：**
+```
+初始状态：
+- 图像尺寸 1000×1000
+- 裁剪框 cx=0.5, cy=0.5, w=0.6, h=0.6 (中心 600×600 区域)
+- Vertical Perspective = 0.5
+
+GPU渲染：
+- 裁剪框在归一化坐标 [0.2, 0.2] 到 [0.8, 0.8]
+- 透视变换应用在这个子区域
+- 变形后的有效区域是裁剪框内的透视四边形
+
+CPU约束检查：
+- compute_projected_quad() 计算全图 [0,0] 到 [1,1] 的透视
+- 得到的四边形可能是 [0.1, 0.05] 到 [0.9, 0.95]
+- 裁剪框 [0.2, 0.2] 到 [0.8, 0.8] 在这个四边形内 ✓
+
+实际问题：
+- CPU认为裁剪框合法（在全图透视四边形内）
+- GPU实际渲染时，透视只作用在裁剪区域
+- 裁剪框的角点在局部透视下可能超出可用区域
+- 结果：出现黑边
+```
+
+#### 技术分析
+
+**坐标变换链：**
+
+**GPU (正确):**
+```
+viewport coords → texture coords → crop clip → perspective transform → sample
+```
+
+**CPU 约束检查 (错误):**
+```
+full image [0,1] → perspective transform → check crop inside projected quad
+```
+
+**不一致之处：**
+- CPU: 透视四边形 = `project(full_image)`
+- GPU: 实际有效区域 = `project(crop_region)`
+- 当 `crop_region != full_image` 时，两者不同
+
+#### 详细错误路径
+
+1. **用户设置裁剪框** (cx=0.5, cy=0.5, w=0.6, h=0.6)
+2. **用户调整透视** (vertical=0.5)
+3. **CPU计算**:
+   ```python
+   matrix = build_perspective_matrix(0.5, 0.0)
+   quad = compute_projected_quad(matrix)  # 基于 [(0,0), (1,0), (1,1), (0,1)]
+   # quad 可能 = [(0.05, 0.1), (0.95, 0.1), (0.9, 0.95), (0.1, 0.95)]
+   
+   crop_rect = NormalisedRect(0.2, 0.2, 0.8, 0.8)  # 裁剪框
+   if rect_inside_quad(crop_rect, quad):  # True，因为 [0.2,0.8] ⊂ [0.05,0.95]
+       # 认为安全，不缩小裁剪框
+   ```
+
+4. **GPU渲染**:
+   ```glsl
+   // 片段 (0.25, 0.25) 在裁剪框内
+   if (uv.x >= 0.2 && uv.x <= 0.8 && ...) {  // 通过裁剪检查
+       // 应用透视：以 (0.25, 0.25) 为输入
+       vec2 uv_original = apply_inverse_perspective(vec2(0.25, 0.25));
+       // 透视矩阵假设输入范围是完整 [0,1]，但实际只有 [0.2,0.8]
+       // uv_original 可能变成 (-0.1, 0.1)，超出 [0,1] 范围
+       if (uv_original.x < 0.0 || ...) {
+           discard;  // 黑边！
+       }
+   }
+   ```
+
+#### 正确的解决方案
+
+**方案 A: 修改 CPU 计算（推荐）**
+
+在 `gl_crop_controller.py` 中，计算投影四边形时考虑裁剪框：
+
+```python
+def _compute_cropped_perspective_quad(self) -> list[tuple[float, float]]:
+    """计算裁剪区域的透视投影四边形"""
+    
+    matrix = build_perspective_matrix(self._perspective_vertical, self._perspective_horizontal)
+    
+    # 关键：使用裁剪框的角点，而不是全图角点
+    left, top, right, bottom = self._crop_state.bounds_normalised()
+    crop_corners = [
+        (left, top),
+        (right, top),
+        (right, bottom),
+        (left, bottom),
+    ]
+    
+    # 对裁剪框角点进行透视投影
+    return [_project_corner(corner, matrix) for corner in crop_corners]
+```
+
+**方案 B: 修改 GPU 着色器（复杂）**
+
+调整变换顺序，先透视再裁剪：
+
+```glsl
+// 1. 先应用透视逆变换到完整纹理坐标
+vec2 uv_original = apply_inverse_perspective(uv);
+
+// 2. 再检查是否在裁剪框内（在原始纹理空间）
+if (uv_original.x < crop_min_x || ...) {
+    discard;
+}
+```
+
+但这需要调整整个渲染管线和坐标系统。
+
+**方案 C: 混合空间转换（最彻底）**
+
+```python
+def compute_projected_quad(matrix: np.ndarray, crop_rect: NormalisedRect | None = None):
+    """计算投影四边形，可选地在裁剪空间内"""
+    
+    if crop_rect is None:
+        # 全图模式
+        corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+    else:
+        # 裁剪模式：投影裁剪框的角点
+        corners = [
+            (crop_rect.left, crop_rect.top),
+            (crop_rect.right, crop_rect.top),
+            (crop_rect.right, crop_rect.bottom),
+            (crop_rect.left, crop_rect.bottom),
+        ]
+    
+    # 对选定的角点进行投影
+    forward = np.linalg.inv(matrix)
+    return [_project_point(corner, forward) for corner in corners]
+```
+
+#### 影响范围
+
+**受影响的功能：**
+- ✗ Perspective Vertical + 非全尺寸裁剪
+- ✗ Perspective Horizontal + 非全尺寸裁剪
+- ✗ 组合透视调整 + 裁剪框拖动
+- ✓ 全尺寸裁剪（w=1.0, h=1.0）时无影响
+- ✓ 无透视变换时无影响
+
+**严重程度：**
+- **高**：黑边直接影响用户体验
+- **隐蔽**：只在特定条件下出现（crop + perspective）
+- **数据安全**：不影响数据，仅视觉问题
+
+#### 临时规避方法
+
+用户可以采取以下措施避免黑边：
+
+1. **先透视，后裁剪**：
+   - 先调整透视到满意的状态
+   - 再进行裁剪操作
+   - 透视调整后不再修改
+
+2. **使用全尺寸裁剪**：
+   - 在透视调整时保持裁剪框 w=1.0, h=1.0
+   - 透视完成后再缩小裁剪框
+
+3. **手动检查**：
+   - 调整透视后检查边缘是否有黑边
+   - 如有黑边，稍微缩小裁剪框
+
+#### 测试用例
+
+**重现步骤：**
+1. 加载任意图片
+2. 设置裁剪框：cx=0.5, cy=0.5, w=0.5, h=0.5（中心四分之一）
+3. 调整 Perspective Vertical = 0.8
+4. 观察裁剪框边缘
+
+**预期结果（当前错误）：**
+- 裁剪框四个角出现黑色三角形区域
+- CPU 认为裁剪框在安全范围内，不自动缩小
+
+**预期结果（修复后）：**
+- 裁剪框自动缩小以适应实际可用区域
+- 无黑边
+
+#### 代码位置
+
+**需要修改的文件：**
+
+1. **`perspective_math.py`** (主要)
+   - `compute_projected_quad()` - 添加裁剪框参数
+   - 新增 `compute_cropped_projected_quad()` 辅助函数
+
+2. **`gl_crop_controller.py`**
+   - `update_perspective()` - 传递裁剪框信息
+   - `_is_crop_inside_perspective_quad()` - 使用正确的四边形
+
+3. **单元测试**
+   - 添加 `test_perspective_with_crop()` 测试用例
+   - 验证裁剪+透视的组合行为
+
+#### 优先级建议
+
+**P0 (立即修复):**
+- 会导致明显的视觉错误
+- 影响核心编辑功能
+- 已有明确的解决方案
+
+**修复难度：**
+- 中等（需要修改坐标系统逻辑）
+- 需要充分测试边界情况
+- 建议先实现方案 A（修改 CPU 计算）
+
+---
+
+## 七、总结与改进建议
+
+### 算法优势总结
+
+**透视校正算法：**
+- ✅ 数学严谨，无黑边保证（全尺寸裁剪时）
+- ✅ 基准裁剪框机制，支持可恢复编辑
+- ✅ GPU加速的透视逆变换
+- ⚠️ 需要修复裁剪坐标空间不一致问题
+
+**边缘算法：**
+- ✅ 物理感强，交互自然
+- ✅ 渐进式响应，避免跳变
+- ✅ 平移增益设计，压力感知精准
+
+### 改进优先级
+
+1. **P0: 修复透视+裁剪的坐标空间问题**（见上文详细分析）
+2. **P1: 统一坐标系统文档**，明确各个阶段使用的坐标空间
+3. **P2: 添加可视化调试工具**，显示投影四边形和裁剪框关系
+4. **P3: 性能优化**，缓存投影四边形计算结果
+
+---
+
+**文档版本**: 3.0  
+**最后更新**: 2025-11-23  
+**基于源码**: `src/iPhoto/gui/ui/widgets/` (gl_crop_controller.py, perspective_math.py, gl_renderer.py, gl_image_viewer.frag)  
+**Issue分析**: Crop + Perspective 坐标空间不一致导致黑边 (P0)
