@@ -7,6 +7,7 @@ from src.iPhoto.gui.ui.widgets.perspective_math import (
     NormalisedRect,
     build_perspective_matrix,
     compute_projected_quad,
+    point_in_convex_polygon,
     rect_inside_quad,
 )
 
@@ -81,7 +82,6 @@ def test_rect_inside_quad_with_perspective_and_crop():
     
     # The quad might require the crop to shrink, but at minimum,
     # the center should be inside
-    from src.iPhoto.gui.ui.widgets.perspective_math import point_in_convex_polygon
     center = crop_rect.center
     assert point_in_convex_polygon(center, quad_cropped), \
         "Crop center should be inside the projected quad"
@@ -93,7 +93,8 @@ def test_normalised_rect_properties():
     
     assert rect.width == pytest.approx(0.5)
     assert rect.height == pytest.approx(0.5)
-    assert rect.center == pytest.approx((0.45, 0.55))
+    # Center should be ((left + right) / 2, (top + bottom) / 2)
+    assert rect.center == pytest.approx(((0.2 + 0.7) / 2, (0.3 + 0.8) / 2))
 
 
 def test_build_perspective_matrix_zero_returns_identity():
