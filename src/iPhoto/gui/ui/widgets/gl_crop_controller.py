@@ -12,7 +12,7 @@ import math
 import time
 from collections.abc import Callable, Mapping
 
-from PySide6.QtCore import QPointF, Qt, QTimer, QObject
+from PySide6.QtCore import QObject, QPointF, Qt, QTimer
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 
 from .gl_crop_utils import (
@@ -22,7 +22,6 @@ from .gl_crop_utils import (
     ease_in_quad,
     ease_out_cubic,
 )
-from .view_transform_controller import compute_fit_to_view_scale
 from .perspective_math import (
     NormalisedRect,
     build_perspective_matrix,
@@ -33,6 +32,7 @@ from .perspective_math import (
     rect_inside_quad,
     unit_quad,
 )
+from .view_transform_controller import compute_fit_to_view_scale
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -166,7 +166,11 @@ class CropInteractionController:
         self._perspective_vertical = new_vertical
         self._perspective_horizontal = new_horizontal
         matrix = build_perspective_matrix(new_vertical, new_horizontal)
-        self._perspective_quad = compute_projected_quad(matrix)
+        
+        # Pass crop rectangle to ensure coordinate space consistency with GPU shader
+        # When crop step ≠ 0, the projection should be based on the crop region
+        crop_rect = self._current_normalised_rect()
+        self._perspective_quad = compute_projected_quad(matrix, crop_rect)
 
         if self._baseline_crop_state is not None:
             changed = self._apply_baseline_perspective_fit()

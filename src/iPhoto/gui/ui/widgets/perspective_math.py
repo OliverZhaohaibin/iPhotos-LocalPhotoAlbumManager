@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from typing import Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -72,8 +72,25 @@ def build_perspective_matrix(vertical: float, horizontal: float) -> np.ndarray:
     return matrix.astype(np.float32)
 
 
-def compute_projected_quad(matrix: np.ndarray) -> list[tuple[float, float]]:
-    """Return the projected quad for the unit texture using *matrix*."""
+def compute_projected_quad(
+    matrix: np.ndarray, crop_rect: NormalisedRect | None = None
+) -> list[tuple[float, float]]:
+    """Return the projected quad for the unit texture using *matrix*.
+
+    Parameters
+    ----------
+    matrix:
+        The 3x3 perspective transformation matrix.
+    crop_rect:
+        Optional crop rectangle. If provided, computes the projected quad
+        for the crop region instead of the full image. This ensures coordinate
+        space consistency with GPU shader behavior when crop step ≠ 0.
+
+    Returns
+    -------
+    list[tuple[float, float]]
+        The four corners of the projected quadrilateral.
+    """
 
     try:
         forward = np.linalg.inv(matrix)
@@ -91,7 +108,16 @@ def compute_projected_quad(matrix: np.ndarray) -> list[tuple[float, float]]:
         ny = float(warped[1]) / denom
         return ((nx + 1.0) * 0.5, (ny + 1.0) * 0.5)
 
-    corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+    # Use crop rectangle corners if provided, otherwise use full image
+    if crop_rect is not None:
+        corners = [
+            (crop_rect.left, crop_rect.top),
+            (crop_rect.right, crop_rect.top),
+            (crop_rect.right, crop_rect.bottom),
+            (crop_rect.left, crop_rect.bottom),
+        ]
+    else:
+        corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
     return [_project_point(corner) for corner in corners]
 
 
@@ -110,11 +136,15 @@ def _cross(ax: float, ay: float, bx: float, by: float) -> float:
     return ax * by - ay * bx
 
 
-def _point_orientation(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
+def _point_orientation(
+    a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]
+) -> float:
     return _cross(b[0] - a[0], b[1] - a[1], c[0] - a[0], c[1] - a[1])
 
 
-def point_in_convex_polygon(point: tuple[float, float], polygon: Sequence[tuple[float, float]]) -> bool:
+def point_in_convex_polygon(
+    point: tuple[float, float], polygon: Sequence[tuple[float, float]]
+) -> bool:
     """Return ``True`` if *point* lies inside the convex *polygon*."""
 
     if len(polygon) < 3:
