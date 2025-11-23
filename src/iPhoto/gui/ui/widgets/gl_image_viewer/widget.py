@@ -487,12 +487,10 @@ class GLImageViewer(QOpenGLWidget):
                 }
             )
         else:
-            # Convert texture-space crop to logical-space for shader
-            # Shader tests crop in pre-rotation space (uv_perspective),
-            # so it needs logical-space crop parameters
+            # Send texture-space crop parameters directly to shader.
+            # The shader handles rotation internally via rotate step switch,
+            # so all UV sampling and crop checks are performed in unified texture space.
             effective_adjustments = dict(self._adjustments)
-            logical_crop = geometry.logical_crop_mapping_from_texture(self._adjustments)
-            effective_adjustments.update(logical_crop)
 
 
         logical_tex_w, logical_tex_h = self._display_texture_dimensions()
