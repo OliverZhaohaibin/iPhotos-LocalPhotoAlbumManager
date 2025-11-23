@@ -1,5 +1,9 @@
 # 裁剪坐标变换分析 (Crop Coordinate Transformation Analysis)
 
+> **注意**: 本文档中的行号引用基于分析时的代码版本。如果代码发生变更，请参考方法名和类名来定位相关代码。
+> 
+> **Note**: Line number references in this document are based on the code version at the time of analysis. If code changes, please use method and class names to locate relevant code.
+
 ## 问题 (Question)
 
 分析目前 cropstep 变换的时候，裁剪框和图片本身，是不是都是基于 step=0 的时候做的 CPU 坐标变换实现的？

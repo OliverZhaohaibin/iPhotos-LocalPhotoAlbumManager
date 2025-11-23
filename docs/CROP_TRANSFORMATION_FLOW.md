@@ -1,5 +1,9 @@
 # 裁剪坐标变换流程图 (Crop Coordinate Transformation Flow)
 
+> **注意**: 本文档中的行号引用基于分析时的代码版本。如果代码发生变更，请参考方法名来定位相关代码。
+> 
+> **Note**: Line number references in this document are based on the code version at the time of analysis. If code changes, please use method names to locate relevant code.
+
 ## 完整数据流 (Complete Data Flow)
 
 ```
