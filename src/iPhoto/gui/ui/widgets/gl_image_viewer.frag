@@ -186,9 +186,20 @@ void main() {
     vec2 viewCentre = uViewSize * 0.5;
     vec2 viewVector = fragPx - viewCentre;
     vec2 screenVector = viewVector - uPan;
+    
+    // Determine logical size: when rotated 90° or 270°, swap width and height
+    // This ensures UV coordinates are normalized correctly for the user's view
+    vec2 logicalSize = uTexSize;
+    if (uRotate90 == 1 || uRotate90 == 3) {
+        logicalSize = uTexSize.yx;  // swap width and height
+    }
+
     vec2 texVector = (screenVector / uScale - uImgOffset) / safeImgScale;
-    vec2 texPx = texVector + (uTexSize * 0.5);
-    vec2 uv = texPx / uTexSize;
+    
+    // Use logical size for centering and normalization
+    // This ensures uv coordinates map correctly to the displayed image (0,0 to 1,1)
+    vec2 texPx = texVector + (logicalSize * 0.5);
+    vec2 uv = texPx / logicalSize;
 
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         discard;
