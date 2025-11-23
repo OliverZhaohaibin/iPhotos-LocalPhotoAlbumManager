@@ -487,13 +487,13 @@ class GLImageViewer(QOpenGLWidget):
                 }
             )
         else:
-            # Pass LOGICAL crop coordinates to the shader.
-            # This ensures the shader performs crop testing in the same coordinate system
-            # as the UI interaction (Logical/Screen Space), eliminating rotation-specific bugs.
-            # The shader tests crop before rotation, making all rotation steps identical.
+            # Convert texture-space crop to logical-space for shader
+            # Shader tests crop in pre-rotation space (uv_perspective),
+            # so it needs logical-space crop parameters
             effective_adjustments = dict(self._adjustments)
             logical_crop = geometry.logical_crop_mapping_from_texture(self._adjustments)
             effective_adjustments.update(logical_crop)
+
 
         logical_tex_w, logical_tex_h = self._display_texture_dimensions()
 

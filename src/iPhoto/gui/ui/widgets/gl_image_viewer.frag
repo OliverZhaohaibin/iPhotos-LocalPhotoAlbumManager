@@ -199,16 +199,17 @@ void main() {
 
     // Apply perspective correction first
     vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
+    
+    // Check perspective bounds
     if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
         uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
         discard;
     }
     
-    // Perform crop test in LOGICAL space (Before Rotation)
-    // uCrop parameters are passed in Logical Space by Python.
-    // This unifies the logic for all rotation steps (0, 1, 2, 3) to be identical.
-    // The crop test happens in the same coordinate system the user sees,
-    // eliminating rotation-specific bugs and boundary issues.
+    // Perform crop test BEFORE rotation
+    // Crop parameters are defined in texture space (original unrotated texture).
+    // We test against uv_perspective (before rotation) because that represents
+    // the texture-space coordinates before the rotation transform.
     float crop_min_x = uCropCX - uCropW * 0.5;
     float crop_max_x = uCropCX + uCropW * 0.5;
     float crop_min_y = uCropCY - uCropH * 0.5;
@@ -218,8 +219,8 @@ void main() {
         uv_perspective.y < crop_min_y || uv_perspective.y > crop_max_y) {
         discard;
     }
-
-    // Apply rotation to get texture-space coordinates for sampling
+    
+    // Apply rotation to get final texture sampling coordinates
     vec2 uv_tex = apply_rotation_90(uv_perspective, uRotate90);
 
     // Sample the texture at the computed texture-space coordinates
