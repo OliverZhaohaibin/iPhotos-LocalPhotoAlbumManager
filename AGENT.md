@@ -356,6 +356,12 @@ void main() {
    
    ```python
    def update_perspective(self, vertical, horizontal, straighten, rotate_steps, flip_horizontal, aspect_ratio):
+       """Update the perspective quad based on parameters."""
+       new_vertical = float(vertical)
+       new_horizontal = float(horizontal)
+       new_straighten = float(straighten)
+       new_flip = bool(flip_horizontal)
+       
        # Calculate quad WITHOUT rotation, matching step=0's successful logic
        # The quad represents valid region after perspective/straighten only
        matrix = build_perspective_matrix(
