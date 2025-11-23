@@ -221,12 +221,14 @@ fmt.setProfile(QSurfaceFormat.CoreProfile)
 * **Shader 中处理 Flip（统一）**
 
 ```glsl
-// gl_image_viewer.frag (第 197 行)
+// gl_image_viewer.frag
 uv.y = 1.0 - uv.y;
 ```
 
 这样可确保 GPU 显示的方向与 UI 逻辑坐标一致，不会因为 Qt / OpenGL 的 Y 轴差异引起“倒置 / 上下颠倒 / 拖动反向”等问题。
 
+
+**文件位置**: `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag`
 
 ---
 
@@ -264,17 +266,20 @@ uv.y = 1.0 - uv.y;
 * **关键作用**: **黑边检测的核心空间**
   * 透视变换（perspective/straighten）应用后形成的有效区域四边形
   * 裁剪框必须完全包含在此四边形内才不会出现黑边
-  * **重要**: 四边形计算时 `rotate_steps=0`（`src/iPhoto/gui/ui/widgets/gl_crop/model.py` 第 147 行）
-* **实现逻辑**: 
+  * **重要**: 四边形计算时强制 `rotate_steps=0`
+* **实现代码** (`src/iPhoto/gui/ui/widgets/gl_crop/model.py`):
   ```python
-  # model.py 第 142-149 行
+  # Calculate quad WITHOUT rotation, matching step=0's successful logic
+  # The quad represents valid region after perspective/straighten only
   matrix = build_perspective_matrix(
-      vertical, horizontal,
+      new_vertical,
+      new_horizontal,
       image_aspect_ratio=aspect_ratio,
-      straighten_degrees=straighten,
-      rotate_steps=0,  # 黑边检测时忽略旋转
-      flip_horizontal=flip,
+      straighten_degrees=new_straighten,
+      rotate_steps=0,  # Match step=0 behavior
+      flip_horizontal=new_flip,
   )
+  self._perspective_quad = compute_projected_quad(matrix)
   ```
 
 #### D. 视口/屏幕坐标系 (Viewport Space)
@@ -289,38 +294,52 @@ uv.y = 1.0 - uv.y;
 
 **新架构**: 所有坐标变换已迁移到 Fragment Shader 中，Python 层只负责逻辑空间的交互。
 
+**文件**: `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag`
+
 ```glsl
-// src/iPhoto/gui/ui/widgets/gl_image_viewer.frag
+void main() {
+    // ... viewport to texture coordinate conversion ...
+    
+    // 1. Y 轴翻转
+    uv.y = 1.0 - uv.y;
+    vec2 uv_corrected = uv;
 
-// 1. Y 轴翻转（第 197 行）
-uv.y = 1.0 - uv.y;
-vec2 uv_corrected = uv;
+    // 2. 应用透视逆变换
+    vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
+    
+    // 3. 透视边界检查
+    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
+        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
+        discard;  // 透视变换后超出范围
+    }
+    
+    // 4. 裁剪测试 **关键: 在旋转之前进行**
+    // Crop parameters are defined in texture space (original unrotated texture).
+    // We test against uv_perspective (before rotation) because that represents
+    // the texture-space coordinates before the rotation transform.
+    float crop_min_x = uCropCX - uCropW * 0.5;
+    float crop_max_x = uCropCX + uCropW * 0.5;
+    float crop_min_y = uCropCY - uCropH * 0.5;
+    float crop_max_y = uCropCY + uCropH * 0.5;
 
-// 2. 应用透视逆变换（第 201 行）
-vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
+    if (uv_perspective.x < crop_min_x || uv_perspective.x > crop_max_x ||
+        uv_perspective.y < crop_min_y || uv_perspective.y > crop_max_y) {
+        discard;  // 裁剪框外
+    }
+    
+    // 5. 应用旋转
+    vec2 uv_tex = apply_rotation_90(uv_perspective, uRotate90);
 
-// 3. 透视边界检查（第 204-207 行）
-if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
-    uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
-    discard;  // 透视变换后超出范围
+    // 6. 纹理采样
+    vec4 texel = texture(uTex, uv_tex);
+    vec3 c = texel.rgb;
+    
+    // ... color adjustments ...
 }
-
-// 4. 裁剪测试（第 210-221 行）
-// **关键**: 裁剪测试在旋转之前进行，使用纹理空间坐标
-if (uv_perspective.x < crop_min_x || uv_perspective.x > crop_max_x ||
-    uv_perspective.y < crop_min_y || uv_perspective.y > crop_max_y) {
-    discard;  // 裁剪框外
-}
-
-// 5. 应用旋转（第 224 行）
-vec2 uv_tex = apply_rotation_90(uv_perspective, uRotate90);
-
-// 6. 纹理采样（第 227 行）
-vec4 texel = texture(uTex, uv_tex);
 ```
 
 **关键设计决策**:
-* **裁剪测试在旋转前**: 确保裁剪参数始终在纹理空间（第 210-221 行）
+* **裁剪测试在旋转前**: 确保裁剪参数始终在纹理空间
 * **黑边检测优化**: Shader 接收的裁剪参数已经在 Python 层验证过不会产生黑边
 * **Python 层简化**: Python 只需在逻辑空间操作，Shader 负责所有变换
 
@@ -330,15 +349,30 @@ vec4 texel = texture(uTex, uv_tex);
 
 **核心原则**: 黑边判定在**投影空间**（透视变换后，旋转前）进行。
 
-1. **步骤0策略** (`model.py` 第 147 行):
+1. **步骤0策略** (`src/iPhoto/gui/ui/widgets/gl_crop/model.py`):
    * 计算有效四边形时强制 `rotate_steps=0`
    * 原因: 旋转是纯粹的坐标重映射，不影响有效像素区域
    * 结果: 四边形 `Q_valid` 代表真实的有效像素边界
+   
+   ```python
+   def update_perspective(self, vertical, horizontal, straighten, rotate_steps, flip_horizontal, aspect_ratio):
+       # Calculate quad WITHOUT rotation, matching step=0's successful logic
+       # The quad represents valid region after perspective/straighten only
+       matrix = build_perspective_matrix(
+           new_vertical,
+           new_horizontal,
+           image_aspect_ratio=aspect_ratio,
+           straighten_degrees=new_straighten,
+           rotate_steps=0,  # Match step=0 behavior
+           flip_horizontal=new_flip,
+       )
+       self._perspective_quad = compute_projected_quad(matrix)
+   ```
 
-2. **包含性检查** (`perspective_math.py`):
+2. **包含性检查** (`src/iPhoto/gui/ui/widgets/perspective_math.py`):
    ```python
    def rect_inside_quad(rect: NormalisedRect, quad: Sequence[tuple[float, float]]) -> bool:
-       """检查裁剪框的四个角点是否都在四边形内"""
+       """Return True when rect is fully contained inside quad."""
        corners = [
            (rect.left, rect.top),
            (rect.right, rect.top),
@@ -348,10 +382,24 @@ vec4 texel = texture(uTex, uv_tex);
        return all(point_in_convex_polygon(corner, quad) for corner in corners)
    ```
 
-3. **自动缩放** (`model.py` 第 185-201 行):
+3. **自动缩放** (`src/iPhoto/gui/ui/widgets/gl_crop/model.py`):
    * 当裁剪框超出有效区域时，自动均匀缩小
    * 使用 `calculate_min_zoom_to_fit()` 计算最小缩放比例
    * 确保裁剪结果完全在有效像素内
+   
+   ```python
+   def auto_scale_crop_to_quad(self) -> bool:
+       """Shrink the crop uniformly so it sits entirely inside the quad."""
+       quad = self._perspective_quad or unit_quad()
+       rect = self._current_normalised_rect()
+       scale = calculate_min_zoom_to_fit(rect, quad)
+       if not math.isfinite(scale) or scale <= 1.0 + 1e-4:
+           return False
+       self._crop_state.width = max(self._crop_state.min_width, self._crop_state.width / scale)
+       self._crop_state.height = max(self._crop_state.min_height, self._crop_state.height / scale)
+       self._crop_state.clamp()
+       return True
+   ```
 
 **示例场景**:
 * 用户应用强透视变换 → 有效区域变成梯形
@@ -381,13 +429,13 @@ vec4 texel = texture(uTex, uv_tex);
    ```
 
 3. **黑边检查位置**  
-   * Python 层：使用 `rect_inside_quad()` 在投影空间检查（`model.py` 第 158-165 行）
-   * Shader 层：裁剪测试在旋转前进行（`gl_image_viewer.frag` 第 210-221 行）
+   * Python 层：使用 `rect_inside_quad()` 在投影空间检查
+   * Shader 层：裁剪测试在旋转前进行
 
 4. **实现文件参考**  
    * `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag` — Shader 坐标变换管线
    * `src/iPhoto/gui/ui/widgets/gl_image_viewer/geometry.py` — 纹理/逻辑空间转换
-   * `src/iPhoto/gui/ui/widgets/gl_crop/model.py` — 黑边检测逻辑（第 147 行关键）
+   * `src/iPhoto/gui/ui/widgets/gl_crop/model.py` — 黑边检测逻辑（rotate_steps=0 关键）
    * `src/iPhoto/gui/ui/widgets/perspective_math.py` — 几何算法（包含性检查）
 
 ---
