@@ -186,28 +186,35 @@ class CropSessionModel:
         if steps == 0:
             return quad
 
-        def inverse_rotate_point(x: float, y: float) -> tuple[float, float]:
+        def inverse_rotate_point(logical_x: float, logical_y: float) -> tuple[float, float]:
             """Apply the inverse of the shader's 90° rotation.
 
-            Shader rotation (logical → physical):
-              Step 1 (90° CW):  (x', y') = (y, 1-x)
-              Step 2 (180°):    (x', y') = (1-x, 1-y)
-              Step 3 (270° CW): (x', y') = (1-y, x)
+            Given a point (logical_x, logical_y) in logical space (post-rotation),
+            compute the corresponding point (texture_x, texture_y) in texture space.
 
-            Inverse rotation (logical → texture):
-              Step 1: (x, y) = (y', 1-x')
-              Step 2: (x, y) = (1-x', 1-y')
-              Step 3: (x, y) = (1-y', x')
+            Shader rotation (logical → physical, applied in shader):
+              Step 1 (90° CW):  physical = (logical_y, 1 - logical_x)
+              Step 2 (180°):    physical = (1 - logical_x, 1 - logical_y)
+              Step 3 (270° CW): physical = (1 - logical_y, logical_x)
+
+            Inverse (logical → texture, applied here for crop validation):
+              Step 1: texture = (logical_y, 1 - logical_x)
+              Step 2: texture = (1 - logical_x, 1 - logical_y)
+              Step 3: texture = (1 - logical_y, logical_x)
+
+            Note: The inverse transformation formula is the same as the forward
+            transformation because these are 90° rotations applied to normalized
+            [0,1] coordinates around the center (0.5, 0.5).
             """
             if steps == 1:
-                # Inverse of 90° CW: (x, y) = (y', 1-x')
-                return (y, 1.0 - x)
+                # Inverse of 90° CW rotation
+                return (logical_y, 1.0 - logical_x)
             elif steps == 2:
-                # Inverse of 180°: (x, y) = (1-x', 1-y')
-                return (1.0 - x, 1.0 - y)
+                # Inverse of 180° rotation
+                return (1.0 - logical_x, 1.0 - logical_y)
             else:  # steps == 3
-                # Inverse of 270° CW: (x, y) = (1-y', x')
-                return (1.0 - y, x)
+                # Inverse of 270° CW rotation
+                return (1.0 - logical_y, logical_x)
 
         return [inverse_rotate_point(pt[0], pt[1]) for pt in quad]
 
