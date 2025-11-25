@@ -10,8 +10,8 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 
-from iPhotos.src.iPhoto.appctx import AppContext
-from iPhotos.src.iPhoto.gui.ui.main_window import MainWindow
+from iPhoto.appctx import AppContext
+from iPhoto.gui.ui.main_window import MainWindow
 
 
 

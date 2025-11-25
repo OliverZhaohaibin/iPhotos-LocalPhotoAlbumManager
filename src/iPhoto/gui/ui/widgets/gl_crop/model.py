@@ -88,6 +88,11 @@ class CropSessionModel:
     ) -> bool:
         """Update the perspective quad based on parameters.
 
+        This method computes the perspective quad in LOGICAL space (matching the
+        shader's coordinate system), then transforms it to TEXTURE space for crop
+        validation. This ensures that crop coordinates (stored in texture space)
+        are validated correctly against the perspective quad.
+
         Parameters
         ----------
         vertical:
@@ -101,7 +106,7 @@ class CropSessionModel:
         flip_horizontal:
             Whether to flip horizontally.
         aspect_ratio:
-            Image aspect ratio (width/height).
+            Image aspect ratio (width/height) in LOGICAL space (post-rotation).
 
         Returns
         -------
@@ -130,19 +135,81 @@ class CropSessionModel:
         self._rotate_steps = new_rotate
         self._flip_horizontal = new_flip
 
-        # Pass original parameters directly to the perspective matrix builder.
-        # The shader now handles black border detection uniformly across all rotation
-        # steps, so we no longer need to reverse parameters for odd rotations.
+        # Build perspective matrix in LOGICAL space (matching shader's coordinate system).
+        # The shader handles 90° rotation via uRotate90, so we pass rotate_steps=0 here.
+        # The aspect_ratio must be the LOGICAL aspect ratio (post-rotation dimensions).
         matrix = build_perspective_matrix(
             new_vertical,
             new_horizontal,
             image_aspect_ratio=aspect_ratio,
             straighten_degrees=new_straighten,
-            rotate_steps=0,  # Always 0; rotation is handled by shader's uRotate90
+            rotate_steps=0,  # Rotation handled by shader's uRotate90
             flip_horizontal=new_flip,
         )
-        self._perspective_quad = compute_projected_quad(matrix)
+
+        # Compute the perspective quad in LOGICAL space
+        logical_quad = compute_projected_quad(matrix)
+
+        # Transform the quad from logical space to texture space for crop validation.
+        # This ensures crop coordinates (stored in texture space) are validated correctly.
+        self._perspective_quad = self._transform_quad_to_texture_space(
+            logical_quad,
+            new_rotate,
+        )
+
         return True
+
+    def _transform_quad_to_texture_space(
+        self,
+        quad: list[tuple[float, float]],
+        rotate_steps: int,
+    ) -> list[tuple[float, float]]:
+        """Transform a quad from logical space to texture space.
+
+        This is the inverse of the shader's apply_rotation_90() function.
+        When the shader applies rotation to go from logical→physical,
+        we need the inverse to go from logical→texture for crop validation.
+
+        Parameters
+        ----------
+        quad:
+            List of (x, y) tuples in logical space.
+        rotate_steps:
+            Number of 90° rotation steps.
+
+        Returns
+        -------
+        list[tuple[float, float]]:
+            List of (x, y) tuples in texture space.
+        """
+        steps = rotate_steps % 4
+        if steps == 0:
+            return quad
+
+        def inverse_rotate_point(x: float, y: float) -> tuple[float, float]:
+            """Apply the inverse of the shader's 90° rotation.
+
+            Shader rotation (logical → physical):
+              Step 1 (90° CW):  (x', y') = (y, 1-x)
+              Step 2 (180°):    (x', y') = (1-x, 1-y)
+              Step 3 (270° CW): (x', y') = (1-y, x)
+
+            Inverse rotation (logical → texture):
+              Step 1: (x, y) = (y', 1-x')
+              Step 2: (x, y) = (1-x', 1-y')
+              Step 3: (x, y) = (1-y', x')
+            """
+            if steps == 1:
+                # Inverse of 90° CW: (x, y) = (y', 1-x')
+                return (y, 1.0 - x)
+            elif steps == 2:
+                # Inverse of 180°: (x, y) = (1-x', 1-y')
+                return (1.0 - x, 1.0 - y)
+            else:  # steps == 3
+                # Inverse of 270° CW: (x, y) = (1-y', x')
+                return (1.0 - y, x)
+
+        return [inverse_rotate_point(pt[0], pt[1]) for pt in quad]
 
     def _current_normalised_rect(self) -> NormalisedRect:
         """Return the current crop as a normalised rect."""

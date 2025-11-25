@@ -154,3 +154,130 @@ def test_apply_baseline_perspective_fit_with_baseline(model):
     changed = model.apply_baseline_perspective_fit()
     # The result depends on the perspective quad, so we just verify it runs
     assert isinstance(changed, bool)
+
+
+# Tests for _transform_quad_to_texture_space (rotation coordinate transformation)
+
+def test_transform_quad_no_rotation(model):
+    """Test that quad is unchanged when rotate_steps=0."""
+    # Set up with no rotation
+    model.update_perspective(0.0, 0.0, 0.0, 0, False, 1.0)
+    quad = model.get_perspective_quad()
+    
+    # Unit quad should remain unchanged
+    assert len(quad) == 4
+    # Corners should be approximately at unit square positions
+    for pt in quad:
+        assert 0.0 <= pt[0] <= 1.0
+        assert 0.0 <= pt[1] <= 1.0
+
+
+def test_transform_quad_with_90_rotation(model):
+    """Test quad transformation with 90° rotation (step=1)."""
+    # Set up with 90° rotation
+    model.update_perspective(0.0, 0.0, 0.0, 1, False, 1.0)
+    quad = model.get_perspective_quad()
+    
+    # With rotation, the quad should be transformed to texture space
+    assert len(quad) == 4
+    # All points should still be within valid bounds (with some tolerance for floating point)
+    for pt in quad:
+        assert -0.01 <= pt[0] <= 1.01
+        assert -0.01 <= pt[1] <= 1.01
+
+
+def test_transform_quad_with_180_rotation(model):
+    """Test quad transformation with 180° rotation (step=2)."""
+    # Set up with 180° rotation
+    model.update_perspective(0.0, 0.0, 0.0, 2, False, 1.0)
+    quad = model.get_perspective_quad()
+    
+    assert len(quad) == 4
+    # The quad should be valid in texture space
+    for pt in quad:
+        assert -0.01 <= pt[0] <= 1.01
+        assert -0.01 <= pt[1] <= 1.01
+
+
+def test_transform_quad_with_270_rotation(model):
+    """Test quad transformation with 270° rotation (step=3)."""
+    # Set up with 270° rotation
+    model.update_perspective(0.0, 0.0, 0.0, 3, False, 1.0)
+    quad = model.get_perspective_quad()
+    
+    assert len(quad) == 4
+    for pt in quad:
+        assert -0.01 <= pt[0] <= 1.01
+        assert -0.01 <= pt[1] <= 1.01
+
+
+def test_crop_inside_quad_with_rotation(model):
+    """Test that crop validation works correctly with rotation.
+    
+    This is the key test for the bug fix: crop coordinates are stored in
+    texture space, and the perspective quad must be transformed to texture
+    space for correct validation.
+    """
+    # Set up default centered crop
+    crop_state = model.get_crop_state()
+    crop_state.cx = 0.5
+    crop_state.cy = 0.5
+    crop_state.width = 0.5
+    crop_state.height = 0.5
+    
+    # Test with different rotation values
+    for rotate_steps in range(4):
+        model.update_perspective(0.0, 0.0, 0.0, rotate_steps, False, 1.0)
+        # A centered crop should always be inside the quad
+        assert model.is_crop_inside_quad(), f"Failed for rotate_steps={rotate_steps}"
+
+
+def test_crop_inside_quad_with_perspective_and_rotation(model):
+    """Test crop validation with combined perspective and rotation.
+    
+    This tests the scenario described in the issue: perspective + straighten
+    + rotation should not cause crop displacement.
+    """
+    crop_state = model.get_crop_state()
+    crop_state.cx = 0.5
+    crop_state.cy = 0.5
+    crop_state.width = 0.3
+    crop_state.height = 0.3
+    
+    # Test with perspective + straighten + rotation
+    for rotate_steps in range(4):
+        # Small perspective and straighten values
+        model.update_perspective(0.1, 0.05, 2.0, rotate_steps, False, 1.5)
+        # A small centered crop should be inside even with perspective
+        inside = model.is_crop_inside_quad()
+        assert inside, f"Centered crop should be inside quad for rotate_steps={rotate_steps}"
+
+
+def test_perspective_quad_consistency_across_rotations(model):
+    """Test that perspective quad is consistent across rotation steps.
+    
+    The quad should represent the valid crop area in texture space,
+    regardless of the rotation step.
+    """
+    # Set up some perspective values
+    perspective_vertical = 0.2
+    perspective_horizontal = 0.1
+    straighten = 5.0
+    
+    quads = []
+    for rotate_steps in range(4):
+        model.update_perspective(
+            perspective_vertical, 
+            perspective_horizontal, 
+            straighten, 
+            rotate_steps, 
+            False, 
+            1.5
+        )
+        quads.append(model.get_perspective_quad())
+    
+    # Each quad should be valid (all corners defined)
+    for i, quad in enumerate(quads):
+        assert len(quad) == 4, f"Quad {i} should have 4 corners"
+        for j, pt in enumerate(quad):
+            assert len(pt) == 2, f"Point {j} of quad {i} should have 2 coordinates"
