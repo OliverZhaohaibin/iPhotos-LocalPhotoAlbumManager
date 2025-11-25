@@ -181,22 +181,25 @@ vec3 apply_bw(vec3 color, vec2 uv) {
 
 // Unified black border detection function
 // Checks if UV coordinate is within valid bounds after all transformations
+// This function ensures consistent black border detection across all rotate_steps values
 bool is_within_valid_bounds(vec2 uv) {
-    // 1. Apply inverse perspective transformation
+    // 1. Apply inverse perspective transformation (includes straighten)
     vec2 uv_perspective = apply_inverse_perspective(uv);
     
     // Check if perspective transformation caused out-of-bounds
-    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
-        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
+    // Use small epsilon to avoid edge artifacts
+    float eps = 1e-4;
+    if (uv_perspective.x < -eps || uv_perspective.x > 1.0 + eps ||
+        uv_perspective.y < -eps || uv_perspective.y > 1.0 + eps) {
         return false;
     }
     
-    // 2. Apply 90-degree rotation
+    // 2. Apply 90-degree rotation to map to physical texture space
     vec2 uv_rotated = apply_rotation_90(uv_perspective, uRotate90);
     
-    // Final check: ensure we're within physical texture bounds
-    if (uv_rotated.x < 0.0 || uv_rotated.x > 1.0 ||
-        uv_rotated.y < 0.0 || uv_rotated.y > 1.0) {
+    // Final check: ensure we're within physical texture bounds [0, 1]
+    if (uv_rotated.x < -eps || uv_rotated.x > 1.0 + eps ||
+        uv_rotated.y < -eps || uv_rotated.y > 1.0 + eps) {
         return false;
     }
     
