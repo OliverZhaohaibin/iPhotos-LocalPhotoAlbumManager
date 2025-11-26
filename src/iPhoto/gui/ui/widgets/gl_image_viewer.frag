@@ -225,19 +225,6 @@ void main() {
     uv.y = 1.0 - uv.y;
     vec2 uv_corrected = uv;
 
-    // Apply crop in texture coordinate space
-    // Calculate normalized crop boundaries
-    float crop_min_x = uCropCX - uCropW * 0.5;
-    float crop_max_x = uCropCX + uCropW * 0.5;
-    float crop_min_y = uCropCY - uCropH * 0.5;
-    float crop_max_y = uCropCY + uCropH * 0.5;
-
-    // Check if current fragment's texture coordinate is outside the crop box
-    if (uv_corrected.x < crop_min_x || uv_corrected.x > crop_max_x ||
-        uv_corrected.y < crop_min_y || uv_corrected.y > crop_max_y) {
-        discard; // Discard fragments outside the crop region
-    }
-
     // Unified black border detection - check bounds after all transformations
     if (!is_within_valid_bounds(uv_corrected)) {
         discard;
@@ -248,6 +235,19 @@ void main() {
     
     // Apply 90-degree rotation AFTER perspective correction
     uv_original = apply_rotation_90(uv_original, uRotate90);
+
+    // Apply crop in physical texture space (after all transformations)
+    // Now both uv_original and the crop parameters are in the same coordinate system
+    float crop_min_x = uCropCX - uCropW * 0.5;
+    float crop_max_x = uCropCX + uCropW * 0.5;
+    float crop_min_y = uCropCY - uCropH * 0.5;
+    float crop_max_y = uCropCY + uCropH * 0.5;
+
+    // Check if current fragment's texture coordinate is outside the crop box
+    if (uv_original.x < crop_min_x || uv_original.x > crop_max_x ||
+        uv_original.y < crop_min_y || uv_original.y > crop_max_y) {
+        discard; // Discard fragments outside the crop region
+    }
 
     vec4 texel = texture(uTex, uv_original);
     vec3 c = texel.rgb;
