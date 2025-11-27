@@ -18,6 +18,12 @@ class BWSlider(QWidget):
     valueCommitted = Signal(float)
     """Emitted after the user finishes an interaction and settles on a value."""
 
+    interactionStarted = Signal()
+    """Emitted as soon as the user begins a pointer/keyboard interaction."""
+
+    interactionFinished = Signal()
+    """Emitted once the interaction that changed the value completes."""
+
     def __init__(
         self,
         name: str = "Intensity",
@@ -101,8 +107,9 @@ class BWSlider(QWidget):
     def mousePressEvent(self, event):  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = True
-            self._set_by_pos(event.position().x())
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self.interactionStarted.emit()
+            self._set_by_pos(event.position().x())
 
     def mouseMoveEvent(self, event):  # type: ignore[override]
         if self._dragging:
@@ -113,23 +120,29 @@ class BWSlider(QWidget):
             self._dragging = False
             self.unsetCursor()
             self.valueCommitted.emit(self._value)
+            self.interactionFinished.emit()
 
     def wheelEvent(self, event):  # type: ignore[override]
+        self.interactionStarted.emit()
         step = (self._maximum - self._minimum) * 0.01
         delta = event.angleDelta().y() / 120.0
         self.setValue(self._value + delta * step)
         self.valueCommitted.emit(self._value)
+        self.interactionFinished.emit()
 
     def keyPressEvent(self, event):  # type: ignore[override]
         step = (self._maximum - self._minimum) * 0.01
         if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_A):
+            self.interactionStarted.emit()
             self.setValue(self._value - step)
         elif event.key() in (Qt.Key.Key_Right, Qt.Key.Key_D):
+            self.interactionStarted.emit()
             self.setValue(self._value + step)
         else:
             super().keyPressEvent(event)
             return
         self.valueCommitted.emit(self._value)
+        self.interactionFinished.emit()
 
     # ------------------------------------------------------------------
     # Rendering helpers

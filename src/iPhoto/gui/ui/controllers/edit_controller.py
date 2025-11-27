@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Mapping, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, QSize, Slot
 from PySide6.QtGui import QImage
@@ -102,6 +102,12 @@ class EditController(QObject):
         self._preview_manager = EditPreviewManager(self._ui.edit_image_viewer, self)
         self._ui.edit_sidebar.bwParamsPreviewed.connect(self._handle_bw_previewed)
         self._ui.edit_sidebar.bwParamsCommitted.connect(self._handle_bw_committed)
+        self._ui.edit_sidebar.perspectiveInteractionStarted.connect(
+            self._ui.edit_image_viewer.start_perspective_interaction
+        )
+        self._ui.edit_sidebar.perspectiveInteractionFinished.connect(
+            self._ui.edit_image_viewer.end_perspective_interaction
+        )
 
         self._transition_manager = EditViewTransitionManager(self._ui, self._window, self)
         self._transition_manager.transition_finished.connect(self._on_transition_finished)
@@ -128,6 +134,7 @@ class EditController(QObject):
         self._edit_viewer_fullscreen_connected = False
         ui.edit_reset_button.clicked.connect(self._handle_reset_clicked)
         ui.edit_done_button.clicked.connect(self._handle_done_clicked)
+        ui.edit_rotate_left_button.clicked.connect(self._handle_rotate_left_clicked)
         ui.edit_adjust_action.triggered.connect(lambda checked: self._handle_mode_change("adjust", checked))
         ui.edit_crop_action.triggered.connect(lambda checked: self._handle_mode_change("crop", checked))
         ui.edit_compare_button.pressed.connect(self._handle_compare_pressed)
@@ -225,6 +232,12 @@ class EditController(QObject):
         # redundant re-upload.  When the source matches we keep the user's
         # zoom/pan framing intact.
         viewer = self._ui.edit_image_viewer
+        try:
+            viewer.cropChanged.disconnect(self._handle_crop_changed)
+        except (TypeError, RuntimeError):
+            pass
+        viewer.cropChanged.connect(self._handle_crop_changed)
+        viewer.setCropMode(False, session.values())
         current_source = viewer.current_image_source()
         self._skip_next_preview_frame = current_source == source
         if not self._skip_next_preview_frame:
@@ -479,6 +492,7 @@ class EditController(QObject):
         # Ensure the preview surface shows the latest adjusted frame before any widgets start
         # disappearing so the user never sees a partially restored original.
         self._handle_compare_released()
+        self._ui.edit_image_viewer.setCropMode(False)
 
         self._disconnect_edit_zoom_controls()
         if self._detail_ui_controller is not None:
@@ -523,6 +537,27 @@ class EditController(QObject):
             return
         self._preview_manager.update_adjustments(self._session.values())
         self._apply_session_adjustments_to_viewer()
+
+    def _handle_crop_changed(self, cx: float, cy: float, width: float, height: float) -> None:
+        if self._session is None:
+            return
+        updates = {
+            "Crop_CX": float(cx),
+            "Crop_CY": float(cy),
+            "Crop_W": float(width),
+            "Crop_H": float(height),
+        }
+        self._session.set_values(updates, emit_individual=False)
+
+    def _handle_rotate_left_clicked(self) -> None:
+        if self._session is None:
+            return
+        updates = self._ui.edit_image_viewer.rotate_image_ccw()
+        # Persist the viewer-driven rotation so the backing session stays aligned with the
+        # logical coordinate system used by the OpenGL paint path.  Persisting the mapping
+        # in a single call avoids per-field signals and keeps the crop overlay in sync with
+        # the updated orientation.
+        self._session.set_values(updates, emit_individual=False)
 
     def _apply_session_adjustments_to_viewer(self) -> None:
         """Forward the latest session values to the GL viewer."""
@@ -686,6 +721,10 @@ class EditController(QObject):
         # the background worker recalculates the full-resolution frame.  A copy
         # keeps the pixmap alive after the edit widgets tear down their state.
         preview_pixmap = self._ui.edit_image_viewer.pixmap()
+        self._session.set_values(
+            self._ui.edit_image_viewer.crop_values(),
+            emit_individual=False,
+        )
         adjustments = self._session.values()
         if self._navigation is not None:
             # Saving adjustments writes sidecar files, which triggers the
@@ -773,10 +812,20 @@ class EditController(QObject):
             self._ui.edit_adjust_action.setChecked(True)
             self._ui.edit_crop_action.setChecked(False)
             self._ui.edit_sidebar.set_mode("adjust")
+            self._ui.edit_image_viewer.setCropMode(False)
         else:
             self._ui.edit_adjust_action.setChecked(False)
             self._ui.edit_crop_action.setChecked(True)
             self._ui.edit_sidebar.set_mode("crop")
+            crop_values: Mapping[str, float] | None = None
+            if self._session is not None:
+                crop_values = {
+                    "Crop_CX": float(self._session.value("Crop_CX")),
+                    "Crop_CY": float(self._session.value("Crop_CY")),
+                    "Crop_W": float(self._session.value("Crop_W")),
+                    "Crop_H": float(self._session.value("Crop_H")),
+                }
+            self._ui.edit_image_viewer.setCropMode(True, crop_values)
         index = 0 if mode == "adjust" else 1
         self._ui.edit_mode_control.setCurrentIndex(index, animate=not from_top_bar)
 

@@ -22,6 +22,18 @@ uniform vec2  uViewSize;
 uniform vec2  uTexSize;
 uniform float uScale;
 uniform vec2  uPan;
+uniform float uImgScale;
+uniform vec2  uImgOffset;
+uniform float uCropCX;
+uniform float uCropCY;
+uniform float uCropW;
+uniform float uCropH;
+uniform mat3  uPerspectiveMatrix;
+uniform int   uRotate90;  // 0, 1, 2, 3 for 0°, 90°, 180°, 270° CCW rotation
+uniform float uStraightenDegrees;  // Straighten angle for unified black border detection
+uniform float uVertical;           // Vertical perspective parameter
+uniform float uHorizontal;         // Horizontal perspective parameter
+uniform bool  uFlipHorizontal;     // Horizontal flip flag
 
 float clamp01(float x) { return clamp(x, 0.0, 1.0); }
 
@@ -106,6 +118,35 @@ float grain_noise(vec2 uv, float grain_amount) {
     return (noise - 0.5) * 0.2 * grain_amount;
 }
 
+vec2 apply_inverse_perspective(vec2 uv) {
+    vec2 centered = uv * 2.0 - 1.0;
+    vec3 warped = uPerspectiveMatrix * vec3(centered, 1.0);
+    float denom = warped.z;
+    if (abs(denom) < 1e-5) {
+        denom = (denom >= 0.0) ? 1e-5 : -1e-5;
+    }
+    vec2 restored = warped.xy / denom;
+    return restored * 0.5 + 0.5;
+}
+
+vec2 apply_rotation_90(vec2 uv, int rotate_steps) {
+    // Apply discrete 90-degree rotations
+    // Note: These are CW rotations to match the logical coordinate swap direction
+    int steps = rotate_steps % 4;
+    if (steps == 1) {
+        // 90° CW: (x,y) -> (y, 1-x)
+        return vec2(uv.y, 1.0 - uv.x);
+    } else if (steps == 2) {
+        // 180°: (x,y) -> (1-x, 1-y)
+        return vec2(1.0 - uv.x, 1.0 - uv.y);
+    } else if (steps == 3) {
+        // 270° CW (or 90° CCW): (x,y) -> (1-y, x)
+        return vec2(1.0 - uv.y, uv.x);
+    }
+    // steps == 0: no rotation
+    return uv;
+}
+
 vec3 apply_bw(vec3 color, vec2 uv) {
     float intensity = clamp(uBWParams.x, -1.0, 1.0);
     float neutrals = clamp(uBWParams.y, -1.0, 1.0);
@@ -138,15 +179,42 @@ vec3 apply_bw(vec3 color, vec2 uv) {
     return vec3(gray);
 }
 
+// Unified black border detection function
+// Checks if UV coordinate is within valid bounds after all transformations
+bool is_within_valid_bounds(vec2 uv) {
+    // 1. Apply inverse perspective transformation
+    vec2 uv_perspective = apply_inverse_perspective(uv);
+    
+    // Check if perspective transformation caused out-of-bounds
+    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
+        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
+        return false;
+    }
+    
+    // 2. Apply 90-degree rotation
+    vec2 uv_rotated = apply_rotation_90(uv_perspective, uRotate90);
+    
+    // Final check: ensure we're within physical texture bounds
+    if (uv_rotated.x < 0.0 || uv_rotated.x > 1.0 ||
+        uv_rotated.y < 0.0 || uv_rotated.y > 1.0) {
+        return false;
+    }
+    
+    return true;
+}
+
 void main() {
     if (uScale <= 0.0) {
         discard;
     }
 
+    float safeImgScale = max(uImgScale, 1e-6);
+
     vec2 fragPx = vec2(gl_FragCoord.x - 0.5, gl_FragCoord.y - 0.5);
     vec2 viewCentre = uViewSize * 0.5;
     vec2 viewVector = fragPx - viewCentre;
-    vec2 texVector = (viewVector - uPan) / uScale;
+    vec2 screenVector = viewVector - uPan;
+    vec2 texVector = (screenVector / uScale - uImgOffset) / safeImgScale;
     vec2 texPx = texVector + (uTexSize * 0.5);
     vec2 uv = texPx / uTexSize;
 
@@ -155,8 +223,33 @@ void main() {
     }
 
     uv.y = 1.0 - uv.y;
+    vec2 uv_corrected = uv;
 
-    vec4 texel = texture(uTex, uv);
+    // Unified black border detection - check bounds after all transformations
+    if (!is_within_valid_bounds(uv_corrected)) {
+        discard;
+    }
+    
+    // Apply transformations for texture sampling
+    vec2 uv_original = apply_inverse_perspective(uv_corrected);
+    
+    // Apply 90-degree rotation AFTER perspective correction
+    uv_original = apply_rotation_90(uv_original, uRotate90);
+
+    // Apply crop in physical texture space (after all transformations)
+    // Now both uv_original and the crop parameters are in the same coordinate system
+    float crop_min_x = uCropCX - uCropW * 0.5;
+    float crop_max_x = uCropCX + uCropW * 0.5;
+    float crop_min_y = uCropCY - uCropH * 0.5;
+    float crop_max_y = uCropCY + uCropH * 0.5;
+
+    // Check if current fragment's texture coordinate is outside the crop box
+    if (uv_original.x < crop_min_x || uv_original.x > crop_max_x ||
+        uv_original.y < crop_min_y || uv_original.y > crop_max_y) {
+        discard; // Discard fragments outside the crop region
+    }
+
+    vec4 texel = texture(uTex, uv_original);
     vec3 c = texel.rgb;
 
     float exposure_term    = uExposure   * 1.5;
@@ -174,7 +267,7 @@ void main() {
     c = apply_color_transform(c, uSaturation, uVibrance, uColorCast, uGain);
 
     if (uBWEnabled) {
-        c = apply_bw(c, uv);
+        c = apply_bw(c, uv_original);
     }
     FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }

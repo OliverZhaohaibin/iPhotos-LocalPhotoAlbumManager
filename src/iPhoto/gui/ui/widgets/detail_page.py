@@ -68,6 +68,7 @@ class DetailPageWidget(QWidget):
         self.edit_compare_button = QToolButton(self)
         self.edit_reset_button = QPushButton(self)
         self.edit_done_button = QPushButton(self)
+        self.edit_rotate_left_button = QToolButton(self)
         self.edit_zoom_host = QWidget(self)
         self.edit_zoom_host_layout = QHBoxLayout(self.edit_zoom_host)
         self.edit_zoom_host_layout.setContentsMargins(0, 0, 0, 0)
@@ -374,6 +375,14 @@ class DetailPageWidget(QWidget):
             QSizePolicy.Policy.Maximum,
             QSizePolicy.Policy.Preferred,
         )
+
+        # Edit界面的rotate按钮使用白色图标
+        self.edit_rotate_left_button.setIcon(load_icon("rotate.left.svg", color=(255, 255, 255)))
+        self.edit_rotate_left_button.setIconSize(HEADER_ICON_GLYPH_SIZE)
+        self.edit_rotate_left_button.setFixedSize(HEADER_BUTTON_SIZE)
+        self.edit_rotate_left_button.setAutoRaise(True)
+        self.edit_rotate_left_button.setToolTip("Rotate counter-clockwise")
+        right_controls_layout.addWidget(self.edit_rotate_left_button)
 
         self.edit_done_button.setObjectName("editDoneButton")
         self.edit_done_button.setAutoDefault(False)
