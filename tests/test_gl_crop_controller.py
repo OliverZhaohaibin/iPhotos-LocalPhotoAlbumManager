@@ -1,4 +1,3 @@
-
 import pytest
 from unittest.mock import MagicMock
 from src.iPhoto.gui.ui.widgets.gl_crop.controller import CropInteractionController
