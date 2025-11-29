@@ -167,8 +167,8 @@ class ExportController(QObject):
         dest = self._settings.get("ui.export_destination", "library")
         library_root = self._library.root()
         if not library_root:
-             show_error(self._main_window, "Library not bound.")
-             return None
+            show_error(self._main_window, "Library not bound.")
+            return None
 
         if dest == "library":
             path = library_root / EXPORT_DIR_NAME
