@@ -223,6 +223,22 @@ class ThumbnailJob(QRunnable):
 
         # Compose full transform:
         # Texture -> Norm -> Rotated -> NDC -> Perspective -> NDC -> Norm -> Pixels
+        #
+        # --- Example: Coordinate Flow ---
+        # Suppose input pixel = (100, 200), image size = (w, h) = (400, 300)
+        # Assume no rotation, no perspective, crop is centered, log_w = log_h = 1, log_cx = log_cy = 0.5
+        # 1. Normalize: (100, 200) / (400, 300) = (0.25, 0.6667)
+        # 2. Rotate: (no-op if rotate_steps == 0)
+        # 3. To NDC: (0.25, 0.6667) * 2 - 1 = (-0.5, 0.3333)
+        # 4. Perspective: (no-op if qt_perspective is identity)
+        # 5. From NDC: ((-0.5, 0.3333) * 0.5) + 0.5 = (0.25, 0.6667)
+        # 6. To Pixels: (0.25, 0.6667) * (400, 300) = (100, 200)
+        # 7. Crop: If crop is centered and full size, crop_x_px = crop_y_px = 0, so no shift.
+        # Final output: (100, 200)
+        #
+        # This example shows that for identity transforms and centered, full-size crop,
+        # the chain maps (100, 200) input pixel to the same output pixel.
+        #
         transform = t_to_norm * t_rot * t_to_ndc * qt_perspective * t_from_ndc * t_to_pixels
 
         # Calculate crop rectangle in Logical Pixels
