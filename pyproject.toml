@@ -24,6 +24,7 @@ dependencies = [
   "pyexiftool>=0.5.5",
   "numpy>=2.3.4",
   "numba>=0.60",
+  "mapbox-vector-tile>=1.2",
 ]
 
 [project.optional-dependencies]
