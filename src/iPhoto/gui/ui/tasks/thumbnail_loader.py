@@ -232,7 +232,7 @@ class ThumbnailJob(QRunnable):
         crop_h_px = log_h * log_h_px
 
         # Shift so crop top-left is at (0, 0)
-        t_final = transform * QTransform().translate(-crop_x_px, -crop_y_px)
+        t_final = QTransform().translate(-crop_x_px, -crop_y_px) * transform
 
         # Determine output size
         out_w = max(1, int(round(crop_w_px)))
