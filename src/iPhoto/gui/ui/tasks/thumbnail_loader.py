@@ -209,7 +209,7 @@ class ThumbnailJob(QRunnable):
         # Desired: p * S(2) * T(-1) = 2p - 1.
         # QTransform builder applies operations in reverse (First().Second() -> Second * First).
         # We want S * T matrix. So T().S().
-        t_to_ndc = QTransform().translate(-1.0, -1.0).scale(2.0, 2.0)
+        t_to_ndc = QTransform().scale(2.0, 2.0).translate(-1.0, -1.0)
         
         # 4. Denormalize from [-1, 1] to [0, 1]
         # Desired: p * S(0.5) * T(0.5) = 0.5p + 0.5.
