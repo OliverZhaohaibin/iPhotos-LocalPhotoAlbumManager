@@ -91,11 +91,18 @@ class EditSession(QObject):
         # Perspective correction sliders operate in a symmetric range so they
         # can skew in both directions.  The shader interprets the normalised
         # ``[-1.0, 1.0]`` inputs as ±20° rotations around the horizontal and
-        # vertical axes.
+        # vertical axes.  Straighten and rotation controls operate in degrees so
+        # the persisted state matches the user-facing UI exactly.
         self._values["Perspective_Vertical"] = 0.0
         self._ranges["Perspective_Vertical"] = (-1.0, 1.0)
         self._values["Perspective_Horizontal"] = 0.0
         self._ranges["Perspective_Horizontal"] = (-1.0, 1.0)
+        self._values["Crop_Straighten"] = 0.0
+        self._ranges["Crop_Straighten"] = (-45.0, 45.0)
+        self._values["Crop_Rotate90"] = 0
+        self._ranges["Crop_Rotate90"] = (0.0, 3.0)
+        self._values["Crop_FlipH"] = False
+        self._ranges["Crop_FlipH"] = (-1.0, 1.0)
 
     # ------------------------------------------------------------------
     # Accessors
@@ -185,6 +192,9 @@ class EditSession(QObject):
                 "Crop_H": 1.0,
                 "Perspective_Vertical": 0.0,
                 "Perspective_Horizontal": 0.0,
+                "Crop_Straighten": 0.0,
+                "Crop_Rotate90": 0.0,
+                "Crop_FlipH": False,
             }
         )
         self.set_values(defaults, emit_individual=True)

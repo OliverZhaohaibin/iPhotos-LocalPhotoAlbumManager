@@ -134,6 +134,7 @@ class EditController(QObject):
         self._edit_viewer_fullscreen_connected = False
         ui.edit_reset_button.clicked.connect(self._handle_reset_clicked)
         ui.edit_done_button.clicked.connect(self._handle_done_clicked)
+        ui.edit_rotate_left_button.clicked.connect(self._handle_rotate_left_clicked)
         ui.edit_adjust_action.triggered.connect(lambda checked: self._handle_mode_change("adjust", checked))
         ui.edit_crop_action.triggered.connect(lambda checked: self._handle_mode_change("crop", checked))
         ui.edit_compare_button.pressed.connect(self._handle_compare_pressed)
@@ -548,6 +549,16 @@ class EditController(QObject):
         }
         self._session.set_values(updates, emit_individual=False)
 
+    def _handle_rotate_left_clicked(self) -> None:
+        if self._session is None:
+            return
+        updates = self._ui.edit_image_viewer.rotate_image_ccw()
+        # Persist the viewer-driven rotation so the backing session stays aligned with the
+        # logical coordinate system used by the OpenGL paint path.  Persisting the mapping
+        # in a single call avoids per-field signals and keeps the crop overlay in sync with
+        # the updated orientation.
+        self._session.set_values(updates, emit_individual=False)
+
     def _apply_session_adjustments_to_viewer(self) -> None:
         """Forward the latest session values to the GL viewer."""
 
@@ -813,6 +824,8 @@ class EditController(QObject):
                     "Crop_CY": float(self._session.value("Crop_CY")),
                     "Crop_W": float(self._session.value("Crop_W")),
                     "Crop_H": float(self._session.value("Crop_H")),
+                    "Crop_Rotate90": float(self._session.value("Crop_Rotate90")),
+                    "Crop_FlipH": float(self._session.value("Crop_FlipH")),
                 }
             self._ui.edit_image_viewer.setCropMode(True, crop_values)
         index = 0 if mode == "adjust" else 1

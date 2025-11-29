@@ -95,3 +95,43 @@ def test_rescan_pairs_new_live_assets(tmp_path: Path) -> None:
         group.get("still") == "IMG_5001.JPG" and group.get("motion") == "IMG_5001.MOV"
         for group in updated.get("live_groups", [])
     )
+
+def test_pairing_prefers_better_duration_score() -> None:
+    """
+    Verify that a video with an ideal duration is selected over one with a bad duration,
+    even if the bad duration video has a 'better' (smaller) still_image_time.
+
+    Scenario:
+    - good.MOV: duration 3.0 (ideal), still_image_time 1.0
+    - bad.MOV: duration 10.0 (bad), still_image_time 0.0
+
+    The bug caused bad.MOV to be selected because its duration score was ignored
+    when falling through to still_image_time comparison.
+    """
+    rows = [
+        {
+            "rel": "IMG_0001.HEIC",
+            "mime": "image/heic",
+            "content_id": "CID1",
+        },
+        {
+            "rel": "good.MOV",
+            "mime": "video/quicktime",
+            "content_id": "CID1",
+            "dur": 3.0,
+            "still_image_time": 1.0,
+        },
+        {
+            "rel": "bad.MOV",
+            "mime": "video/quicktime",
+            "content_id": "CID1",
+            "dur": 10.0,
+            "still_image_time": 0.0,
+        },
+    ]
+    groups = pair_live(rows)
+    assert len(groups) == 1
+    group = groups[0]
+
+    # We expect 'good.MOV' to be selected.
+    assert group.motion == "good.MOV", f"Expected good.MOV but got {group.motion}"

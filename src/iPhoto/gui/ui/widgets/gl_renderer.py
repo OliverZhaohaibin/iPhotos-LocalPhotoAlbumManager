@@ -10,6 +10,7 @@ API tailored to the viewer.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from pathlib import Path
 from typing import Mapping, Optional
@@ -147,6 +148,7 @@ class GLRenderer:
                 "uCropW",
                 "uCropH",
                 "uPerspectiveMatrix",
+                "uRotate90",
             ):
                 self._uniform_locations[name] = program.uniformLocation(name)
         finally:
@@ -284,6 +286,7 @@ class GLRenderer:
         time_value: float | None = None,
         img_scale: float = 1.0,
         img_offset: Optional[QPointF] = None,
+        logical_tex_size: tuple[float, float] | None = None,
     ) -> None:
         """Draw the textured triangle covering the current viewport."""
 
@@ -347,11 +350,28 @@ class GLRenderer:
             safe_img_scale = max(img_scale, 1e-6)
             self._set_uniform1f("uScale", safe_scale)
             self._set_uniform2f("uViewSize", max(view_width, 1.0), max(view_height, 1.0))
-            self._set_uniform2f(
-                "uTexSize",
-                float(max(1, self._texture_width)),
-                float(max(1, self._texture_height)),
-            )
+            
+            # CRITICAL: uTexSize must match ViewTransformController's coordinate space.
+            # ViewTransformController calculates scale using logical (rotation-aware) dimensions,
+            # so uTexSize must also use logical dimensions for correct viewport→texture mapping.
+            # The shader's apply_rotation_90() then rotates UVs to sample from physical texture.
+            logical_w: float
+            logical_h: float
+            if logical_tex_size is None:
+                rotate_steps_val = int(float(adjustments.get("Crop_Rotate90", 0.0))) % 4
+                if rotate_steps_val % 2 == 1:
+                    logical_w = float(self._texture_height)
+                    logical_h = float(self._texture_width)
+                else:
+                    logical_w = float(self._texture_width)
+                    logical_h = float(self._texture_height)
+            else:
+                logical_w, logical_h = logical_tex_size
+            
+            safe_logical_w = float(max(1.0, logical_w))
+            safe_logical_h = float(max(1.0, logical_h))
+            self._set_uniform2f("uTexSize", safe_logical_w, safe_logical_h)
+            
             self._set_uniform2f("uPan", float(pan.x()), float(pan.y()))
             self._set_uniform1f("uImgScale", safe_img_scale)
             self._set_uniform2f(
@@ -365,9 +385,35 @@ class GLRenderer:
             self._set_uniform1f("uCropCY", adjustment_value("Crop_CY", 0.5))
             self._set_uniform1f("uCropW", adjustment_value("Crop_W", 1.0))
             self._set_uniform1f("uCropH", adjustment_value("Crop_H", 1.0))
+            straighten_value = adjustment_value("Crop_Straighten", 0.0)
+            rotate_steps = int(float(adjustments.get("Crop_Rotate90", 0.0)))
+            flip_enabled = bool(adjustments.get("Crop_FlipH", False))
+            
+            # Pass rotation to shader as uniform
+            self._set_uniform1i("uRotate90", rotate_steps % 4)
+            
+            # Get physical dimensions for perspective matrix aspect ratio
+            # Perspective matrix must operate in the logical orientation so that the
+            # "vertical" and "horizontal" sliders always align with on-screen axes even
+            # after the user rotates the image by 90° steps.  Using the logical aspect
+            # ratio (width/height after the quarter-turn swap) keeps the warp and
+            # straighten rotation in a matching aspect space and avoids the shear-like
+            # artefacts seen when mixing rotation and perspective.
+            logical_aspect_ratio = logical_w / logical_h
+            if not math.isfinite(logical_aspect_ratio) or logical_aspect_ratio <= 1e-6:
+                logical_aspect_ratio = 1.0
+
             perspective_matrix = build_perspective_matrix(
                 adjustment_value("Perspective_Vertical", 0.0),
                 adjustment_value("Perspective_Horizontal", 0.0),
+                image_aspect_ratio=logical_aspect_ratio,
+                straighten_degrees=straighten_value,
+                # Rotation is handled in the shader via uRotate90; keeping rotate_steps
+                # at zero ensures straighten is applied as a rigid rotation around the
+                # logical view centre instead of compounding rotations in physical
+                # texture space.
+                rotate_steps=0,
+                flip_horizontal=flip_enabled,
             )
             self._set_uniform_matrix3("uPerspectiveMatrix", perspective_matrix)
 
@@ -571,15 +617,36 @@ class GLRenderer:
             self._gl_funcs.glUniform4f(location, float(x), float(y), float(z), float(w))
 
     def _set_uniform_matrix3(self, name: str, matrix: np.ndarray) -> None:
+        """
+        Set a 3x3 uniform matrix in the currently bound shader program.
+
+        Parameters
+        ----------
+        name : str
+            The name of the uniform variable in the shader.
+        matrix : np.ndarray
+            A 3x3 matrix to upload to the GPU (can be numpy array, will be converted to Python list).
+
+        Notes
+        -----
+        PySide6's glUniformMatrix3fv expects a Python sequence of floats, not a numpy array.
+        The matrix is flattened in row-major order and converted to a Python list.
+        The 'transpose' parameter is set to False (0) as OpenGL expects column-major order by default.
+        """
         location = self._uniform_locations.get(name, -1)
         if location == -1:
+            # Uniform not found in the shader program
             return
-        matrix = np.asarray(matrix, dtype=np.float32).ravel()
+
+        # Ensure the matrix is float32, flatten it, and convert to Python list
+        matrix_list = np.asarray(matrix, dtype=np.float32).ravel().tolist()
+
+        # Upload the matrix to the GPU
         self._gl_funcs.glUniformMatrix3fv(
             location,
-            1,
-            gl.GL_TRUE,
-            np.asarray(matrix, dtype=np.float32),
+            1,  # count = 1 matrix
+            0,  # transpose = False
+            matrix_list  # Python list of floats
         )
 
     def render_offscreen_image(
@@ -648,7 +715,14 @@ class GLRenderer:
             from .view_transform_controller import compute_fit_to_view_scale
 
             texture_size = self.texture_size()
-            base_scale = compute_fit_to_view_scale(texture_size, float(width), float(height))
+            tex_w, tex_h = texture_size
+            rotate_steps = int(float(adjustments.get("Crop_Rotate90", 0.0)))
+            if rotate_steps % 2 and tex_w > 0 and tex_h > 0:
+                logical_tex_size = (tex_h, tex_w)
+            else:
+                logical_tex_size = texture_size
+
+            base_scale = compute_fit_to_view_scale(logical_tex_size, float(width), float(height))
             effective_scale = max(base_scale, 1e-6)
             time_value = time.monotonic() - time_base
 
@@ -659,6 +733,7 @@ class GLRenderer:
                 pan=QPointF(0.0, 0.0),
                 adjustments=dict(adjustments),
                 time_value=time_value,
+                logical_tex_size=(float(logical_tex_size[0]), float(logical_tex_size[1])),
             )
 
             return fbo.toImage().convertToFormat(QImage.Format.Format_ARGB32)

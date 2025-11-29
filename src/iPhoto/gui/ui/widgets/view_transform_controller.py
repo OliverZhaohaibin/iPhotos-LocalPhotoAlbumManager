@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Callable, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -28,6 +29,69 @@ def compute_fit_to_view_scale(
     return 1.0 if scale <= 0.0 else scale
 
 
+def compute_rotation_cover_scale(
+    texture_size: tuple[int, int],
+    base_scale: float,
+    straighten_degrees: float,
+    rotate_steps: int,
+    physical_texture_size: tuple[int, int] | None = None,
+) -> float:
+    """Return the scale multiplier that keeps rotated images free of black corners.
+    
+    Args:
+        texture_size: Logical (rotation-aware) dimensions used for frame calculation
+        base_scale: Scale factor calculated from logical dimensions
+        straighten_degrees: Straighten angle in degrees
+        rotate_steps: Number of 90° rotations
+        physical_texture_size: Physical (original) dimensions for bounds checking.
+                              If None, uses texture_size (for backward compatibility).
+                              When provided, texture_size is assumed to be logical (already rotated),
+                              so only straighten_degrees is applied, not the 90° rotation steps.
+    """
+
+    tex_w, tex_h = texture_size
+    if tex_w <= 0 or tex_h <= 0 or base_scale <= 0.0:
+        return 1.0
+    
+    # When physical_texture_size is provided, texture_size (logical) already accounts
+    # for the 90° rotation, so we only apply straighten_degrees
+    if physical_texture_size is not None:
+        total_degrees = float(straighten_degrees)  # Only straighten, no 90° rotation
+    else:
+        total_degrees = float(straighten_degrees) + float(int(rotate_steps)) * -90.0
+        
+    if abs(total_degrees) <= 1e-5:
+        return 1.0
+    theta = math.radians(total_degrees)
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+    
+    # Frame corners calculated in logical space (rotation-aware dimensions)
+    half_frame_w = tex_w * base_scale * 0.5
+    half_frame_h = tex_h * base_scale * 0.5
+    corners = [
+        (-half_frame_w, -half_frame_h),
+        (half_frame_w, -half_frame_h),
+        (half_frame_w, half_frame_h),
+        (-half_frame_w, half_frame_h),
+    ]
+    
+    # Use physical dimensions for bounds checking (corners are rotated back to texture space)
+    if physical_texture_size is not None:
+        phys_w, phys_h = physical_texture_size
+    else:
+        phys_w, phys_h = tex_w, tex_h
+    
+    scale = 1.0
+    for xf, yf in corners:
+        x_prime = xf * cos_t + yf * sin_t
+        y_prime = -xf * sin_t + yf * cos_t
+        s_corner = max((2.0 * abs(x_prime)) / phys_w, (2.0 * abs(y_prime)) / phys_h)
+        if s_corner > scale:
+            scale = s_corner
+    return max(scale, 1.0)
+
+
 class ViewTransformController:
     """Maintain zoom/pan state and react to pointer gestures."""
 
@@ -39,9 +103,18 @@ class ViewTransformController:
         on_zoom_changed: Callable[[float], None],
         on_next_item: Optional[Callable[[], None]] = None,
         on_prev_item: Optional[Callable[[], None]] = None,
+        display_texture_size_provider: Callable[[], tuple[int, int]] | None = None,
     ) -> None:
         self._viewer = viewer
         self._texture_size_provider = texture_size_provider
+        # ``_display_texture_size_provider`` mirrors ``texture_size_provider`` but allows
+        # callers to describe the logical texture dimensions that should drive
+        # fit-to-view computations.  When the image is rotated by 90° steps the
+        # visible width and height swap even though the uploaded texture keeps its
+        # original orientation.  Feeding the rotated dimensions keeps the baseline
+        # zoom (and therefore the shader output) perfectly aligned with the on-screen
+        # frame, eliminating the stretched look reported in the demo comparison.
+        self._display_texture_size_provider = display_texture_size_provider
         self._on_zoom_changed = on_zoom_changed
         self._on_next_item = on_next_item
         self._on_prev_item = on_prev_item
@@ -53,6 +126,7 @@ class ViewTransformController:
         self._is_panning: bool = False
         self._pan_start_pos: QPointF = QPointF()
         self._wheel_action: str = "zoom"
+        self._image_cover_scale: float = 1.0
 
     # ------------------------------------------------------------------
     # Helper methods for getting viewport info
@@ -71,6 +145,21 @@ class ViewTransformController:
     def _get_view_dimensions_logical(self) -> tuple[float, float]:
         """Get viewport dimensions in logical pixels."""
         return float(self._viewer.width()), float(self._viewer.height())
+
+    def _get_fit_texture_size(self) -> tuple[float, float]:
+        """Return the texture dimensions that should drive fit-to-view math."""
+
+        if self._display_texture_size_provider is not None:
+            try:
+                size = self._display_texture_size_provider()
+            except Exception:
+                size = (0, 0)
+            else:
+                width, height = size
+                if width > 0 and height > 0:
+                    return float(width), float(height)
+        tex_w, tex_h = self._texture_size_provider()
+        return float(tex_w), float(tex_h)
 
     # ------------------------------------------------------------------
     # Public wrappers for viewport info
@@ -147,9 +236,11 @@ class ViewTransformController:
             dpr = self._viewer.devicePixelRatioF()
             view_width = float(self._viewer.width()) * dpr
             view_height = float(self._viewer.height()) * dpr
-            base_scale = compute_fit_to_view_scale((tex_w, tex_h), view_width, view_height)
-            old_scale = base_scale * self._zoom_factor
-            new_scale = base_scale * clamped
+            fit_w, fit_h = self._get_fit_texture_size()
+            base_scale = compute_fit_to_view_scale((fit_w, fit_h), view_width, view_height)
+            cover_scale = self._image_cover_scale
+            old_scale = base_scale * cover_scale * self._zoom_factor
+            new_scale = base_scale * cover_scale * clamped
             if old_scale > 1e-6 and new_scale > 0.0:
                 anchor_bottom_left = QPointF(anchor_point.x() * dpr, view_height - anchor_point.y() * dpr)
                 view_centre = QPointF(view_width / 2.0, view_height / 2.0)
@@ -259,8 +350,10 @@ class ViewTransformController:
         self, texture_size: tuple[int, int], view_width: float, view_height: float
     ) -> float:
         """Calculate the effective rendering scale (base scale × zoom factor)."""
-        base_scale = compute_fit_to_view_scale(texture_size, view_width, view_height)
-        return max(base_scale * self._zoom_factor, 1e-6)
+        del texture_size  # The fit-to-view dimensions may differ during rotation.
+        fit_w, fit_h = self._get_fit_texture_size()
+        base_scale = compute_fit_to_view_scale((fit_w, fit_h), view_width, view_height)
+        return max(base_scale * self._image_cover_scale * self._zoom_factor, 1e-6)
 
     def image_center_pixels(
         self, texture_size: tuple[int, int], scale: float
@@ -353,7 +446,8 @@ class ViewTransformController:
         if view_width <= 0.0 or view_height <= 0.0:
             return False
 
-        base_scale = compute_fit_to_view_scale((tex_w, tex_h), view_width, view_height)
+        fit_w, fit_h = self._get_fit_texture_size()
+        base_scale = compute_fit_to_view_scale((fit_w, fit_h), view_width, view_height)
         if base_scale <= 0.0:
             return False
 
@@ -389,6 +483,20 @@ class ViewTransformController:
         texture_size = self._texture_size_provider()
         scale_value = scale if scale is not None else self.get_effective_scale()
         self.set_image_center_pixels(center, texture_size, scale_value)
+
+    def set_image_cover_scale(self, scale: float) -> None:
+        """Persist the cover scale used to avoid straightening artefacts."""
+
+        clamped = max(1.0, float(scale))
+        if abs(clamped - self._image_cover_scale) <= 1e-4:
+            return
+        self._image_cover_scale = clamped
+        self._viewer.update()
+
+    def get_image_cover_scale(self) -> float:
+        """Return the scale multiplier currently applied to cover rotations."""
+
+        return self._image_cover_scale
     
     def convert_screen_to_world(self, screen_pt: QPointF) -> QPointF:
         """Map a Qt screen coordinate to GL view's centre-origin space."""
