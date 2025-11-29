@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtGui import QImage, QTransform
 
 from ..io import sidecar
-from ..core.filters.facade import apply_adjustments
+from .filters.facade import apply_adjustments
 from ..utils import image_loader
 from ..media_classifier import VIDEO_EXTENSIONS
 
