@@ -26,7 +26,9 @@ try:
 except ImportError:
     # Fallback if geometry module not available
     def logical_crop_to_texture(crop, rotate_steps):
-        return crop
+        raise ImportError(
+            "The geometry module is required for logical_crop_to_texture but could not be imported."
+        )
 
 
 class CropSessionModel:
