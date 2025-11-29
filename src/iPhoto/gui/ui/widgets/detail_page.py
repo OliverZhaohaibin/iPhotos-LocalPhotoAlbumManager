@@ -376,7 +376,7 @@ class DetailPageWidget(QWidget):
             QSizePolicy.Policy.Preferred,
         )
 
-        # Edit界面的rotate按钮使用白色图标
+        # The rotate button in the Edit interface uses a white icon
         self.edit_rotate_left_button.setIcon(load_icon("rotate.left.svg", color=(255, 255, 255)))
         self.edit_rotate_left_button.setIconSize(HEADER_ICON_GLYPH_SIZE)
         self.edit_rotate_left_button.setFixedSize(HEADER_BUTTON_SIZE)
