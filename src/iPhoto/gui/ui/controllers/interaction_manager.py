@@ -133,6 +133,7 @@ class InteractionManager(QObject):
             status_bar=status_bar,
             notification_toast=self._notification_toast,
             selection_controller=self._selection,
+            export_callback=self._export._handle_export_selected,
             parent=window,
         )
         self._drag_drop = DragDropController(
