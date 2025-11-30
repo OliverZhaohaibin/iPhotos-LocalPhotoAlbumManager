@@ -304,27 +304,27 @@ void main() {
     uv.y = 1.0 - uv.y;
     vec2 uv_corrected = uv;
 
-    // 2. 应用透视逆变换
-    vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
-    
-    // 3. 透视边界检查
-    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
-        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
-        discard;  // 透视变换后超出范围
-    }
-    
-    // 4. 裁剪测试 **关键: 在旋转之前进行**
-    // Crop parameters are defined in texture space (original unrotated texture).
-    // We test against uv_perspective (before rotation) because that represents
-    // the texture-space coordinates before the rotation transform.
+    // 2. 裁剪测试 (Crop Test)
+    // Perform crop test in Logical/Screen space (uv_corrected).
+    // The crop box is defined by the user on the screen (post-perspective/straighten),
+    // so we must mask pixels based on their screen position.
     float crop_min_x = uCropCX - uCropW * 0.5;
     float crop_max_x = uCropCX + uCropW * 0.5;
     float crop_min_y = uCropCY - uCropH * 0.5;
     float crop_max_y = uCropCY + uCropH * 0.5;
 
-    if (uv_perspective.x < crop_min_x || uv_perspective.x > crop_max_x ||
-        uv_perspective.y < crop_min_y || uv_perspective.y > crop_max_y) {
-        discard;  // 裁剪框外
+    if (uv_corrected.x < crop_min_x || uv_corrected.x > crop_max_x ||
+        uv_corrected.y < crop_min_y || uv_corrected.y > crop_max_y) {
+        discard;
+    }
+
+    // 3. 应用透视逆变换
+    vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
+
+    // 4. 透视边界检查
+    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
+        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
+        discard;  // 透视变换后超出范围
     }
     
     // 5. 应用旋转
@@ -339,9 +339,9 @@ void main() {
 ```
 
 **关键设计决策**:
-* **裁剪测试在旋转前**: 确保裁剪参数始终在纹理空间
+* **裁剪测试在逻辑空间**: 确保裁剪框在屏幕上始终是矩形，即使应用了透视变换（Perspective/Keystone）。
 * **黑边检测优化**: Shader 接收的裁剪参数已经在 Python 层验证过不会产生黑边
-* **Python 层简化**: Python 只需在逻辑空间操作，Shader 负责所有变换
+* **Python 层**: Python 负责将存储的纹理空间裁剪参数转换为逻辑空间参数传递给 Shader。
 
 ---
 

@@ -197,6 +197,19 @@ void main() {
     uv.y = 1.0 - uv.y;
     vec2 uv_corrected = uv;
 
+    // Perform crop test in Logical/Screen space.
+    // The crop box is defined by the user on the screen (post-perspective/straighten),
+    // so we must mask pixels based on their screen position (uv_corrected).
+    float crop_min_x = uCropCX - uCropW * 0.5;
+    float crop_max_x = uCropCX + uCropW * 0.5;
+    float crop_min_y = uCropCY - uCropH * 0.5;
+    float crop_max_y = uCropCY + uCropH * 0.5;
+
+    if (uv_corrected.x < crop_min_x || uv_corrected.x > crop_max_x ||
+        uv_corrected.y < crop_min_y || uv_corrected.y > crop_max_y) {
+        discard;
+    }
+
     // Apply perspective correction
     vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
 
@@ -209,19 +222,6 @@ void main() {
     
     // Apply rotation to get final texture sampling coordinates
     vec2 uv_tex = apply_rotation_90(uv_perspective, uRotate90);
-
-    // Perform crop test in Texture Space.
-    // The crop box is defined in texture space (uCropCX, uCropCY, etc.)
-    // so we must mask pixels based on their texture position (uv_tex).
-    float crop_min_x = uCropCX - uCropW * 0.5;
-    float crop_max_x = uCropCX + uCropW * 0.5;
-    float crop_min_y = uCropCY - uCropH * 0.5;
-    float crop_max_y = uCropCY + uCropH * 0.5;
-
-    if (uv_tex.x < crop_min_x || uv_tex.x > crop_max_x ||
-        uv_tex.y < crop_min_y || uv_tex.y > crop_max_y) {
-        discard;
-    }
 
     // Sample the texture at the computed texture-space coordinates
     vec4 texel = texture(uTex, uv_tex);
