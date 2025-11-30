@@ -613,8 +613,9 @@ class DetailUIController(QObject):
             QThreadPool.globalInstance().start(worker)
 
         except Exception:
+            if self._navigation is not None:
+                self._navigation.release_tree_refresh_suppression_if_edit()
             _LOGGER.exception("Failed to prepare rotation for %s", source)
-
     def _handle_info_button_clicked(self) -> None:
         """Show or hide the info panel for the current playlist row."""
 
