@@ -593,10 +593,11 @@ class DetailUIController(QObject):
                     # Invalidate the thumbnail only after the write is confirmed.
                     # This avoids the race condition where the loader might read
                     # stale data if triggered too early.
-                    source_model = self._model.source_model()
-                    if hasattr(source_model, "invalidate_thumbnail"):
-                        source_model.invalidate_thumbnail(rel)
-                    self._model.thumbnail_loader().invalidate(rel)
+                    if hasattr(self._model, "invalidate_thumbnail"):
+                        self._model.invalidate_thumbnail(rel)
+                    else:
+                        # Fallback for legacy support if model hasn't updated
+                        self._model.thumbnail_loader().invalidate(rel)
 
             def _on_save_error(msg: str) -> None:
                 if self._navigation is not None:
