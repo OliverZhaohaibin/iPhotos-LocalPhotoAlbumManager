@@ -9,6 +9,7 @@ from PySide6.QtCore import (
     QModelIndex,
     QItemSelectionModel,
     QObject,
+    QThreadPool,
     QTimer,
     Signal,
     Slot,
@@ -536,8 +537,23 @@ class DetailUIController(QObject):
 
             if self._navigation is not None:
                 self._navigation.suspend_library_watcher()
+                self._navigation.suppress_tree_refresh_for_edit()
+                # Ensure the suppression flag is cleared even if the file system
+                # watcher does not trigger a sidebar refresh.
+                QTimer.singleShot(
+                    3000, self._navigation.release_tree_refresh_suppression_if_edit
+                )
 
-            sidecar.save_adjustments(source, current_adjustments)
+            # Defer the write to a background thread to keep the UI responsive
+            # and to ensure the in-memory state remains the source of truth
+            # for the current session.
+            def _save_worker() -> None:
+                try:
+                    sidecar.save_adjustments(source, current_adjustments)
+                except Exception:
+                    _LOGGER.exception("Failed to persist rotation for %s", source)
+
+            QThreadPool.globalInstance().start(_save_worker)
 
             rel = index.data(Roles.REL)
             if isinstance(rel, str) and rel:
@@ -550,7 +566,7 @@ class DetailUIController(QObject):
                     )
                 self._model.thumbnail_loader().invalidate(rel)
         except Exception:
-            _LOGGER.exception("Failed to persist rotation for %s", source)
+            _LOGGER.exception("Failed to prepare rotation for %s", source)
 
     def _handle_info_button_clicked(self) -> None:
         """Show or hide the info panel for the current playlist row."""
