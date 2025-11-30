@@ -17,9 +17,8 @@ user sees on screen and interacts with.
 ### New Usage Pattern:
 
 1. **Shader-side**: The fragment shader now performs coordinate transformations internally.
-   It receives crop parameters in logical space and converts them to texture space for
-   sampling. This eliminates the need for Python to perform complex transformations during
-   rendering.
+   It receives crop parameters in texture space and applies them after rotation to ensure
+   cropping aligns with the original image content (especially under perspective distortion).
 
 2. **Python UI Layer**: Crop interaction controllers work entirely in logical space. The
    boundary checks and user interactions are simplified because they always operate in the
