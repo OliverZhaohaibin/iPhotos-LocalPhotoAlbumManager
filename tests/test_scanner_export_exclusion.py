@@ -12,7 +12,7 @@ def test_gather_media_paths_excludes_exported_directory(tmp_path: Path) -> None:
     exported_file = exported_dir / "ignored.jpg"
     exported_file.touch()
 
-    # Also test nested exported directory if consistent with WORK_DIR_NAME
+    # Also test nested exported directory to ensure the exclusion works at any depth
     nested_dir = tmp_path / "subfolder"
     nested_dir.mkdir()
     nested_exported_dir = nested_dir / EXPORT_DIR_NAME
