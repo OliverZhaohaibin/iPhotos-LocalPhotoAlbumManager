@@ -121,7 +121,6 @@ class DetailUIController(QObject):
         self._current_row: int = -1
         self._cached_info: Optional[dict[str, object]] = None
         self._toolbar_icon_tint: str | None = None
-        self._active_workers = set()
 
         self._initialize_static_state()
         self._wire_player_bar_events()
