@@ -335,6 +335,6 @@ def test_open_recently_deleted_refresh_skips_gallery(
 
     # Refresh.
     controller.open_recently_deleted()
-    assert view_controller.gallery_calls == 1 # Should NOT increment
+    assert view_controller.gallery_calls == 1  # Should NOT increment
     assert controller.consume_last_open_refresh() is True
     assert len(facade.open_requests) == 1
