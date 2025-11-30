@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional, TYPE_CHECKING
 
+from PySide6.QtCore import QTimer
+
 # Support both package-style and legacy ``iPhotos.src`` imports during GUI
 # bootstrap.
 try:  # pragma: no cover - path-sensitive import
@@ -352,6 +354,13 @@ class NavigationController:
 
         self._suppress_tree_refresh = False
         self._tree_refresh_suppression_reason = None
+
+    def suspend_library_watcher(self, duration: int = 250) -> None:
+        """Pause the filesystem watcher to prevent auto-reloads during file operations."""
+
+        manager = self._context.library
+        manager.pause_watcher()
+        QTimer.singleShot(duration, manager.resume_watcher)
 
     # ------------------------------------------------------------------
     # Status helpers
