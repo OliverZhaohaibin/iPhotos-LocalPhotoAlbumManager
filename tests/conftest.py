@@ -102,4 +102,4 @@ ensure_module("PySide6.QtTest")
 # Mock OpenGL to avoid display dependency
 ensure_module("OpenGL")
 if "OpenGL" in sys.modules and isinstance(sys.modules["OpenGL"], MagicMock):
-     sys.modules["OpenGL.GL"] = MagicMock()
+    sys.modules["OpenGL.GL"] = MagicMock()
