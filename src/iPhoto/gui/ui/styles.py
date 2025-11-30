@@ -8,9 +8,9 @@ from PySide6.QtGui import QColor, QPalette
 def modern_scrollbar_style(
     base_color: QColor,
     *,
-    track_alpha: int = 0,
-    handle_alpha: int = 160,
-    handle_hover_alpha: int = 255,
+    track_alpha: int = 30,
+    handle_alpha: int = 40,
+    handle_hover_alpha: int = 100,
     radius: int = 7,
     handle_radius: int = 5,
     extra_selectors: str = "",
