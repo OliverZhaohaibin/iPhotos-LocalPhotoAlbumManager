@@ -32,6 +32,15 @@ test = [
     "pytest",
     "pytest-mock"
 ]
+dev = [
+    "pytest",
+    "pytest-mock",
+    "ruff",
+    "black",
+    "mypy",
+    "types-Pillow",
+    "types-python-dateutil",
+]
 
 [project.scripts]
 iphoto = "iPhoto.cli:app"
@@ -41,6 +50,9 @@ iphoto-gui = "iPhoto.gui.main:main"
 line-length = 100
 select = ["E", "F", "I", "B", "UP", "N", "ASYNC", "S", "BLE", "A", "C4", "PIE", "Q", "RUF"]
 ignore = ["E203"]
+
+[tool.black]
+line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
