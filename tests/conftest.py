@@ -32,9 +32,11 @@ def ensure_module(name: str, mock_obj: object = None) -> None:
 ensure_module("PySide6.QtMultimedia")
 ensure_module("PySide6.QtMultimediaWidgets")
 
-# Mock QtOpenGLWidgets to avoid display dependency in headless tests
-ensure_module("PySide6.QtOpenGLWidgets")
-ensure_module("PySide6.QtOpenGL")
+# Force-mock QtOpenGLWidgets and QtOpenGL to avoid segmentation faults in headless environment.
+# Even if these modules are importable, using them (e.g. creating QOpenGLWidget subclasses)
+# can cause crashes without a proper display server.
+sys.modules["PySide6.QtOpenGLWidgets"] = MagicMock()
+sys.modules["PySide6.QtOpenGL"] = MagicMock()
 
 # Core Qt modules - try to import, mock if missing
 ensure_module("PySide6.QtWidgets")
