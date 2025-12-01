@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import os
-from collections import OrderedDict
-from typing import Mapping, Optional
-from unittest.mock import Mock, MagicMock, patch
 
+from typing import Optional
+from unittest.mock import Mock, patch
 import pytest
 
 pytest.importorskip(
