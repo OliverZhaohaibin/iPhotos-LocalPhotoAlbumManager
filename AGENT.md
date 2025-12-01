@@ -315,7 +315,8 @@ void main() {
     vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
 
     // 4. 透视边界检查 (Check against valid texture area in Projected Space)
-    if (uv_perspective.x < 0.0 || ... ) {
+    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
+        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
         discard;
     }
     
