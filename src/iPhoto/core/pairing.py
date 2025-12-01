@@ -45,6 +45,14 @@ def _is_photo(row: Dict[str, object]) -> bool:
 def _is_video(row: Dict[str, object]) -> bool:
     """Return True if the row represents a Live Photo motion component."""
 
+    # If the asset has an explicit Content Identifier, it is definitely part of
+    # a Live Photo pair regardless of the container format (e.g. MP4).
+    # We must explicitly exclude the still image component (which shares the
+    # same identifier) to avoid ambiguity if the caller checks predicates in
+    # isolation or in a different order.
+    if row.get("content_id") and not _is_photo(row):
+        return True
+
     # Restrict Live Photo pairing to QuickTime movie sources. Generic videos like
     # MP4 clips should remain visible in the main asset list instead of being
     # paired and hidden behind a still image.
