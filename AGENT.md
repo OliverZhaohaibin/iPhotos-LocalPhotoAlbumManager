@@ -305,7 +305,8 @@ void main() {
     // Perform crop test in Logical/Screen space.
     // The crop box is defined in Logical Space.
 
-    if (uv_corrected.x < crop_min_x || ... ) {
+    if (uv_corrected.x < crop_min_x || uv_corrected.x > crop_max_x ||
+        uv_corrected.y < crop_min_y || uv_corrected.y > crop_max_y) {
         discard;
     }
 
