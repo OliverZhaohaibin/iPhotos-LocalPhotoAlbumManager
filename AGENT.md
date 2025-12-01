@@ -1,5 +1,4 @@
 
-
 # `agent.md` – LexiPhoto 开发基础原则
 
 ## 1. 总体理念
@@ -247,36 +246,35 @@ uv.y = 1.0 - uv.y;
   * 数据持久化：所有裁剪参数（`Crop_CX`, `Crop_CY`, `Crop_W`, `Crop_H`）存储在 `.ipo` 文件中都使用纹理坐标
   * GPU 纹理采样：Shader 最终从纹理坐标采样像素
   * 不受旋转影响：即使用户旋转图片，存储的纹理坐标保持不变
-* **示例**: 一张原始图片的中心裁剪框在纹理空间始终为 `(0.5, 0.5, 0.8, 0.8)`，无论视觉上如何旋转。
 
 #### B. 逻辑坐标系 (Logical Space) — **用户交互空间**
 
-* **定义**: 应用了旋转后用户在屏幕上看到的坐标系统。
+* **定义**: 用户在屏幕上看到的、应用了旋转（90°倍数）后的坐标系统。
 * **形态**: Python 层所有裁剪交互都在此空间进行。
 * **作用**:
   * UI 交互：用户拖拽、调整裁剪框的所有操作都在逻辑空间
-  * 透视变换：透视扭曲（`vertical`、`horizontal`、`straighten`）在逻辑空间应用
+  * 透视变换：透视扭曲（`vertical`、`horizontal`、`straighten`）基于逻辑视图应用
+  * **黑边检测**：在逻辑空间（或与之对齐的投影空间）进行判定
 * **坐标范围**: 归一化为 `[0, 1]` 区间。
-* **与纹理空间的关系**: 通过 `texture_crop_to_logical()` 和 `logical_crop_to_texture()` 转换。
+* **与纹理空间的关系**: 通过 `texture_crop_to_logical()` 和 `logical_crop_to_texture()` 转换（交换宽高、旋转坐标）。
 
 #### C. 投影空间坐标系 (Projected Space) — **黑边判定空间**
 
-* **定义**: 应用透视变换（但不包括旋转）后的空间。
+* **定义**: 应用透视变换（Perspective/Straighten）后的空间。此空间与 **逻辑空间** 对齐（即基于旋转后的宽高比）。
 * **形态**: 原始矩形边界变为凸四边形 `Q_valid`。
 * **关键作用**: **黑边检测的核心空间**
-  * 透视变换（perspective/straighten）应用后形成的有效区域四边形
-  * 裁剪框必须完全包含在此四边形内才不会出现黑边
-  * **重要**: 四边形计算时强制 `rotate_steps=0`
-* **实现代码** (`src/iPhoto/gui/ui/widgets/gl_crop/model.py`):
+  * 使用 **逻辑宽高比** (Logical Aspect Ratio) 计算透视矩阵
+  * 设置 `rotate_steps=0` 以保持与逻辑空间一致（即不包含 90° 旋转步骤，因为已经对齐到逻辑方向）
+  * 裁剪框（在逻辑空间）必须完全包含在此四边形内才不会出现黑边
+* **实现代码**:
   ```python
-  # Calculate quad WITHOUT rotation, matching step=0's successful logic
-  # The quad represents valid region after perspective/straighten only
+  # Calculate quad in Logical Space (rotate_steps=0, but using logical aspect ratio)
   matrix = build_perspective_matrix(
       new_vertical,
       new_horizontal,
-      image_aspect_ratio=aspect_ratio,
+      image_aspect_ratio=logical_aspect_ratio, # Rotated aspect ratio
       straighten_degrees=new_straighten,
-      rotate_steps=0,  # Match step=0 behavior
+      rotate_steps=0,  # Do not apply 90° steps here, we are already in logical frame
       flip_horizontal=new_flip,
   )
   self._perspective_quad = compute_projected_quad(matrix)
@@ -286,13 +284,12 @@ uv.y = 1.0 - uv.y;
 
 * **定义**: 最终渲染在屏幕组件上的像素坐标。
 * **作用**: **仅用于**处理鼠标点击、拖拽等交互事件。
-* **变换要求**: 在进行逻辑计算前，**必须**将屏幕坐标逆变换回逻辑空间。
 
 ---
 
 #### Shader 层坐标变换流程 (Fragment Shader Pipeline)
 
-**新架构**: 所有坐标变换已迁移到 Fragment Shader 中，Python 层只负责逻辑空间的交互。
+**架构**: Fragment Shader 接收逻辑空间的裁剪参数，并在采样纹理前应用逆变换。
 
 **文件**: `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag`
 
@@ -302,156 +299,100 @@ void main() {
     
     // 1. Y 轴翻转
     uv.y = 1.0 - uv.y;
-    vec2 uv_corrected = uv;
+    vec2 uv_corrected = uv; // Logical/Screen Space
 
     // 2. 裁剪测试 (Crop Test)
-    // Perform crop test in Logical/Screen space (uv_corrected).
-    // The crop box is defined by the user on the screen (post-perspective/straighten),
-    // so we must mask pixels based on their screen position.
-    float crop_min_x = uCropCX - uCropW * 0.5;
-    float crop_max_x = uCropCX + uCropW * 0.5;
-    float crop_min_y = uCropCY - uCropH * 0.5;
-    float crop_max_y = uCropCY + uCropH * 0.5;
+    // Perform crop test in Logical/Screen space.
+    // The crop box is defined in Logical Space.
 
-    if (uv_corrected.x < crop_min_x || uv_corrected.x > crop_max_x ||
-        uv_corrected.y < crop_min_y || uv_corrected.y > crop_max_y) {
+    if (uv_corrected.x < crop_min_x || ... ) {
         discard;
     }
 
-    // 3. 应用透视逆变换
+    // 3. 应用透视逆变换 (Inverse Perspective)
+    // Maps Logical Space -> Projected Space (Unrotated relative to logical view)
     vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
 
-    // 4. 透视边界检查
-    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
-        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
-        discard;  // 透视变换后超出范围
+    // 4. 透视边界检查 (Check against valid texture area in Projected Space)
+    if (uv_perspective.x < 0.0 || ... ) {
+        discard;
     }
     
-    // 5. 应用旋转
+    // 5. 应用 90° 旋转 (Apply discrete rotation steps)
+    // Maps Projected Space -> Texture Space
     vec2 uv_tex = apply_rotation_90(uv_perspective, uRotate90);
 
     // 6. 纹理采样
     vec4 texel = texture(uTex, uv_tex);
+
+    // 7. 颜色调整 (Color Adjustments)
     vec3 c = texel.rgb;
-    
-    // ... color adjustments ...
+    // 例如：应用伽马校正 (e.g., apply gamma correction)
+    c = pow(c, vec3(1.0 / 2.2));
+    // 其他色彩调整可在此添加 (exposure, saturation, etc.)
+    // 8. 输出最终颜色
+    FragColor = vec4(c, texel.a);
 }
 ```
 
 **关键设计决策**:
-* **裁剪测试在逻辑空间**: 确保裁剪框在屏幕上始终是矩形，即使应用了透视变换（Perspective/Keystone）。
-* **黑边检测优化**: Shader 接收的裁剪参数已经在 Python 层验证过不会产生黑边
-* **Python 层**: Python 负责将存储的纹理空间裁剪参数转换为逻辑空间参数传递给 Shader。
+* **逻辑对齐**: 透视变换矩阵 (`uPerspectiveMatrix`) 是基于逻辑宽高比构建的，因此 `apply_inverse_perspective` 的结果 (`uv_perspective`) 仍处于与逻辑空间对齐的坐标系中（仅去除了透视畸变）。
+* **分离旋转**: 离散的 90° 旋转 (`uRotate90`) 作为最后一步独立应用，将坐标映射回物理纹理空间。
+* **Python 层**: Python 层在计算黑边检测 Quad 时，同样使用 `rotate_steps=0` 和逻辑宽高比，确保生成的 Quad 与逻辑空间的裁剪框可直接比较。
 
 ---
 
 #### 黑边检测机制 (Black Border Prevention)
 
-**核心原则**: 黑边判定在**投影空间**（透视变换后，旋转前）进行。
+**核心原则**: 黑边判定在 **逻辑空间** (Logical Space) 进行。
 
-1. **步骤0策略** (`src/iPhoto/gui/ui/widgets/gl_crop/model.py`):
-   * 计算有效四边形时强制 `rotate_steps=0`
-   * 原因: 旋转是纯粹的坐标重映射，不影响有效像素区域
-   * 结果: 四边形 `Q_valid` 代表真实的有效像素边界
+1.  **构建逻辑透视四边形**:
+    *   使用 **逻辑宽高比** (Logical Aspect Ratio)。
+    *   强制 `rotate_steps=0` (因为逻辑空间已经是旋转后的基准)。
+    *   产生的四边形 `Q_valid` 代表逻辑视图中的有效图像区域。
    
-   ```python
-   def update_perspective(self, vertical, horizontal, straighten, rotate_steps, flip_horizontal, aspect_ratio):
-       """Update the perspective quad based on parameters."""
-       new_vertical = float(vertical)
-       new_horizontal = float(horizontal)
-       new_straighten = float(straighten)
-       new_flip = bool(flip_horizontal)
-       
-       # Calculate quad WITHOUT rotation, matching step=0's successful logic
-       # The quad represents valid region after perspective/straighten only
-       matrix = build_perspective_matrix(
-           new_vertical,
-           new_horizontal,
-           image_aspect_ratio=aspect_ratio,
-           straighten_degrees=new_straighten,
-           rotate_steps=0,  # Match step=0 behavior
-           flip_horizontal=new_flip,
-       )
-       self._perspective_quad = compute_projected_quad(matrix)
-   ```
+    ```python
+    # src/iPhoto/gui/ui/widgets/gl_crop/model.py
+    matrix = build_perspective_matrix(
+        ...,
+        image_aspect_ratio=logical_aspect_ratio,
+        rotate_steps=0,
+        ...
+    )
+    self._perspective_quad = compute_projected_quad(matrix)
+    ```
 
-2. **包含性检查** (`src/iPhoto/gui/ui/widgets/perspective_math.py`):
-   ```python
-   def rect_inside_quad(rect: NormalisedRect, quad: Sequence[tuple[float, float]]) -> bool:
-       """Return True when rect is fully contained inside quad."""
-       corners = [
-           (rect.left, rect.top),
-           (rect.right, rect.top),
-           (rect.right, rect.bottom),
-           (rect.left, rect.bottom),
-       ]
-       return all(point_in_convex_polygon(corner, quad) for corner in corners)
-   ```
+2.  **包含性检查**:
+    *   直接检查逻辑空间下的裁剪框 `rect` 是否在 `Q_valid` 内。
+    *   无需坐标转换，因为两者都在逻辑空间。
+    *   代码: `rect_inside_quad(rect, quad)`
 
-3. **自动缩放** (`src/iPhoto/gui/ui/widgets/gl_crop/model.py`):
-   * 当裁剪框超出有效区域时，自动均匀缩小
-   * 使用 `calculate_min_zoom_to_fit()` 计算最小缩放比例
-   * 确保裁剪结果完全在有效像素内
-   
-   ```python
-   def auto_scale_crop_to_quad(self) -> bool:
-       """Shrink the crop uniformly so it sits entirely inside the quad."""
-       quad = self._perspective_quad or unit_quad()
-       rect = self._current_normalised_rect()
-       scale = calculate_min_zoom_to_fit(rect, quad)
-       if not math.isfinite(scale) or scale <= 1.0 + 1e-4:
-           return False
-       self._crop_state.width = max(self._crop_state.min_width, self._crop_state.width / scale)
-       self._crop_state.height = max(self._crop_state.min_height, self._crop_state.height / scale)
-       self._crop_state.clamp()
-       return True
-   ```
-
-**示例场景**:
-* 用户应用强透视变换 → 有效区域变成梯形
-* 用户拖拽裁剪框 → Python 检查四个角点是否在梯形内
-* 若超出 → 自动缩小裁剪框直到完全包含在梯形内
-* 结果 → 渲染时不会出现黑色边缘
+3.  **自动缩放**:
+    *   当裁剪框超出有效区域时，基于几何包含关系计算最小缩放比例。
 
 ---
 
-#### 开发规范
+#### 开发规范 (Development Guidelines)
 
-1. **坐标系分离原则**  
-   * 存储：纹理空间（`.ipo` 文件）
-   * 交互：逻辑空间（Python UI 层）
-   * 黑边检测：投影空间（透视变换后，旋转前）
-   * 渲染：Shader 统一处理所有变换
+1.  **坐标系一致性原则**
+    *   **交互与校验**: 始终在 **逻辑空间** 进行。
+    *   **存储**: 始终在 **纹理空间** (`.ipo` 文件)。
+    *   **渲染**: Shader 负责最后的 逻辑 -> 纹理 映射。
 
-2. **坐标转换链**  
-   ```
-   [存储] 纹理空间 
-      ↓ texture_crop_to_logical()
-   [交互] 逻辑空间 
-      ↓ 透视变换（不含旋转）
-   [验证] 投影空间（黑边检测）
-      ↓ Shader: 透视 → 裁剪 → 旋转
-   [采样] 纹理空间
-   ```
+2.  **宽高比使用规范**
+    *   在计算透视矩阵 (`build_perspective_matrix`) 时，必须使用与当前空间匹配的宽高比。
+    *   若在逻辑空间计算，必须使用 `logical_aspect_ratio` (旋转 90°/270° 时为 `tex_h/tex_w`)。
 
-3. **黑边检查位置**  
-   * Python 层：使用 `rect_inside_quad()` 在投影空间检查
-   * Shader 层：裁剪测试在旋转前进行
-
-4. **实现文件参考**  
-   * `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag` — Shader 坐标变换管线
-   * `src/iPhoto/gui/ui/widgets/gl_image_viewer/geometry.py` — 纹理/逻辑空间转换
-   * `src/iPhoto/gui/ui/widgets/gl_crop/model.py` — 黑边检测逻辑（rotate_steps=0 关键）
-   * `src/iPhoto/gui/ui/widgets/perspective_math.py` — 几何算法（包含性检查）
-
----
-
-**关键要点**:  
+**关键要点**:
 * **纹理空间**: 持久化存储，不受旋转影响
 * **逻辑空间**: 用户交互空间，Python 层使用
 * **投影空间**: 黑边检测核心，四边形计算时 `rotate_steps=0`
 * **Shader 管线**: 透视 → 裁剪测试 → 旋转 → 采样（顺序不可变）
 * 混用坐标系会导致黑边、裁剪错误和坐标累积误差。
+
+3.  **旋转处理**
+    *   不要在 Python 层手动旋转裁剪框来匹配纹理空间进行校验（易出错）。
+    *   而是构建一个“逻辑空间下的透视四边形”来进行同空间比较。
 
 ---
 
