@@ -75,7 +75,7 @@ The project follows a layered architecture to separate core logic from the GUI.
 
 ### File I/O Safety
 *   **Atomic Writes**: Always write to a temporary file (e.g., `.tmp`) and then rename it to the target filename to prevent data corruption during crashes.
-*   **Locking**: Before writing to manifests or index files, check `.iPhoto/locks/` (or equivalent) to avoid race conditions.
+*   **Locking**: Before writing to manifests or index files, check `.lexiphoto/locks/` (or equivalent) to avoid race conditions.
 *   **Cross-Platform**: Use `pathlib.Path` for all file path manipulations to ensure compatibility with Windows, macOS, and Linux.
 
 ## 6. Performance & Optimization Guidelines
