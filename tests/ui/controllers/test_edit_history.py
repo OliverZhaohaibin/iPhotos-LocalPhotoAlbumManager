@@ -165,7 +165,6 @@ class StubController(EditController):
     # We will verify that these methods exist in the real class,
     # but here we implement them as we expect them to work (or use the real ones if we copied code)
     # Actually, better to test the REAL methods by mocking dependencies properly.
-    pass
 
 
 @pytest.fixture
