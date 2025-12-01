@@ -145,29 +145,6 @@ class StubUi(QObject):
         self.status_bar._message_label.palette.return_value = dummy_palette
 
 
-class StubController(EditController):
-    """Testable subclass of EditController to bypass complex dependencies."""
-
-    def __init__(self, ui, **kwargs):
-        # We bypass super().__init__ to avoid needing all the dependencies
-        # and instead manually set up what we need for history testing.
-        QObject.__init__(self)
-        self._ui = ui
-        self._session: EditSession | None = None
-        self._undo_stack: list[dict] = []
-        self._redo_stack: list[dict] = []
-        self._history_limit = 50
-
-        # Simulate connections needed for history
-        self._ui.edit_sidebar.interactionStarted.connect(self.push_undo_state)
-        self._ui.edit_image_viewer.cropInteractionStarted.connect(self.push_undo_state)
-
-    # We will verify that these methods exist in the real class,
-    # but here we implement them as we expect them to work (or use the real ones if we copied code)
-    # Actually, better to test the REAL methods by mocking dependencies properly.
-    pass
-
-
 @pytest.fixture
 def edit_controller(qapp):
     """Fixture to create an EditController with mocked dependencies."""
