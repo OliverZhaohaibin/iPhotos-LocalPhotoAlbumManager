@@ -122,7 +122,7 @@ pytest
 ```
 
 ### Robustness
-*   Tests must simulate missing or corrupt files to ensuring the application handles them gracefully without crashing.
+*   Tests must simulate missing or corrupt files to ensure the application handles them gracefully without crashing.
 *   **Rebuildability**: Verify that deleting `index.jsonl` or `links.json` results in them being correctly rebuilt by the system.
 
 ## 9. Submitting Issues
