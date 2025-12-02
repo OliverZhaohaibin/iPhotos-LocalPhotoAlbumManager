@@ -1,5 +1,5 @@
 
-# `agent.md` – LexiPhoto 开发基础原则
+# `AGENT.md` – iPhoto 开发基础原则
 
 ## 1. 总体理念
 
@@ -15,13 +15,13 @@
 
 * **标志文件**
 
-  * `.lexi.album.json`：完整 manifest（推荐）
-  * `.lexi.album`：最小标志（空文件，代表“这是一个相册”）
+  * `.iphoto.album.json`：完整 manifest（推荐）
+  * `.iphoto.album`：最小标志（空文件，代表“这是一个相册”）
 
 * **隐藏工作目录**（可删）：
 
   ```
-  /<Album>/.lexiphoto/
+  /<Album>/.iphoto/
     manifest.json      # 可选 manifest 位置
     index.jsonl        # 扫描索引
     links.json         # Live 配对与逻辑组
@@ -49,11 +49,11 @@
 
 ## 4. 编码规则
 
-* **目录结构固定**（见 `src/lexiphoto/…`，模块分为 `models/`, `io/`, `core/`, `cache/`, `utils/`）。
+* **目录结构固定**（见 `src/iPhoto/…`，模块分为 `models/`, `io/`, `core/`, `cache/`, `utils/`）。
 * **数据类**：统一用 `dataclass` 定义（见 `models/types.py`）。
 * **错误处理**：必须抛出自定义错误（见 `errors.py`），禁止裸 `Exception`。
-* **写文件**：必须原子操作（`*.tmp` → `replace()`），manifest 必须在写前备份到 `.lexiphoto/manifest.bak/`。
-* **锁**：写 `manifest/links/index` 前必须检查 `.lexiphoto/locks/`，避免并发冲突。
+* **写文件**：必须原子操作（`*.tmp` → `replace()`），manifest 必须在写前备份到 `.iPhoto/manifest.bak/`。
+* **锁**：写 `manifest/links/index` 前必须检查 `.iPhoto/locks/`，避免并发冲突。
 
 ---
 
@@ -74,7 +74,11 @@
 
 * **models/**：数据类 + manifest/index/links 的加载与保存。
 * **io/**：扫描文件系统、读取元数据、生成缩略图、写旁车。
-* **core/**：算法逻辑（配对、排序、精选管理）。
+* **core/**：算法逻辑（配对、排序、精选管理、图像调整）。
+  * `light_resolver.py`：Light 调整参数解析（Brilliance/Exposure/Highlights/Shadows/Brightness/Contrast/BlackPoint）
+  * `color_resolver.py`：Color 调整参数解析（Saturation/Vibrance/Cast）+ 图像统计分析
+  * `bw_resolver.py`：Black & White 参数解析（Intensity/Neutrals/Tone/Grain）
+  * `filters/`：高性能图像处理（NumPy 向量化 + Numba JIT + QColor 回退策略）
 * **cache/**：索引与锁的实现。
 * **utils/**：通用工具（hash、json、logging、外部工具封装）。
 * **schemas/**：JSON Schema。
@@ -118,16 +122,97 @@
 
 ## 10. 最小命令集
 
-* `lexi init`：初始化相册
-* `lexi scan`：生成/更新索引
-* `lexi pair`：生成/更新配对
-* `lexi cover set`：设置封面
-* `lexi feature add/rm`：管理精选
-* `lexi report`：输出相册统计与异常
+* `iphoto init`：初始化相册
+* `iphoto scan`：生成/更新索引
+* `iphoto pair`：生成/更新配对
+* `iphoto cover set`：设置封面
+* `iphoto feature add/rm`：管理精选
+* `iphoto report`：输出相册统计与异常
 
 ---
 
-## 11. OpenGL 开发规范
+## 11. 编辑系统架构 (Edit System Architecture)
+
+### 1. 概述
+
+编辑系统提供**非破坏性**图像调整功能，分为两大模式：
+
+* **Adjust（调整）模式**：Light / Color / Black & White 参数调节
+* **Crop（裁剪）模式**：透视校正 / 旋转拉直 / 裁剪框调整
+
+### 2. 核心组件
+
+#### GUI 层（`src/iPhoto/gui/ui/widgets/`）
+
+| 组件 | 职责 |
+|------|------|
+| `edit_sidebar.py` | 编辑侧边栏容器，管理 Adjust/Crop 页面切换 |
+| `edit_light_section.py` | Light 调整面板（7 个子滑块 + Master 滑块） |
+| `edit_color_section.py` | Color 调整面板（Saturation/Vibrance/Cast） |
+| `edit_bw_section.py` | Black & White 调整面板（Intensity/Neutrals/Tone/Grain） |
+| `edit_perspective_controls.py` | 透视校正控件（Vertical/Horizontal/Straighten） |
+| `thumbnail_strip_slider.py` | 带实时缩略图预览的滑块组件 |
+| `gl_crop/` | 裁剪交互模块（Model/Controller/HitTester/Animator/Strategies） |
+
+#### Core 层（`src/iPhoto/core/`）
+
+| 模块 | 职责 |
+|------|------|
+| `light_resolver.py` | Master 滑块 → 7 个 Light 参数的映射算法 |
+| `color_resolver.py` | Master 滑块 → Color 参数映射 + 图像色彩统计分析 |
+| `bw_resolver.py` | Master 滑块 → B&W 参数映射（三锚点高斯插值） |
+| `image_filters.py` | 图像调整应用入口 |
+| `filters/` | 高性能图像处理执行器（分层策略模式） |
+
+### 3. 数据流
+
+```
+用户拖动滑块
+     ↓
+EditSession.set_value(key, value)  # 状态更新
+     ↓
+valueChanged 信号 → Controller
+     ↓
+GLRenderer.set_uniform(...)  # GPU 实时预览
+     ↓
+EditSession.save() → .ipo 文件  # 持久化
+```
+
+### 4. 参数范围约定
+
+| 分类 | 参数 | 范围 | 默认值 |
+|------|------|------|--------|
+| Light | Brilliance/Exposure/Highlights/Shadows/Brightness/Contrast/BlackPoint | [-1.0, 1.0] | 0.0 |
+| Color | Saturation/Vibrance | [-1.0, 1.0] | 0.0 |
+| Color | Cast | [0.0, 1.0] | 0.0 |
+| B&W | Intensity/Master | [0.0, 1.0] | 0.5 |
+| B&W | Neutrals/Tone/Grain | [0.0, 1.0] | 0.0 |
+| Crop | Perspective_Vertical/Horizontal | [-1.0, 1.0] | 0.0 |
+| Crop | Crop_Straighten | [-45.0, 45.0]° | 0.0 |
+| Crop | Crop_CX/CY/W/H | [0.0, 1.0] | 0.5/0.5/1.0/1.0 |
+
+### 5. 裁剪模块分层
+
+```
+gl_crop/
+├── model.py          # 状态模型（CropSessionModel）
+├── controller.py     # 交互协调器（CropInteractionController）
+├── hit_tester.py     # 命中检测（边框/角点/内部）
+├── animator.py       # 动画管理（缩放/回弹）
+├── strategies/       # 交互策略（拖拽/缩放）
+└── utils.py          # 工具函数（CropBoxState/CropHandle）
+```
+
+### 6. 开发规范
+
+* **所有编辑参数必须通过 `EditSession` 读写**，禁止直接操作 `.ipo` 文件
+* **滑块交互必须发出 `interactionStarted/Finished` 信号**，用于暂停文件监控
+* **缩略图生成必须在后台线程执行**，避免阻塞 UI
+* **透视变换矩阵计算使用逻辑宽高比**，参见 OpenGL 开发规范第 12 节第 5 小节
+
+---
+
+## 12. OpenGL 开发规范
 
 ### 1. 涉及文件清单
 
@@ -135,10 +220,16 @@
 
 * **核心图像查看器 (Pure GL)**
 
-  * `src/iPhoto/gui/ui/widgets/gl_image_viewer.py`（Widget 宿主与事件处理）
+  * `src/iPhoto/gui/ui/widgets/gl_image_viewer/`（GL 图像查看器模块目录）
+    * `widget.py`（Widget 宿主与事件处理）
+    * `components.py`（GL 渲染组件）
+    * `resources.py`（GL 资源管理）
+    * `geometry.py`（几何计算）
+    * `input_handler.py`（输入事件处理）
   * `src/iPhoto/gui/ui/widgets/gl_renderer.py`（GL 渲染指令封装）
   * `src/iPhoto/gui/ui/widgets/gl_image_viewer.vert`（Vertex Shader）
   * `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag`（Fragment Shader）
+  * `src/iPhoto/gui/ui/widgets/gl_crop/`（裁剪工具模块目录）
 
 * **地图组件 (GL Backed)**
 
@@ -397,7 +488,7 @@ void main() {
 ---
 
 
-## 12. Python 性能优化规范
+## 13. Python 性能优化规范
 
 ### 1. 总体原则
 
