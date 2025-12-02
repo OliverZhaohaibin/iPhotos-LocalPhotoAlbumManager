@@ -430,10 +430,10 @@ class EditSidebar(QWidget):
         self._session.set_value("BW_Enabled", checked)
         self.interactionFinished.emit()
 
-    @Slot(str, object)  # 使用 object 以匹配 (float | bool)
+    @Slot(str, object)  # Use object to match (float | bool)
     def _on_session_value_changed(self, key: str, value: object) -> None:
         """Listen for session changes (e.g., from sliders) to sync the toggle button."""
-        del value  # 我们只关心键，不关心具体的值
+        del value  # We only care about the key, not the specific value
         if key == "Light_Enabled":
             self._sync_light_toggle_state()
         if key == "Color_Enabled":
