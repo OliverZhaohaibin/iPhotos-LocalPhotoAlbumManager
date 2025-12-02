@@ -76,6 +76,34 @@ class EditSession(QObject):
         self._values["BW_Grain"] = 0.0
         self._ranges["BW_Grain"] = (0.0, 1.0)
 
+        # Cropping parameters are stored in normalised image space so the
+        # session can persist non-destructive crop boxes alongside colour
+        # adjustments.  ``Crop_*`` values are clamped to ``[0.0, 1.0]``.
+        self._values["Crop_CX"] = 0.5
+        self._ranges["Crop_CX"] = (0.0, 1.0)
+        self._values["Crop_CY"] = 0.5
+        self._ranges["Crop_CY"] = (0.0, 1.0)
+        self._values["Crop_W"] = 1.0
+        self._ranges["Crop_W"] = (0.0, 1.0)
+        self._values["Crop_H"] = 1.0
+        self._ranges["Crop_H"] = (0.0, 1.0)
+
+        # Perspective correction sliders operate in a symmetric range so they
+        # can skew in both directions.  The shader interprets the normalised
+        # ``[-1.0, 1.0]`` inputs as ±20° rotations around the horizontal and
+        # vertical axes.  Straighten and rotation controls operate in degrees so
+        # the persisted state matches the user-facing UI exactly.
+        self._values["Perspective_Vertical"] = 0.0
+        self._ranges["Perspective_Vertical"] = (-1.0, 1.0)
+        self._values["Perspective_Horizontal"] = 0.0
+        self._ranges["Perspective_Horizontal"] = (-1.0, 1.0)
+        self._values["Crop_Straighten"] = 0.0
+        self._ranges["Crop_Straighten"] = (-45.0, 45.0)
+        self._values["Crop_Rotate90"] = 0
+        self._ranges["Crop_Rotate90"] = (0.0, 3.0)
+        self._values["Crop_FlipH"] = False
+        self._ranges["Crop_FlipH"] = (-1.0, 1.0)
+
     # ------------------------------------------------------------------
     # Accessors
     def value(self, key: str) -> float | bool:
@@ -156,6 +184,19 @@ class EditSession(QObject):
             "BW_Tone": 0.0,
             "BW_Grain": 0.0,
         })
+        defaults.update(
+            {
+                "Crop_CX": 0.5,
+                "Crop_CY": 0.5,
+                "Crop_W": 1.0,
+                "Crop_H": 1.0,
+                "Perspective_Vertical": 0.0,
+                "Perspective_Horizontal": 0.0,
+                "Crop_Straighten": 0.0,
+                "Crop_Rotate90": 0.0,
+                "Crop_FlipH": False,
+            }
+        )
         self.set_values(defaults, emit_individual=True)
         self.resetPerformed.emit()
 

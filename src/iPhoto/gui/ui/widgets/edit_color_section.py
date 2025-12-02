@@ -33,6 +33,9 @@ _LOGGER = logging.getLogger(__name__)
 class EditColorSection(QWidget):
     """Container widget hosting the "Color" adjustment sliders."""
 
+    interactionStarted = Signal()
+    interactionFinished = Signal()
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._session: Optional[EditSession] = None
@@ -55,6 +58,8 @@ class EditColorSection(QWidget):
         self.master_slider.set_preview_generator(self._generate_master_preview)
         self.master_slider.valueChanged.connect(self._handle_master_slider_changed)
         self.master_slider.clickedWhenDisabled.connect(self._handle_disabled_slider_click)
+        self.master_slider.interactionStarted.connect(self.interactionStarted)
+        self.master_slider.interactionFinished.connect(self.interactionFinished)
         layout.addWidget(self.master_slider)
 
         options_container = QFrame(self)
@@ -74,6 +79,8 @@ class EditColorSection(QWidget):
             row = _SliderRow(key, label_text, minimum, maximum, parent=options_container)
             row.uiValueChanged.connect(self._handle_sub_slider_changed)
             row.clickedWhenDisabled.connect(self._handle_disabled_slider_click)
+            row.interactionStarted.connect(self.interactionStarted)
+            row.interactionFinished.connect(self.interactionFinished)
             options_layout.addWidget(row)
             self._rows[key] = row
 
@@ -296,6 +303,8 @@ class _SliderRow(QFrame):
     """Emitted whenever the slider's visual value changes due to user interaction."""
 
     clickedWhenDisabled = Signal()
+    interactionStarted = Signal()
+    interactionFinished = Signal()
 
     def __init__(
         self,
@@ -317,6 +326,8 @@ class _SliderRow(QFrame):
         self.slider = BWSlider(label, self, minimum=minimum, maximum=maximum, initial=0.0)
         layout.addWidget(self.slider)
         self.slider.valueChanged.connect(self._handle_slider_changed)
+        self.slider.interactionStarted.connect(self.interactionStarted)
+        self.slider.interactionFinished.connect(self.interactionFinished)
 
         self._opacity_effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self._opacity_effect)

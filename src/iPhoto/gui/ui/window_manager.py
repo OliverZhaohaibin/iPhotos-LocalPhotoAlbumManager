@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from .icon import load_icon
+from .styles import modern_scrollbar_style
 from .ui_main_window import Ui_MainWindow
 from .widgets.custom_tooltip import FloatingToolTip, ToolTipEventFilter
 
@@ -583,7 +584,7 @@ class FramelessWindowManager(QObject):
         return tuple(widget for widget in candidates if widget is not None)
 
     def _build_menu_styles(self) -> tuple[str, str]:
-        palette = self._window.palette()
+        palette = self._rounded_shell.palette()
         window_color = self._opaque_color(palette.color(QPalette.ColorRole.Window))
         border_color = self._opaque_color(palette.color(QPalette.ColorRole.Mid))
         text_color = self._opaque_color(palette.color(QPalette.ColorRole.WindowText))
@@ -628,6 +629,16 @@ class FramelessWindowManager(QObject):
             "    margin: 4px 10px;\n"
             "}"
         )
+
+        selectors = (
+            ", QWidget QScrollBar:vertical, QAbstractScrollArea QScrollBar:vertical, "
+            "QListView QScrollBar:vertical, QTreeView QScrollBar:vertical, "
+            "QTableView QScrollBar:vertical, QScrollArea QScrollBar:vertical, "
+            "#galleryGridView QScrollBar:vertical"
+        )
+        scrollbar_style = modern_scrollbar_style(text_color, extra_selectors=selectors)
+
+        qmenu_style = qmenu_style + "\n" + scrollbar_style
 
         menubar_style = (
             "QMenuBar {\n"

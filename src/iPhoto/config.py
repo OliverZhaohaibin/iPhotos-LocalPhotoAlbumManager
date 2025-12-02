@@ -11,7 +11,9 @@ from typing import Final
 # collection, mirroring the behaviour users expect from other photo managers.
 RECENTLY_DELETED_DIR_NAME: Final[str] = ".Trash"
 
-DEFAULT_INCLUDE: Final[list[str]] = ["**/*.{HEIC,JPG,JPEG,PNG,MOV,MP4}"]
+DEFAULT_INCLUDE: Final[list[str]] = [
+    "**/*.{HEIC,heic,HEIF,heif,HEIFS,heifs,HEICF,heicf,JPG,jpg,JPEG,jpeg,PNG,png,MOV,mov,MP4,mp4,M4V,m4v,QT,qt}"
+]
 DEFAULT_EXCLUDE: Final[list[str]] = [
     "**/.iPhoto/**",
     "**/.DS_Store",
@@ -28,6 +30,7 @@ THUMBNAIL_SEEK_GUARD_SEC: Final[float] = 0.35
 SCHEMA_DIR: Final[Path] = Path(__file__).resolve().parent / "schemas"
 ALBUM_MANIFEST_NAMES: Final[list[str]] = [".iphoto.album.json", ".iPhoto/manifest.json"]
 WORK_DIR_NAME: Final[str] = ".iPhoto"
+EXPORT_DIR_NAME: Final[str] = "exported"
 
 # ---------------------------------------------------------------------------
 # UI interaction constants

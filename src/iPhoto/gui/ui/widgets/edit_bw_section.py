@@ -42,6 +42,9 @@ class EditBWSection(QWidget):
     paramsCommitted = Signal(BWParams)
     """Emitted once the interaction ends and the session should persist the change."""
 
+    interactionStarted = Signal()
+    interactionFinished = Signal()
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._session: Optional[EditSession] = None
@@ -68,6 +71,8 @@ class EditBWSection(QWidget):
         self.master_slider.valueChanged.connect(self._handle_master_slider_changed)
         self.master_slider.valueCommitted.connect(self._handle_master_slider_committed)
         self.master_slider.clickedWhenDisabled.connect(self._handle_disabled_slider_click)
+        self.master_slider.interactionStarted.connect(self.interactionStarted)
+        self.master_slider.interactionFinished.connect(self.interactionFinished)
         layout.addWidget(self.master_slider)
 
         options_container = QFrame(self)
@@ -80,8 +85,8 @@ class EditBWSection(QWidget):
 
         specs = [
             _SliderSpec("Intensity", "BW_Intensity", 0.0, 1.0, 0.5),
-            _SliderSpec("Neutrals", "BW_Neutrals", 0.0, 1.0, 0.0),
-            _SliderSpec("Tone", "BW_Tone", 0.0, 1.0, 0.0),
+            _SliderSpec("Neutrals", "BW_Neutrals", -1.0, 1.0, 0.0),
+            _SliderSpec("Tone", "BW_Tone", -1.0, 1.0, 0.0),
             _SliderSpec("Grain", "BW_Grain", 0.0, 1.0, 0.0),
         ]
         for spec in specs:
@@ -89,6 +94,8 @@ class EditBWSection(QWidget):
             slider = row.slider
             slider.valueChanged.connect(partial(self._handle_slider_changed, spec.key))
             slider.valueCommitted.connect(partial(self._handle_slider_committed, spec.key))
+            slider.interactionStarted.connect(self.interactionStarted)
+            slider.interactionFinished.connect(self.interactionFinished)
             row.clickedWhenDisabled.connect(self._handle_disabled_slider_click)
             options_layout.addWidget(row)
             self._sliders[spec.key] = slider

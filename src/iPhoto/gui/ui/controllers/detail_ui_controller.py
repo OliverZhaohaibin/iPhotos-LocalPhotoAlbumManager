@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PySide6.QtCore import (
     QModelIndex,
     QItemSelectionModel,
     QObject,
+    QRunnable,
+    QThreadPool,
     QTimer,
     Signal,
     Slot,
 )
 from PySide6.QtGui import QColor, QIcon
-from PySide6.QtWidgets import QSlider, QToolButton, QWidget
+from PySide6.QtWidgets import QPushButton, QSlider, QToolButton, QWidget
 
 ZOOM_SLIDER_DEFAULT = 100
 """Default percentage value used when the zoom slider is reset."""
@@ -29,12 +31,41 @@ from ..widgets.gl_image_viewer import GLImageViewer
 from .header_controller import HeaderController
 from .player_view_controller import PlayerViewController
 from .view_controller import ViewController
+from ....io import sidecar
 from ....io.metadata import read_image_meta
 from ....utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from .navigation_controller import NavigationController
 
 
 _LOGGER = get_logger()
 """Module level logger used for debug and fallback metadata warnings."""
+
+
+class _SaveRotationSignals(QObject):
+    """Signals for the background rotation worker."""
+
+    finished = Signal()
+    error = Signal(str)
+
+
+class _SaveRotationWorker(QRunnable):
+    """Background worker to save rotation adjustments to the sidecar."""
+
+    def __init__(self, source: Path, adjustments: dict, signals: _SaveRotationSignals):
+        super().__init__()
+        self._source = source
+        self._adjustments = adjustments
+        self._signals = signals
+
+    def run(self):  # type: ignore[override]
+        try:
+            sidecar.save_adjustments(self._source, self._adjustments)
+            self._signals.finished.emit()
+        except Exception as e:
+            _LOGGER.exception("Failed to persist rotation for %s", self._source)
+            self._signals.error.emit(str(e))
 
 
 class DetailUIController(QObject):
@@ -55,7 +86,8 @@ class DetailUIController(QObject):
         view_controller: ViewController,
         header: HeaderController,
         favorite_button: QToolButton,
-        edit_button: QToolButton,
+        rotate_left_button: QToolButton,
+        edit_button: QPushButton,
         info_button: QToolButton,
         info_panel: InfoPanel,
         zoom_widget: QWidget,
@@ -63,6 +95,7 @@ class DetailUIController(QObject):
         zoom_in_button: QToolButton,
         zoom_out_button: QToolButton,
         status_bar: ChromeStatusBar,
+        navigation_controller: NavigationController | None = None,
         parent: QObject | None = None,
     ) -> None:
         """Store widget references and apply the initial UI baseline."""
@@ -75,6 +108,7 @@ class DetailUIController(QObject):
         self._view_controller = view_controller
         self._header = header
         self._favorite_button = favorite_button
+        self._rotate_left_button = rotate_left_button
         self._edit_button = edit_button
         self._info_button = info_button
         self._info_panel = info_panel
@@ -83,6 +117,7 @@ class DetailUIController(QObject):
         self._zoom_in_button = zoom_in_button
         self._zoom_out_button = zoom_out_button
         self._status_bar = status_bar
+        self._navigation: NavigationController | None = navigation_controller
         self._current_row: int = -1
         self._cached_info: Optional[dict[str, object]] = None
         self._toolbar_icon_tint: str | None = None
@@ -90,6 +125,7 @@ class DetailUIController(QObject):
         self._initialize_static_state()
         self._wire_player_bar_events()
         self.connect_zoom_controls()
+        self._rotate_left_button.clicked.connect(self._handle_rotate_left_clicked)
         self._info_button.clicked.connect(self._handle_info_button_clicked)
         self._view_controller.galleryViewShown.connect(self._handle_gallery_view_shown)
 
@@ -203,15 +239,18 @@ class DetailUIController(QObject):
 
         if row < 0:
             self._edit_button.setEnabled(False)
+            self._rotate_left_button.setEnabled(False)
             return
 
         index = self._model.index(row, 0)
         if not index.isValid():
             self._edit_button.setEnabled(False)
+            self._rotate_left_button.setEnabled(False)
             return
 
         is_image = bool(index.data(Roles.IS_IMAGE))
         self._edit_button.setEnabled(is_image)
+        self._rotate_left_button.setEnabled(is_image)
 
     def set_toolbar_icon_tint(self, color: QColor | str | None) -> None:
         """Tint the info and favorite toolbar icons using *color* when provided.
@@ -399,6 +438,11 @@ class DetailUIController(QObject):
 
         return self._favorite_button
 
+    def set_navigation_controller(self, navigation: NavigationController) -> None:
+        """Inject the navigation controller dependency."""
+
+        self._navigation = navigation
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -431,8 +475,8 @@ class DetailUIController(QObject):
         self._favorite_button.setIcon(self._load_toolbar_icon("suit.heart.svg"))
         self._favorite_button.setToolTip("Add to Favorites")
         self._edit_button.setEnabled(False)
-        self._edit_button.setIcon(load_icon("slider.horizontal.3.svg"))
         self._edit_button.setToolTip("Edit adjustments")
+        self._rotate_left_button.setEnabled(False)
         self._info_button.setEnabled(False)
         self._info_button.setIcon(self._load_toolbar_icon("info.circle.svg"))
         self.hide_zoom_controls()
@@ -503,6 +547,75 @@ class DetailUIController(QObject):
         if self._info_panel.isVisible():
             self._info_panel.set_asset_metadata(self._cached_info)
 
+    def _handle_rotate_left_clicked(self) -> None:
+        """Rotate the current photo 90 degrees counter-clockwise."""
+
+        if self._current_row < 0:
+            return
+        index = self._model.index(self._current_row, 0)
+        if not index.isValid():
+            return
+
+        abs_path = index.data(Roles.ABS)
+        if not isinstance(abs_path, str) or not abs_path:
+            return
+        source = Path(abs_path)
+
+        updates = self._player_view.image_viewer.rotate_image_ccw()
+        try:
+            current_adjustments = sidecar.load_adjustments(source)
+            current_adjustments.update(updates)
+
+            if self._navigation is not None:
+                self._navigation.suspend_library_watcher()
+                self._navigation.suppress_tree_refresh_for_edit()
+
+            # Prepare signals for the worker.  Parenting the signals object to
+            # the controller ensures its lifecycle is managed safely, although
+            # we also delete it explicitly when the worker finishes.
+            signals = _SaveRotationSignals()
+
+            # Capture the relative path and model dependencies for the completion callback.
+            rel = index.data(Roles.REL)
+
+            def _on_save_finished() -> None:
+                # Always clear the suppression flag, matching the original logic
+                # that used a 3-second timer.  Here we do it immediately after
+                # the write completes, which is more precise.
+                if self._navigation is not None:
+                    self._navigation.release_tree_refresh_suppression_if_edit()
+
+                # Clean up the signal object
+                signals.deleteLater()
+
+                if isinstance(rel, str) and rel:
+                    # Invalidate the thumbnail only after the write is confirmed.
+                    # This avoids the race condition where the loader might read
+                    # stale data if triggered too early.
+                    if hasattr(self._model, "invalidate_thumbnail"):
+                        self._model.invalidate_thumbnail(rel)
+                    else:
+                        # Fallback for legacy support if model hasn't updated
+                        self._model.thumbnail_loader().invalidate(rel)
+
+            def _on_save_error(msg: str) -> None:
+                if self._navigation is not None:
+                    self._navigation.release_tree_refresh_suppression_if_edit()
+                signals.deleteLater()
+                _LOGGER.error("Background rotation save failed: %s", msg)
+
+            signals.finished.connect(_on_save_finished)
+            signals.error.connect(_on_save_error)
+
+            worker = _SaveRotationWorker(source, current_adjustments, signals)
+            # Use global thread pool but don't track the worker strictly since it's
+            # a fire-and-forget save operation.
+            QThreadPool.globalInstance().start(worker)
+
+        except Exception:
+            if self._navigation is not None:
+                self._navigation.release_tree_refresh_suppression_if_edit()
+            _LOGGER.exception("Failed to prepare rotation for %s", source)
     def _handle_info_button_clicked(self) -> None:
         """Show or hide the info panel for the current playlist row."""
 

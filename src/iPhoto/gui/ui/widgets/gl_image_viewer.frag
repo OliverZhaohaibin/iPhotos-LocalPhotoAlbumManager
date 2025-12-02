@@ -22,6 +22,14 @@ uniform vec2  uViewSize;
 uniform vec2  uTexSize;
 uniform float uScale;
 uniform vec2  uPan;
+uniform float uImgScale;
+uniform vec2  uImgOffset;
+uniform float uCropCX;
+uniform float uCropCY;
+uniform float uCropW;
+uniform float uCropH;
+uniform mat3  uPerspectiveMatrix;
+uniform int   uRotate90;  // 0, 1, 2, 3 for 0°, 90°, 180°, 270° CCW rotation
 
 float clamp01(float x) { return clamp(x, 0.0, 1.0); }
 
@@ -106,6 +114,35 @@ float grain_noise(vec2 uv, float grain_amount) {
     return (noise - 0.5) * 0.2 * grain_amount;
 }
 
+vec2 apply_inverse_perspective(vec2 uv) {
+    vec2 centered = uv * 2.0 - 1.0;
+    vec3 warped = uPerspectiveMatrix * vec3(centered, 1.0);
+    float denom = warped.z;
+    if (abs(denom) < 1e-5) {
+        denom = (denom >= 0.0) ? 1e-5 : -1e-5;
+    }
+    vec2 restored = warped.xy / denom;
+    return restored * 0.5 + 0.5;
+}
+
+vec2 apply_rotation_90(vec2 uv, int rotate_steps) {
+    // Apply discrete 90-degree rotations
+    // Note: These are CW rotations to match the logical coordinate swap direction
+    int steps = rotate_steps % 4;
+    if (steps == 1) {
+        // 90° CW: (x,y) -> (y, 1-x)
+        return vec2(uv.y, 1.0 - uv.x);
+    } else if (steps == 2) {
+        // 180°: (x,y) -> (1-x, 1-y)
+        return vec2(1.0 - uv.x, 1.0 - uv.y);
+    } else if (steps == 3) {
+        // 270° CW (or 90° CCW): (x,y) -> (1-y, x)
+        return vec2(1.0 - uv.y, uv.x);
+    }
+    // steps == 0: no rotation
+    return uv;
+}
+
 vec3 apply_bw(vec3 color, vec2 uv) {
     float intensity = clamp(uBWParams.x, -1.0, 1.0);
     float neutrals = clamp(uBWParams.y, -1.0, 1.0);
@@ -143,10 +180,13 @@ void main() {
         discard;
     }
 
+    float safeImgScale = max(uImgScale, 1e-6);
+
     vec2 fragPx = vec2(gl_FragCoord.x - 0.5, gl_FragCoord.y - 0.5);
     vec2 viewCentre = uViewSize * 0.5;
     vec2 viewVector = fragPx - viewCentre;
-    vec2 texVector = (viewVector - uPan) / uScale;
+    vec2 screenVector = viewVector - uPan;
+    vec2 texVector = (screenVector / uScale - uImgOffset) / safeImgScale;
     vec2 texPx = texVector + (uTexSize * 0.5);
     vec2 uv = texPx / uTexSize;
 
@@ -155,8 +195,36 @@ void main() {
     }
 
     uv.y = 1.0 - uv.y;
+    vec2 uv_corrected = uv;
 
-    vec4 texel = texture(uTex, uv);
+    // Perform crop test in Logical/Screen space.
+    // The crop box is defined by the user on the screen (post-perspective/straighten),
+    // so we must mask pixels based on their screen position (uv_corrected).
+    float crop_min_x = uCropCX - uCropW * 0.5;
+    float crop_max_x = uCropCX + uCropW * 0.5;
+    float crop_min_y = uCropCY - uCropH * 0.5;
+    float crop_max_y = uCropCY + uCropH * 0.5;
+
+    if (uv_corrected.x < crop_min_x || uv_corrected.x > crop_max_x ||
+        uv_corrected.y < crop_min_y || uv_corrected.y > crop_max_y) {
+        discard;
+    }
+
+    // Apply perspective correction
+    vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
+
+    // Check perspective bounds (Valid Image Area)
+    // This clips any invalid texture regions (black borders) created by the perspective transform.
+    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
+        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
+        discard;
+    }
+    
+    // Apply rotation to get final texture sampling coordinates
+    vec2 uv_tex = apply_rotation_90(uv_perspective, uRotate90);
+
+    // Sample the texture at the computed texture-space coordinates
+    vec4 texel = texture(uTex, uv_tex);
     vec3 c = texel.rgb;
 
     float exposure_term    = uExposure   * 1.5;
@@ -174,7 +242,7 @@ void main() {
     c = apply_color_transform(c, uSaturation, uVibrance, uColorCast, uGain);
 
     if (uBWEnabled) {
-        c = apply_bw(c, uv);
+        c = apply_bw(c, uv_tex);
     }
     FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }

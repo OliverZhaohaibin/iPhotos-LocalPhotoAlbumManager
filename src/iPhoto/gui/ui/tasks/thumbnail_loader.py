@@ -18,15 +18,18 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtGui import QImage, QPainter, QPixmap, QTransform
+
+import numpy as np
 
 from ....config import THUMBNAIL_SEEK_GUARD_SEC, WORK_DIR_NAME
 from ....utils.pathutils import ensure_work_dir
-from ...utils import image_loader
+from ....utils import image_loader
 from ....core.image_filters import apply_adjustments
 from ....core.color_resolver import compute_color_statistics
 from ....io import sidecar
 from .video_frame_grabber import grab_video_frame
+from . import geo_utils
 
 
 class ThumbnailJob(QRunnable):
@@ -91,7 +94,12 @@ class ThumbnailJob(QRunnable):
             raw_adjustments,
             color_stats=stats,
         )
+        
+        # Apply crop before other adjustments and scaling
         if adjustments:
+            image = self._apply_geometry_and_crop(image, adjustments)
+            if image is None:
+                return None
             image = apply_adjustments(image, adjustments, color_stats=stats)
         return self._composite_canvas(image)
 
@@ -104,7 +112,146 @@ class ThumbnailJob(QRunnable):
         )
         if image is None:
             return None
+
+        # Video thumbnails should also respect edits
+        raw_adjustments = sidecar.load_adjustments(self._abs_path)
+        stats = compute_color_statistics(image) if raw_adjustments else None
+        adjustments = sidecar.resolve_render_adjustments(
+            raw_adjustments,
+            color_stats=stats,
+        )
+
+        if adjustments:
+            image = self._apply_geometry_and_crop(image, adjustments)
+            if image is None:
+                return None
+            image = apply_adjustments(image, adjustments, color_stats=stats)
+
         return self._composite_canvas(image)
+
+    def _apply_geometry_and_crop(self, image: QImage, adjustments: Dict[str, float]) -> Optional[QImage]:
+        """Apply geometric transformations (rotation, perspective, straighten) and crop.
+        
+        This method replicates the visual result of the OpenGL viewer on the CPU.
+        """
+        rotate_steps = int(adjustments.get("Crop_Rotate90", 0))
+        flip_h = bool(adjustments.get("Crop_FlipH", False))
+        straighten = float(adjustments.get("Crop_Straighten", 0.0))
+        p_vert = float(adjustments.get("Perspective_Vertical", 0.0))
+        p_horz = float(adjustments.get("Perspective_Horizontal", 0.0))
+
+        tex_crop = (
+            float(adjustments.get("Crop_CX", 0.5)),
+            float(adjustments.get("Crop_CY", 0.5)),
+            float(adjustments.get("Crop_W", 1.0)),
+            float(adjustments.get("Crop_H", 1.0))
+        )
+        
+        # Convert texture space crop to logical space (accounting for 90-degree rotations)
+        log_cx, log_cy, log_w, log_h = geo_utils.texture_crop_to_logical(tex_crop, rotate_steps)
+        
+        w, h = image.width(), image.height()
+
+        # If no significant geometry changes and full crop, return original
+        if (rotate_steps == 0 and not flip_h and abs(straighten) < 1e-5 and
+            abs(p_vert) < 1e-5 and abs(p_horz) < 1e-5 and
+            log_w >= 0.999 and log_h >= 0.999):
+            return image
+
+        # Calculate logical aspect ratio for perspective matrix
+        if rotate_steps % 2 == 1:
+            logical_aspect = float(h) / float(w) if w > 0 else 1.0
+        else:
+            logical_aspect = float(w) / float(h) if h > 0 else 1.0
+
+        # Build perspective matrix (Inverse: Projected -> Texture)
+        matrix_inv = geo_utils.build_perspective_matrix(
+            vertical=p_vert,
+            horizontal=p_horz,
+            image_aspect_ratio=logical_aspect,
+            straighten_degrees=straighten,
+            rotate_steps=0, # Rotation handled separately via QTransform
+            flip_horizontal=flip_h
+        )
+
+        # We need the Forward matrix (Texture -> Projected)
+        try:
+            matrix = np.linalg.inv(matrix_inv)
+        except np.linalg.LinAlgError:
+            matrix = np.identity(3)
+
+        # Convert to QTransform
+        # QTransform expects elements in a specific order that corresponds to
+        # the transpose of the standard matrix math convention used by numpy.
+        # h11=m00, h12=m10, h13=m20
+        # h21=m01, h22=m11, h23=m21
+        # h31=m02, h32=m12, h33=m22
+        qt_perspective = QTransform(
+            matrix[0, 0], matrix[1, 0], matrix[2, 0],
+            matrix[0, 1], matrix[1, 1], matrix[2, 1],
+            matrix[0, 2], matrix[1, 2], matrix[2, 2]
+        )
+        
+        # Construct transformation chain
+        # 1. Normalize Pixels -> [0, 1]
+        t_to_norm = QTransform().scale(1.0 / w, 1.0 / h)
+        
+        # 2. Apply 90-degree Rotation Steps around center (0.5, 0.5)
+        # QTransform methods pre-multiply (apply to left), so we build in reverse order of application.
+        # Desired: T(-0.5) * R * T(0.5) (applied to point p: p * T(-0.5) * R * T(0.5))
+        # Construction: T(0.5).rotate().translate(-0.5)
+        t_rot = QTransform()
+        t_rot.translate(0.5, 0.5)
+        t_rot.rotate(rotate_steps * 90)
+        t_rot.translate(-0.5, -0.5)
+        
+        # 3. Normalize to [-1, 1] for Perspective Matrix
+        # Desired: p * S(2) * T(-1) = 2p - 1.
+        # QTransform builder applies operations in reverse (First().Second() -> Second * First).
+        # We want S * T matrix. So T().S().
+        t_to_ndc = QTransform().translate(-1.0, -1.0).scale(2.0, 2.0)
+        
+        # 4. Denormalize from [-1, 1] to [0, 1]
+        # Desired: p * S(0.5) * T(0.5) = 0.5p + 0.5.
+        # Call Order: T(0.5).S(0.5).
+        t_from_ndc = QTransform().translate(0.5, 0.5).scale(0.5, 0.5)
+        
+        # 5. Scale to Logical Pixels
+        log_w_px = h if rotate_steps % 2 else w
+        log_h_px = w if rotate_steps % 2 else h
+        t_to_pixels = QTransform().scale(log_w_px, log_h_px)
+
+        # Compose full transform:
+        # Texture -> Norm -> Rotated -> NDC -> Perspective -> NDC -> Norm -> Pixels
+        transform = t_to_norm * t_rot * t_to_ndc * qt_perspective * t_from_ndc * t_to_pixels
+
+        # Calculate crop rectangle in Logical Pixels
+        crop_x_px = log_cx * log_w_px - (log_w * log_w_px * 0.5)
+        crop_y_px = log_cy * log_h_px - (log_h * log_h_px * 0.5)
+        crop_w_px = log_w * log_w_px
+        crop_h_px = log_h * log_h_px
+
+        # Shift so crop top-left is at (0, 0)
+        t_final = transform * QTransform().translate(-crop_x_px, -crop_y_px)
+
+        # Determine output size
+        out_w = max(1, int(round(crop_w_px)))
+        out_h = max(1, int(round(crop_h_px)))
+
+        # Render
+        result_img = QImage(out_w, out_h, QImage.Format.Format_ARGB32_Premultiplied)
+        result_img.fill(Qt.transparent)
+
+        painter = QPainter(result_img)
+        # Use high quality rendering
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        painter.setTransform(t_final)
+        painter.drawImage(0, 0, image)
+        painter.end()
+        
+        return result_img
 
     def _seek_targets(self) -> list[Optional[float]]:
         """Return seek offsets for video thumbnails with guard rails."""
@@ -419,6 +566,21 @@ class ThumbnailLoader(QObject):
             queue = self._video_queue.get(priority)
             if queue is not None:
                 queue.pop(key, None)
+
+        if self._album_root is not None:
+            # Aggressively clean up disk cache for this relative path.
+            # This ensures that even if the source file timestamp hasn't changed
+            # (e.g. only the sidecar was edited), we force a regeneration.
+            try:
+                digest = hashlib.sha1(rel.encode("utf-8")).hexdigest()
+                thumbs_dir = self._album_root / WORK_DIR_NAME / "thumbs"
+                if thumbs_dir.exists():
+                    # Filename format: {digest}_{stamp}_{w}x{h}.png
+                    for file_path in thumbs_dir.glob(f"{digest}_*.png"):
+                        self._safe_unlink(file_path)
+            except Exception:
+                # Don't let disk errors crash the UI during invalidation
+                pass
 
     def _queue_video_job(
         self,

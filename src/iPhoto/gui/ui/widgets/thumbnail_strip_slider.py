@@ -32,6 +32,8 @@ class ThumbnailStripSlider(QFrame):
 
     valueChanged = Signal(float)
     valueCommitted = Signal(float)
+    interactionStarted = Signal()
+    interactionFinished = Signal()
 
     clickedWhenDisabled = Signal()
 
@@ -398,6 +400,7 @@ class _ThumbnailTrack(QWidget):
             return
 
         self._slider._pressed = True
+        self._slider.interactionStarted.emit()
         self._update_value_from_position(event.position().x())
         event.accept()
 
@@ -419,6 +422,7 @@ class _ThumbnailTrack(QWidget):
         self._slider._pressed = False
         self._update_value_from_position(event.position().x())
         self._slider.valueCommitted.emit(self._slider._value)
+        self._slider.interactionFinished.emit()
         event.accept()
 
     def leaveEvent(self, event) -> None:  # type: ignore[override]

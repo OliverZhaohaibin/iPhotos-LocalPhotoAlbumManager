@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEvent, QSize, Qt
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QAbstractItemView, QListView
 
+from ..styles import modern_scrollbar_style
 from .asset_grid import AssetGrid
 
 
@@ -31,6 +33,28 @@ class GalleryGridView(AssetGrid):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setWordWrap(False)
         self.setSelectionRectVisible(False)
+
+        self._updating_style = False
+        self._apply_scrollbar_style()
+
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.PaletteChange:
+            if not self._updating_style:
+                self._apply_scrollbar_style()
+        super().changeEvent(event)
+
+    def _apply_scrollbar_style(self) -> None:
+        text_color = self.palette().color(QPalette.ColorRole.WindowText)
+        style = modern_scrollbar_style(text_color)
+
+        if self.styleSheet() == style:
+            return
+
+        self._updating_style = True
+        try:
+            self.setStyleSheet(style)
+        finally:
+            self._updating_style = False
 
     # ------------------------------------------------------------------
     # Selection mode toggling

@@ -5,7 +5,7 @@
 ![Language](https://img.shields.io/badge/language-Python%203.10%2B-blue)
 ![Framework](https://img.shields.io/badge/framework-PySide6%20(Qt6)-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
-[![GitHub Repo](https://img.shields.io/badge/github-iPhotos-181717?logo=github)](https://github.com/OliverZhaohaibin/iPhotos)
+[![GitHub Repo](https://img.shields.io/badge/github-iPhotos-181717?logo=github)](https://github.com/OliverZhaohaibin/iPhotos-LocalPhotoAlbumManager)
 
 ---
 
@@ -42,6 +42,25 @@ The sidebar provides an auto-generated **Basic Library**, grouping photos into:
 ### 🖼 Immersive Detail View
 An elegant viewer with a filmstrip navigator and floating playback bar for videos.
 
+### 🎨 Non-Destructive Photo Editing
+A comprehensive editing suite with **Adjust** and **Crop** modes:
+
+#### Adjust Mode
+- **Light Adjustments:** Brilliance, Exposure, Highlights, Shadows, Brightness, Contrast, Black Point
+- **Color Adjustments:** Saturation, Vibrance, Cast (white balance correction)
+- **Black & White:** Intensity, Neutrals, Tone, Grain with artistic film presets
+- **Master Sliders:** Each section features an intelligent master slider that distributes values across multiple fine-tuning controls
+- **Live Thumbnails:** Real-time preview strips showing the effect range for each adjustment
+
+#### Crop Mode
+- **Perspective Correction:** Vertical and horizontal keystoning adjustments
+- **Straighten Tool:** ±45° rotation with sub-degree precision
+- **Flip (Horizontal):** Horizontal flip support
+- **Interactive Crop Box:** Drag handles, edge snapping, and aspect ratio constraints
+- **Black Border Prevention:** Automatic validation ensures no black edges appear after perspective transforms
+
+All edits are stored in `.ipo` sidecar files, preserving original photos untouched.
+
 ### ℹ️ Floating Info Panel
 Toggle a floating metadata panel showing EXIF, camera/lens info, exposure, aperture, focal length, file size, and more.
 ![Info interface](docs/info1.png)
@@ -57,9 +76,11 @@ Toggle a floating metadata panel showing EXIF, camera/lens info, exposure, apert
 | Concept | Description |
 |----------|--------------|
 | **Folder = Album** | Managed via `.iphoto.album.json` manifest files. |
-| **Incremental Scan** | Scans new/changed files and caches results in `.iPhoto/index.jsonl`. |
+| **Incremental Scan** | Scans new/changed files and caches results in `.iphoto/index.jsonl`. |
 | **Live Pairing** | Auto-matches Live Photos using `ContentIdentifier` or time proximity. |
 | **Reverse Geocoding** | Converts GPS coordinates into human-readable locations (e.g. “London”). |
+| **Non-Destructive Edit** | Stores Light/Color/B&W/Crop adjustments in `.ipo` sidecar files. |
+| **GPU Rendering** | Real-time OpenGL 3.3 preview with perspective transform and color grading. |
 | **Command Line Tool** | Provides a `iphoto` CLI for album init, scan, pairing, and report generation. |
 
 ---
@@ -103,6 +124,7 @@ iphoto-gui /photos/LondonTrip
 - **Asset Grid:** Adaptive thumbnail layout, selection, and lazy-loaded previews.  
 - **Map View:** Interactive GPS clustering with tile caching.  
 - **Detail Viewer:** Filmstrip navigation and playback controls.  
+- **Edit Mode:** Non-destructive Adjust (Light/Color/B&W) and Crop (perspective/straighten) tools.  
 - **Metadata Panel:** Collapsible EXIF + QuickTime info panel.  
 - **Context Menu:** Copy, Move, Delete, Restore.
 ## 🧱 Project Structure
@@ -121,7 +143,11 @@ This section is pure Python logic and **does not depend** on any GUI framework (
 | **`cli.py`** | Typer-based command-line entry point that parses user commands and invokes methods from `app.py`. |
 | **`models/`** | Defines the main data structures such as `Album` (manifest read/write) and `LiveGroup`. |
 | **`io/`** | Handles filesystem interaction, mainly `scanner.py` (file scanning) and `metadata.py` (metadata reading). |
-| **`core/`** | Core algorithmic logic such as `pairing.py` (Live Photo pairing algorithm). |
+| **`core/`** | Core algorithmic logic including `pairing.py` (Live Photo pairing) and image adjustment resolvers. |
+| ├─ **`light_resolver.py`** | Resolves Light master slider to 7 fine-tuning parameters (Brilliance, Exposure, etc.). |
+| ├─ **`color_resolver.py`** | Resolves Color master slider to Saturation/Vibrance/Cast with image statistics. |
+| ├─ **`bw_resolver.py`** | Resolves B&W master slider using 3-anchor Gaussian interpolation. |
+| └─ **`filters/`** | High-performance image processing (NumPy vectorized → Numba JIT → QColor fallback). |
 | **`cache/`** | Manages disposable cache files, including `index_store.py` (read/write `index.jsonl`) and `lock.py` (file-level locking). |
 | **`utils/`** | General utilities, especially wrappers for external tools (`exiftool.py`, `ffmpeg.py`). |
 | **`schemas/`** | JSON Schema definitions, e.g., `album.schema.json`. |
@@ -142,23 +168,42 @@ This is the PySide6-based desktop application layer, which depends on the backen
 | **`ui/`** | Contains all UI components: windows, controllers, models, and custom widgets. |
 | ├─ **`main_window.py`** |— Implementation of the main `QMainWindow`. |
 | ├─ **`ui_main_window.py`** |— Auto-generated from Qt Designer (`pyside6-uic`), defining all widgets. |
-| ├─ **`controllers/`** |— The “brain” of the GUI (MVC pattern). `main_controller.py` orchestrates all subcontrollers (e.g., `NavigationController`, `PlaybackController`) and connects all signals and slots. |
-| ├─ **`models/`** |— Qt **Model-View** data models such as `AssetListModel` and `AlbumTreeModel`. |
-| ├─ **`widgets/`** |— Reusable custom QWidget components such as `AlbumSidebar`, `PhotoMapView`, and `PlayerBar`. |
+| ├─ **`controllers/`** |— The “brain” of the GUI (MVC pattern). `main_controller.py` orchestrates all subcontrollers (e.g., `NavigationController`, `PlaybackController`, `EditController`) and connects all signals and slots. |
+| ├─ **`models/`** |— Qt **Model-View** data models such as `AssetListModel`, `AlbumTreeModel`, and `EditSession`. |
+| ├─ **`widgets/`** |— Reusable custom QWidget components such as `AlbumSidebar`, `PhotoMapView`, `PlayerBar`, and edit-related widgets (see below). |
 | └─ **`tasks/`**| — `QRunnable` implementations for background tasks, e.g., `ThumbnailLoader` and `ScannerWorker`. |
 
+#### Edit Widgets & Modules (`src/iPhoto/gui/ui/widgets/`)
+
+The edit system is composed of modular widgets and submodules for non-destructive photo adjustments:
+
+| File / Module | Description |
+|----------------|-------------|
+| **`edit_sidebar.py`** | Container widget hosting Adjust/Crop mode pages with stacked layout. |
+| **`edit_light_section.py`** | Light adjustment panel (Brilliance, Exposure, Highlights, Shadows, Brightness, Contrast, Black Point). |
+| **`edit_color_section.py`** | Color adjustment panel (Saturation, Vibrance, Cast) with image statistics analysis. |
+| **`edit_bw_section.py`** | Black & White panel (Intensity, Neutrals, Tone, Grain) with artistic presets. |
+| **`edit_perspective_controls.py`** | Perspective correction sliders (Vertical, Horizontal, Straighten). |
+| **`edit_topbar.py`** | Edit mode toolbar with Adjust/Crop toggle and action buttons. |
+| **`edit_strip.py`** | Custom slider widgets (`BWSlider`) used throughout the edit panels. |
+| **`thumbnail_strip_slider.py`** | Slider with real-time thumbnail preview strip. |
+| **`gl_image_viewer/`** | OpenGL-based image viewer submodule for real-time preview rendering. |
+| **`gl_crop/`** | Crop interaction submodule (model, controller, hit-tester, animator, strategies). |
+| **`gl_renderer.py`** | Core OpenGL renderer handling texture upload and shader uniforms. |
+| **`perspective_math.py`** | Geometric utilities for perspective matrix calculation and black-border validation. |
+
 ---
-### 3️⃣ Map Component (`src/iPhoto/gui/maps/`)
+### 3️⃣ Map Component (`maps/`)
 
 This directory contains a semi-independent **map rendering module** used by the `PhotoMapView` widget.
 
 | File / Module | Description |
 |----------------|-------------|
 | **`map_widget/`** | Contains the core map widget classes and rendering logic. |
-| ├─ **`MapWidget.py`** | Main map widget class managing user interaction and viewport state. |
-| ├─ **`MapGLWidget.py`** | OpenGL-based rendering widget for efficient tile and vector drawing. |
-| ├─ **`MapRenderer.py`** | Responsible for rendering map tiles and vector layers. |
-| └─ **`TileManager.py`** | Handles tile fetching, caching, and lifecycle management. |
+| ├─ **`map_widget.py`** | Main map widget class managing user interaction and viewport state. |
+| ├─ **`map_gl_widget.py`** | OpenGL-based rendering widget for efficient tile and vector drawing. |
+| ├─ **`map_renderer.py`** | Responsible for rendering map tiles and vector layers. |
+| └─ **`tile_manager.py`** | Handles tile fetching, caching, and lifecycle management. |
 | **`style_resolver.py`** | Parses MapLibre style sheets (`style.json`) and applies style rules to the renderer. |
 | **`tile_parser.py`** | Parses `.pbf` vector tile files and converts them into drawable map primitives. |
 ---
@@ -167,6 +212,42 @@ This modular separation ensures:
 - ✅ **GUI architecture** follows MVC principles (Controllers coordinate Models and Widgets).  
 - ✅ **Background tasks** are handled asynchronously for smooth user interaction.
 
+---
+
+### 4️⃣ Crop & Perspective: Coordinate Systems Definition
+
+When working with the crop tool and perspective transformation, **three distinct coordinate systems** are used. Understanding these is critical to avoid ambiguity and ensure correct black-border prevention logic.
+
+#### A. Original Texture Space (原始纹理坐标系)
+
+* **Definition:** The raw pixel space of the source image file.
+* **Range:** `[0, 0]` to `[W_src, H_src]` where `W_src` and `H_src` are the image dimensions in pixels.
+* **Purpose:** This is the **input source** for the perspective transformation.
+* **Example:** A 1920×1080 image has texture coordinates from `(0, 0)` at the top-left to `(1920, 1080)` at the bottom-right.
+
+#### B. Projected/Distorted Space (投影空间坐标系) — **Core Calculation Space**
+
+* **Definition:** The 2D space **after applying the perspective transformation matrix**.
+* **Shape:** The original rectangular image boundary becomes an **arbitrary convex quadrilateral** in this space, denoted as `Q_valid`.
+* **Crop Box State:** The user's crop box **remains an axis-aligned bounding box (AABB)** in this space, denoted as `R_crop`.
+* **Critical Validation:** All **black-border prevention logic** must be performed in this space.  
+  Specifically, we must verify that the crop rectangle `R_crop` is **fully contained** within the quadrilateral `Q_valid`.
+* **Coordinate Range:** Typically normalized to `[0, 1]` for both dimensions.
+* **Why It's Core:** This is where geometric containment checks (`rect_inside_quad`, `point_in_convex_polygon`) happen to ensure no black pixels appear in the final crop.
+
+#### C. Viewport/Screen Space (视口/屏幕坐标系)
+
+* **Definition:** The final pixel coordinates rendered on the screen widget.
+* **Purpose:** Used **only** for handling user interaction events (mouse clicks, drags, wheel scrolls).
+* **Transformation Required:** Before performing any logic calculations, screen coordinates **must be inverse-transformed** back to space **B (Projected Space)**.
+* **Example:** A mouse click at `(500, 300)` on screen needs to be converted to normalized projected coordinates to determine which crop handle was clicked.
+
+---
+
+**Key Takeaway:**  
+Always operate crop logic in **Projected Space (B)**. Screen coordinates are for input only, and texture coordinates are for rendering only. Mixing these spaces leads to incorrect cropping and visual artifacts.
+
+---
 
 ## 🧱 Module Dependency Hierarchy
 

@@ -1,0 +1,29 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <title>水平透视校正（180° + 透明 + 水平收缩20%）</title>
+
+    <!-- 遮罩：挖掉横条 -->
+    <mask id="cut-horizontal" maskUnits="userSpaceOnUse">
+        <rect width="100" height="100" fill="white" />
+        <!-- 挖掉梯形内部被线覆盖的部分 -->
+        <rect x="20" y="48" width="60" height="4" fill="black" />
+    </mask>
+
+    <mask id="cut-line-horizontal" maskUnits="userSpaceOnUse">
+        <rect width="100" height="100" fill="white" />
+        <!-- 挖掉线条被梯形覆盖的部分 -->
+        <rect x="20" y="48" width="60" height="4" fill="black" />
+    </mask>
+
+    <!-- 旋转 + 收缩（scaleX=0.8） -->
+    <g transform="rotate(180,50,50) translate(50,0) scale(0.8,1) translate(-50,0)">
+
+        <!-- 梯形（中间透明） -->
+        <polygon fill="#aaa" mask="url(#cut-horizontal)"
+                 points="20,20 80,30 80,70 20,80" />
+
+        <!-- 横线（中段透明） -->
+        <line x1="10" y1="50" x2="90" y2="50"
+              stroke="#ccc" stroke-width="4" stroke-linecap="round"
+              mask="url(#cut-line-horizontal)" />
+    </g>
+</svg>

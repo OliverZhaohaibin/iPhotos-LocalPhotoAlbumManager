@@ -61,6 +61,7 @@ class ViewControllerManager(QObject):
             self._view_controller,
             self._header,
             ui.favorite_button,
+            ui.rotate_left_button,
             ui.edit_button,
             ui.info_button,
             self._info_panel,
@@ -69,6 +70,7 @@ class ViewControllerManager(QObject):
             ui.zoom_in_button,
             ui.zoom_out_button,
             ui.status_bar,
+            navigation,
             window,
         )
         self._edit_controller = EditController(
@@ -116,6 +118,11 @@ class ViewControllerManager(QObject):
         """Return ``True`` when the detail page is currently visible."""
 
         return self._view_controller.is_detail_view_active()
+
+    def is_edit_view_active(self) -> bool:
+        """Return ``True`` when the edit page is currently visible."""
+
+        return self._view_controller.is_edit_view_active()
 
     def show_gallery_view(self) -> None:
         """Switch the stacked widget back to the gallery view."""
