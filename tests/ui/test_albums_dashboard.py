@@ -14,7 +14,8 @@ pytest.importorskip(
     exc_type=ImportError,
 )
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QCursor, QRadialGradient, QBrush
 from PySide6.QtWidgets import QApplication
 
 from iPhoto.gui.ui.widgets.albums_dashboard import AlbumCard, AlbumsDashboard
