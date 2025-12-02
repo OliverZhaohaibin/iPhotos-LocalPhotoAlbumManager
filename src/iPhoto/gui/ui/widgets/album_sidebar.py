@@ -186,7 +186,7 @@ class AlbumSidebar(QWidget):
         self._title = QLabel("Basic Library")
         self._title.setObjectName("albumSidebarTitle")
         self._title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        # ``Ignored`` allows the label to be compressed below its size hint so the navigation
+        # `Ignored` allows the label to be compressed below its size hint so the navigation
         # pane can animate all the way to zero width without the title text imposing a hard
         # minimum size.  The text will be elided once the layout becomes narrower than the
         # rendered string, which keeps the animation visually smooth.
