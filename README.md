@@ -5,7 +5,7 @@
 ![Language](https://img.shields.io/badge/language-Python%203.10%2B-blue)
 ![Framework](https://img.shields.io/badge/framework-PySide6%20(Qt6)-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
-[![GitHub Repo](https://img.shields.io/badge/github-iPhotos-181717?logo=github)](https://github.com/OliverZhaohaibin/iPhotos)
+[![GitHub Repo](https://img.shields.io/badge/github-iPhotos-181717?logo=github)](https://github.com/OliverZhaohaibin/iPhotos-LocalPhotoAlbumManager)
 
 ---
 
@@ -148,17 +148,17 @@ This is the PySide6-based desktop application layer, which depends on the backen
 | └─ **`tasks/`**| — `QRunnable` implementations for background tasks, e.g., `ThumbnailLoader` and `ScannerWorker`. |
 
 ---
-### 3️⃣ Map Component (`src/iPhoto/gui/maps/`)
+### 3️⃣ Map Component (`maps/`)
 
 This directory contains a semi-independent **map rendering module** used by the `PhotoMapView` widget.
 
 | File / Module | Description |
 |----------------|-------------|
 | **`map_widget/`** | Contains the core map widget classes and rendering logic. |
-| ├─ **`MapWidget.py`** | Main map widget class managing user interaction and viewport state. |
-| ├─ **`MapGLWidget.py`** | OpenGL-based rendering widget for efficient tile and vector drawing. |
-| ├─ **`MapRenderer.py`** | Responsible for rendering map tiles and vector layers. |
-| └─ **`TileManager.py`** | Handles tile fetching, caching, and lifecycle management. |
+| ├─ **`map_widget.py`** | Main map widget class managing user interaction and viewport state. |
+| ├─ **`map_gl_widget.py`** | OpenGL-based rendering widget for efficient tile and vector drawing. |
+| ├─ **`map_renderer.py`** | Responsible for rendering map tiles and vector layers. |
+| └─ **`tile_manager.py`** | Handles tile fetching, caching, and lifecycle management. |
 | **`style_resolver.py`** | Parses MapLibre style sheets (`style.json`) and applies style rules to the renderer. |
 | **`tile_parser.py`** | Parses `.pbf` vector tile files and converts them into drawable map primitives. |
 ---

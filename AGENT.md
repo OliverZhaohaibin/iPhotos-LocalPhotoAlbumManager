@@ -1,5 +1,5 @@
 
-# `agent.md` – LexiPhoto 开发基础原则
+# `AGENT.md` – iPhoto 开发基础原则
 
 ## 1. 总体理念
 
@@ -15,13 +15,13 @@
 
 * **标志文件**
 
-  * `.lexi.album.json`：完整 manifest（推荐）
-  * `.lexi.album`：最小标志（空文件，代表“这是一个相册”）
+  * `.iphoto.album.json`：完整 manifest（推荐）
+  * `.iphoto.album`：最小标志（空文件，代表“这是一个相册”）
 
 * **隐藏工作目录**（可删）：
 
   ```
-  /<Album>/.lexiphoto/
+  /<Album>/.iPhoto/
     manifest.json      # 可选 manifest 位置
     index.jsonl        # 扫描索引
     links.json         # Live 配对与逻辑组
@@ -49,11 +49,11 @@
 
 ## 4. 编码规则
 
-* **目录结构固定**（见 `src/lexiphoto/…`，模块分为 `models/`, `io/`, `core/`, `cache/`, `utils/`）。
+* **目录结构固定**（见 `src/iPhoto/…`，模块分为 `models/`, `io/`, `core/`, `cache/`, `utils/`）。
 * **数据类**：统一用 `dataclass` 定义（见 `models/types.py`）。
 * **错误处理**：必须抛出自定义错误（见 `errors.py`），禁止裸 `Exception`。
-* **写文件**：必须原子操作（`*.tmp` → `replace()`），manifest 必须在写前备份到 `.lexiphoto/manifest.bak/`。
-* **锁**：写 `manifest/links/index` 前必须检查 `.lexiphoto/locks/`，避免并发冲突。
+* **写文件**：必须原子操作（`*.tmp` → `replace()`），manifest 必须在写前备份到 `.iPhoto/manifest.bak/`。
+* **锁**：写 `manifest/links/index` 前必须检查 `.iPhoto/locks/`，避免并发冲突。
 
 ---
 
@@ -118,12 +118,12 @@
 
 ## 10. 最小命令集
 
-* `lexi init`：初始化相册
-* `lexi scan`：生成/更新索引
-* `lexi pair`：生成/更新配对
-* `lexi cover set`：设置封面
-* `lexi feature add/rm`：管理精选
-* `lexi report`：输出相册统计与异常
+* `iphoto init`：初始化相册
+* `iphoto scan`：生成/更新索引
+* `iphoto pair`：生成/更新配对
+* `iphoto cover set`：设置封面
+* `iphoto feature add/rm`：管理精选
+* `iphoto report`：输出相册统计与异常
 
 ---
 
@@ -135,10 +135,16 @@
 
 * **核心图像查看器 (Pure GL)**
 
-  * `src/iPhoto/gui/ui/widgets/gl_image_viewer.py`（Widget 宿主与事件处理）
+  * `src/iPhoto/gui/ui/widgets/gl_image_viewer/`（GL 图像查看器模块目录）
+    * `widget.py`（Widget 宿主与事件处理）
+    * `components.py`（GL 渲染组件）
+    * `resources.py`（GL 资源管理）
+    * `geometry.py`（几何计算）
+    * `input_handler.py`（输入事件处理）
   * `src/iPhoto/gui/ui/widgets/gl_renderer.py`（GL 渲染指令封装）
   * `src/iPhoto/gui/ui/widgets/gl_image_viewer.vert`（Vertex Shader）
   * `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag`（Fragment Shader）
+  * `src/iPhoto/gui/ui/widgets/gl_crop/`（裁剪工具模块目录）
 
 * **地图组件 (GL Backed)**
 
