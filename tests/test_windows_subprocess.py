@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 # Ensure we can import the modules
 from iPhoto.utils.exiftool import get_metadata_batch
-from iPhoto.utils.ffmpeg import probe_media, extract_video_frame
+from iPhoto.utils.ffmpeg import probe_media
 
 @pytest.fixture
 def mock_windows_environment(monkeypatch):
