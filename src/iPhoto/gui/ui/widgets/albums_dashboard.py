@@ -390,7 +390,9 @@ class AlbumsDashboard(QWidget):
         super().__init__(parent)
         self._library = library
         self._cards: dict[Path, AlbumCard] = {}
-        self._current_generation = 0  # Track refresh generation to prevent race conditions
+        # Track refresh generation to prevent race conditions
+        # Python integers can grow arbitrarily large, so overflow is not a concern
+        self._current_generation = 0
 
         # Setup loader
         self._loader_signals = DashboardLoaderSignals()
