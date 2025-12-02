@@ -21,7 +21,7 @@
 * **隐藏工作目录**（可删）：
 
   ```
-  /<Album>/.iPhoto/
+  /<Album>/.iphoto/
     manifest.json      # 可选 manifest 位置
     index.jsonl        # 扫描索引
     links.json         # Live 配对与逻辑组
