@@ -72,7 +72,7 @@ def get_metadata_batch(paths: List[Path]) -> List[Dict[str, Any]]:
             encoding="utf-8",
             errors="replace",
             startupinfo=startupinfo,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) if os.name == 'nt' else 0,
         )
     except FileNotFoundError as exc:
         raise ExternalToolError(
