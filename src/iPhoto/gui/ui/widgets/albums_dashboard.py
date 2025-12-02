@@ -303,6 +303,7 @@ class AlbumsDashboard(QWidget):
 
         self._init_ui()
         self._library.treeUpdated.connect(self.refresh)
+        self.refresh()
 
     def _init_ui(self) -> None:
         self.main_layout = QVBoxLayout(self)
