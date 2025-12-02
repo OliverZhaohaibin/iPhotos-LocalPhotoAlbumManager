@@ -87,14 +87,13 @@ class FlowLayout(QLayout):
         spacing_y = self.verticalSpacing()
 
         for item in self._items:
-            space_x = spacing_x
-            space_y = spacing_y
 
-            next_x = x + item.sizeHint().width() + space_x
-            if next_x - space_x > rect.right() and line_height > 0:
+
+            next_x = x + item.sizeHint().width() + spacing_x
+            if next_x - spacing_x > rect.right() and line_height > 0:
                 x = rect.x()
-                y = y + line_height + space_y
-                next_x = x + item.sizeHint().width() + space_x
+                y = y + line_height + spacing_y
+                next_x = x + item.sizeHint().width() + spacing_x
                 line_height = 0
 
             if not test_only:
