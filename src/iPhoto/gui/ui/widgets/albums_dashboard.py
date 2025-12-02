@@ -248,16 +248,17 @@ class AlbumCard(QFrame):
 class DashboardLoaderSignals(QObject):
     """Signals for the dashboard data loader."""
 
-    albumReady = Signal(object, int, object, object)  # node, count, cover_path, album_root
+    albumReady = Signal(object, int, object, object, int)  # node, count, cover_path, album_root, generation
 
 
 class AlbumDataWorker(QRunnable):
     """Background worker to fetch metadata (count, cover path) for an album."""
 
-    def __init__(self, node: AlbumNode, signals: DashboardLoaderSignals) -> None:
+    def __init__(self, node: AlbumNode, signals: DashboardLoaderSignals, generation: int) -> None:
         super().__init__()
         self.node = node
         self.signals = signals
+        self.generation = generation
 
     def run(self) -> None:
         # 1. Get count and first asset for cover fallback
@@ -291,7 +292,7 @@ class AlbumDataWorker(QRunnable):
             if candidate.exists():
                 cover_path = candidate
 
-        self.signals.albumReady.emit(self.node, count, cover_path, self.node.path)
+        self.signals.albumReady.emit(self.node, count, cover_path, self.node.path, self.generation)
 
 
 class DashboardThumbnailLoader(QObject):
@@ -389,6 +390,7 @@ class AlbumsDashboard(QWidget):
         super().__init__(parent)
         self._library = library
         self._cards: dict[Path, AlbumCard] = {}
+        self._current_generation = 0  # Track refresh generation to prevent race conditions
 
         # Setup loader
         self._loader_signals = DashboardLoaderSignals()
@@ -436,6 +438,9 @@ class AlbumsDashboard(QWidget):
         self.main_layout.addWidget(self.empty_label)
 
     def refresh(self) -> None:
+        # Increment generation to invalidate pending workers from previous refresh
+        self._current_generation += 1
+        
         # Clear existing
         while self.flow_layout.count():
             item = self.flow_layout.takeAt(0)
@@ -455,6 +460,7 @@ class AlbumsDashboard(QWidget):
         self.scroll_area.show()
 
         pool = QThreadPool.globalInstance()
+        current_gen = self._current_generation
 
         for album in albums:
             # Create card with "0" count first
@@ -463,13 +469,17 @@ class AlbumsDashboard(QWidget):
             self.flow_layout.addWidget(card)
             self._cards[album.path] = card
 
-            # Fetch data
-            worker = AlbumDataWorker(album, self._loader_signals)
+            # Fetch data with current generation
+            worker = AlbumDataWorker(album, self._loader_signals, current_gen)
             pool.start(worker)
 
     def _on_album_data_ready(
-        self, node: AlbumNode, count: int, cover_path: Path | None, root: Path
+        self, node: AlbumNode, count: int, cover_path: Path | None, root: Path, generation: int
     ) -> None:
+        # Ignore results from outdated refresh operations
+        if generation != self._current_generation:
+            return
+            
         card = self._cards.get(root)
         if not card:
             return
