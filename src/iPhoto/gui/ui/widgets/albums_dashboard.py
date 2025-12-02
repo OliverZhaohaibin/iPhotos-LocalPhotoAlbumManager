@@ -23,7 +23,6 @@ from PySide6.QtGui import (
     QImage,
     QPainter,
     QPainterPath,
-    QPen,
     QPixmap,
     QRadialGradient,
 )
