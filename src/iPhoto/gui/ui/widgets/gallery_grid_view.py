@@ -13,6 +13,11 @@ from .asset_grid import AssetGrid
 class GalleryGridView(AssetGrid):
     """Dense icon-mode grid tuned for album browsing."""
 
+    # Safety margin to prevent layout engine from dropping columns due to rounding
+    # errors or strict boundary checks. This accounts for frame borders and
+    # potential internal margins.
+    SAFETY_MARGIN = 6
+
     def __init__(self, parent=None) -> None:  # type: ignore[override]
         super().__init__(parent)
         icon_size = QSize(192, 192)
@@ -52,10 +57,10 @@ class GalleryGridView(AssetGrid):
         num_cols = max(1, int(viewport_width / (min_item_width + gap)))
 
         # Calculate the expanded cell size that will fill the available width.
-        # We subtract 6px from the viewport width to prevent the layout engine from
-        # dropping the last column due to rounding errors or strict boundary checks.
-        # This safety margin accounts for frame borders and potential internal margins.
-        cell_size = int((viewport_width - 6) / num_cols)
+        # We subtract SAFETY_MARGIN from the viewport width to prevent the layout
+        # engine from dropping the last column due to rounding errors or strict
+        # boundary checks.
+        cell_size = int((viewport_width - self.SAFETY_MARGIN) / num_cols)
         new_item_width = cell_size - gap
 
         current_size = self.iconSize().width()

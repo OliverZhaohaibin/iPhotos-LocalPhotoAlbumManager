@@ -49,8 +49,8 @@ def test_gallery_responsive_layout(qapp_instance, monkeypatch):
     def get_expectations(viewport_w):
         min_w = 192
         gap = 2
-        # Matches implementation safety margin
-        safety = 6
+        # Use the safety margin from the implementation
+        safety = GalleryGridView.SAFETY_MARGIN
         # Code uses raw viewport width for column count
         cols = max(1, int(viewport_w / (min_w + gap)))
         # Code uses safety margin for cell size calculation
