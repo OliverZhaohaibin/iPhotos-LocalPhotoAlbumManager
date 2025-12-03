@@ -28,7 +28,7 @@ class GalleryGridView(AssetGrid):
         self.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setIconSize(icon_size)
-        self.setGridSize(QSize(194, 194))
+        self.setGridSize(QSize(192 + self.ITEM_GAP, 192 + self.ITEM_GAP))
         self.setSpacing(0)
         self.setUniformItemSizes(True)
         self.setResizeMode(QListView.ResizeMode.Adjust)
