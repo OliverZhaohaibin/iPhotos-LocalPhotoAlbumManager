@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QAbstractItemView, QListView
@@ -22,9 +20,8 @@ class GalleryGridView(AssetGrid):
         self.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setIconSize(icon_size)
-        # We handle layout dynamically in resizeEvent, so we remove the fixed grid size
-        # and set the spacing strictly to 4px as requested.
-        self.setSpacing(4)
+        self.setGridSize(QSize(196, 196))
+        self.setSpacing(0)
         self.setUniformItemSizes(True)
         self.setResizeMode(QListView.ResizeMode.Adjust)
         self.setMovement(QListView.Movement.Static)
@@ -42,35 +39,31 @@ class GalleryGridView(AssetGrid):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-
         viewport_width = self.viewport().width()
-        min_item_width = 192
-        gap = 4
-
         if viewport_width <= 0:
             return
 
-        available_width = viewport_width - gap
-        item_footprint = min_item_width + gap
+        min_item_width = 192
+        gap = 4
 
-        # Calculate target column count
-        # Formula: N = floor((ViewportWidth - Gap) / (MinItemWidth + Gap))
-        n_columns = math.floor(available_width / item_footprint)
-        if n_columns <= 0:
-            n_columns = 1
+        # Determine how many columns can fit with the minimum size constraint.
+        # We model the grid cell as (item_width + gap), which provides 2px padding
+        # on each side of the item, resulting in a visual 4px gutter between items.
+        num_cols = max(1, int(viewport_width / (min_item_width + gap)))
 
-        # Calculate new item width
-        # Formula: W = (ViewportWidth - (N + 1) * Gap) / N
-        remaining_space = viewport_width - (n_columns + 1) * gap
-        new_width = remaining_space / n_columns
+        # Calculate the expanded cell size that will fill the available width.
+        cell_size = int(viewport_width / num_cols)
+        new_item_width = cell_size - gap
 
-        # Ensure we have an integer size. Using floor prevents overflow.
-        new_width_int = int(new_width)
+        current_size = self.iconSize().width()
+        if current_size != new_item_width:
+            new_size = QSize(new_item_width, new_item_width)
+            self.setIconSize(new_size)
+            self.setGridSize(QSize(cell_size, cell_size))
 
-        # Apply new size if it changed
-        current_size = self.iconSize()
-        if current_size.width() != new_width_int:
-            self.setIconSize(QSize(new_width_int, new_width_int))
+            delegate = self.itemDelegate()
+            if hasattr(delegate, "set_base_size"):
+                delegate.set_base_size(new_item_width)
 
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.PaletteChange:
