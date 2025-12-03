@@ -20,7 +20,7 @@ class GalleryGridView(AssetGrid):
         self.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setIconSize(icon_size)
-        self.setGridSize(QSize(196, 196))
+        self.setGridSize(QSize(194, 194))
         self.setSpacing(0)
         self.setUniformItemSizes(True)
         self.setResizeMode(QListView.ResizeMode.Adjust)
@@ -44,7 +44,7 @@ class GalleryGridView(AssetGrid):
             return
 
         min_item_width = 192
-        gap = 4
+        gap = 2
 
         # Determine how many columns can fit with the minimum size constraint.
         # We model the grid cell as (item_width + gap), which provides 2px padding

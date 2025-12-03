@@ -3,9 +3,9 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QStandardItem, QStandardItemModel, QPixmap
 from PySide6.QtWidgets import QApplication, QListView
 
-from iPhoto.gui.ui.widgets.gallery_grid_view import GalleryGridView
-from iPhoto.gui.ui.widgets.asset_delegate import AssetGridDelegate
-from iPhoto.gui.ui.models.roles import Roles
+from iPhotos.src.iPhoto.gui.ui.widgets.gallery_grid_view import GalleryGridView
+from iPhotos.src.iPhoto.gui.ui.widgets.asset_delegate import AssetGridDelegate
+from iPhotos.src.iPhoto.gui.ui.models.roles import Roles
 
 # Attempt to patch load_icon in asset_delegate if it exists
 def patch_delegate_icons(monkeypatch):
@@ -48,7 +48,7 @@ def test_gallery_responsive_layout(qapp_instance, monkeypatch):
     # Helper to calculate expectation
     def get_expectations(viewport_w):
         min_w = 192
-        gap = 4
+        gap = 2
         # Matches implementation safety margin
         safety = 6
         # Code uses raw viewport width for column count
@@ -74,11 +74,11 @@ def test_gallery_responsive_layout(qapp_instance, monkeypatch):
     assert view.iconSize().width() == item
     assert delegate._base_size == item
 
-    # Check gap is strictly 4px
+    # Check gap is strictly 2px
     r0 = view.visualRect(model.index(0, 0))
     r1 = view.visualRect(model.index(1, 0))
     gap = r1.x() - (r0.x() + r0.width())
-    assert gap == 4
+    assert gap == 2
 
     # -------------------------------------------------------------------------
     # Test Case 2: Edge case handling (prevent column drop)
