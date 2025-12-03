@@ -20,7 +20,7 @@ pytest.importorskip(
     exc_type=ImportError,
 )
 
-from PySide6.QtWidgets import QApplication, QLabel, QStackedWidget, QStatusBar, QWidget
+from PySide6.QtWidgets import QApplication, QStackedWidget, QStatusBar, QWidget
 
 from iPhotos.src.iPhoto.gui.ui.controllers.navigation_controller import NavigationController
 from iPhotos.src.iPhoto.gui.ui.controllers.view_controller import ViewController
@@ -44,11 +44,13 @@ class _SpyViewController(ViewController):
         self._stack = QStackedWidget()
         self._gallery = QWidget()
         self._detail = QWidget()
+        self._edit = QWidget()
         self._stack.addWidget(self._gallery)
         self._stack.addWidget(self._detail)
+        self._stack.addWidget(self._edit)
         self.gallery_calls = 0
         self.detail_calls = 0
-        super().__init__(self._stack, self._gallery, self._detail)
+        super().__init__(self._stack, self._gallery, self._detail, self._edit)
 
     def show_gallery_view(self) -> None:  # type: ignore[override]
         self.gallery_calls += 1
@@ -140,7 +142,6 @@ def test_open_album_skips_gallery_on_refresh(tmp_path: Path, qapp: QApplication)
     context.facade = facade
     asset_model = _StubAssetModel()
     sidebar = _StubSidebar()
-    album_label = QLabel()
     status_bar = QStatusBar()
     dialog = _StubDialog()
     view_controller = _SpyViewController()
@@ -150,7 +151,6 @@ def test_open_album_skips_gallery_on_refresh(tmp_path: Path, qapp: QApplication)
         facade,
         asset_model,
         sidebar,
-        album_label,
         status_bar,
         dialog,  # type: ignore[arg-type]
         view_controller,
@@ -191,7 +191,6 @@ def test_open_album_refresh_detected_without_sidebar_sync(
     context.facade = facade
     asset_model = _StubAssetModel()
     sidebar = _StubSidebar()
-    album_label = QLabel()
     status_bar = QStatusBar()
     dialog = _StubDialog()
     view_controller = _SpyViewController()
@@ -201,7 +200,6 @@ def test_open_album_refresh_detected_without_sidebar_sync(
         facade,
         asset_model,
         sidebar,
-        album_label,
         status_bar,
         dialog,  # type: ignore[arg-type]
         view_controller,
@@ -236,7 +234,6 @@ def test_open_all_photos_applies_chronological_sort(
     context.facade = facade
     asset_model = _StubAssetModel()
     sidebar = _StubSidebar()
-    album_label = QLabel()
     status_bar = QStatusBar()
     dialog = _StubDialog()
     view_controller = _SpyViewController()
@@ -246,7 +243,6 @@ def test_open_all_photos_applies_chronological_sort(
         facade,
         asset_model,
         sidebar,
-        album_label,
         status_bar,
         dialog,  # type: ignore[arg-type]
         view_controller,
@@ -258,3 +254,87 @@ def test_open_all_photos_applies_chronological_sort(
     assert asset_model.sort_calls == 1
     assert asset_model.filter_mode is None
     assert facade.open_requests == [tmp_path]
+
+def test_open_static_collection_refresh_skips_gallery(
+    tmp_path: Path, qapp: QApplication
+) -> None:
+    """Reopening a static collection must be treated as a refresh."""
+
+    facade = _StubFacade()
+    context = _StubContext(tmp_path)
+    context.facade = facade
+    asset_model = _StubAssetModel()
+    sidebar = _StubSidebar()
+    status_bar = QStatusBar()
+    dialog = _StubDialog()
+    view_controller = _SpyViewController()
+
+    controller = NavigationController(
+        context,
+        facade,
+        asset_model,
+        sidebar,
+        status_bar,
+        dialog,  # type: ignore[arg-type]
+        view_controller,
+    )
+
+    tmp_path.mkdir(exist_ok=True)
+
+    # First open "All Photos". Should reset to gallery.
+    controller.open_all_photos()
+    assert view_controller.gallery_calls == 1
+    assert controller.consume_last_open_refresh() is False
+    assert len(facade.open_requests) == 1
+
+    # Re-open "All Photos". Should be treated as refresh and NOT reset gallery.
+    controller.open_all_photos()
+    assert view_controller.gallery_calls == 1  # Should NOT increment
+    assert controller.consume_last_open_refresh() is True
+    assert len(facade.open_requests) == 1
+
+
+def test_open_recently_deleted_refresh_skips_gallery(
+    tmp_path: Path, qapp: QApplication
+) -> None:
+    """Reopening 'Recently Deleted' must be treated as a refresh."""
+
+    facade = _StubFacade()
+    context = _StubContext(tmp_path)
+    # Mock ensure_deleted_directory
+    deleted_dir = tmp_path / "deleted"
+    deleted_dir.mkdir()
+    context.library.ensure_deleted_directory = lambda: deleted_dir
+    context.library.deleted_directory = lambda: deleted_dir
+
+    context.facade = facade
+    asset_model = _StubAssetModel()
+    sidebar = _StubSidebar()
+    status_bar = QStatusBar()
+    dialog = _StubDialog()
+    view_controller = _SpyViewController()
+
+    controller = NavigationController(
+        context,
+        facade,
+        asset_model,
+        sidebar,
+        status_bar,
+        dialog,  # type: ignore[arg-type]
+        view_controller,
+    )
+
+    tmp_path.mkdir(exist_ok=True)
+
+    # First open.
+    controller.open_recently_deleted()
+    assert view_controller.gallery_calls == 1
+    assert controller.consume_last_open_refresh() is False
+    assert len(facade.open_requests) == 1
+    assert facade.open_requests[0] == deleted_dir
+
+    # Refresh.
+    controller.open_recently_deleted()
+    assert view_controller.gallery_calls == 1  # Should NOT increment
+    assert controller.consume_last_open_refresh() is True
+    assert len(facade.open_requests) == 1

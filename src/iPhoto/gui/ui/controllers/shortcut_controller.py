@@ -76,6 +76,10 @@ class ShortcutController(QObject):
             if self._handle_detail_view_shortcut(key_event):
                 return True
 
+        if self._view_manager.is_edit_view_active():
+            if self._handle_edit_view_shortcut(key_event):
+                return True
+
         return super().eventFilter(watched, event)
 
     # ------------------------------------------------------------------
@@ -86,6 +90,12 @@ class ShortcutController(QObject):
     def _handle_escape(self, event: QKeyEvent) -> bool:
         if event.key() != Qt.Key.Key_Escape:
             return False
+        edit_controller = self._view_manager.edit_controller()
+        if edit_controller.is_in_fullscreen():
+            edit_controller.exit_fullscreen_preview()
+            event.accept()
+            return True
+
         if not self._window_manager.is_immersive_active():
             return False
 
@@ -171,3 +181,32 @@ class ShortcutController(QObject):
 
         return False
 
+    def _handle_edit_view_shortcut(self, event: QKeyEvent) -> bool:
+        modifiers = event.modifiers()
+        # Filter out keypad modifier to simplify checks
+        modifiers &= ~Qt.KeyboardModifier.KeypadModifier
+        key = event.key()
+        edit_controller = self._view_manager.edit_controller()
+
+        is_ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        is_meta = bool(modifiers & Qt.KeyboardModifier.MetaModifier)
+        is_shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        is_cmd_or_ctrl = is_ctrl or is_meta
+
+        if is_cmd_or_ctrl and not is_shift:
+            if key == Qt.Key.Key_Z:
+                edit_controller.undo()
+                event.accept()
+                return True
+            if key == Qt.Key.Key_Y:
+                edit_controller.redo()
+                event.accept()
+                return True
+
+        if is_cmd_or_ctrl and is_shift:
+            if key == Qt.Key.Key_Z:
+                edit_controller.redo()
+                event.accept()
+                return True
+
+        return False

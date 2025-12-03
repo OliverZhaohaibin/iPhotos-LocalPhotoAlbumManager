@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Literal, Optional, TYPE_CHECKING
 
-from PySide6.QtWidgets import QLabel
+from PySide6.QtCore import QTimer
 
 # Support both package-style and legacy ``iPhotos.src`` imports during GUI
 # bootstrap.
@@ -34,7 +34,6 @@ class NavigationController:
         facade: AppFacade,
         asset_model: AssetModel,
         sidebar: AlbumSidebar,
-        album_label: QLabel,
         status_bar: ChromeStatusBar,
         dialog: DialogController,
         view_controller: ViewController,
@@ -44,7 +43,6 @@ class NavigationController:
         self._facade = facade
         self._asset_model = asset_model
         self._sidebar = sidebar
-        self._album_label = album_label
         self._status = status_bar
         self._dialog = dialog
         self._view_controller = view_controller
@@ -64,6 +62,13 @@ class NavigationController:
         # the reaction keeps the gallery from reopening the album mid-operation
         # and avoids replacing the thumbnail grid with placeholders.
         self._suppress_tree_refresh: bool = False
+        # ``_tree_refresh_suppression_reason`` records why suppression is
+        # currently active so callers can distinguish between long-running
+        # background workflows (which must remain suppressed) and short-lived
+        # edit saves (where we only need to swallow the automatic sidebar
+        # reselection once).  ``Literal`` keeps the intent self-documenting and
+        # avoids mistyped sentinel strings.
+        self._tree_refresh_suppression_reason: Optional[Literal["edit", "operation"]] = None
 
     def bind_playback_controller(self, playback: "PlaybackController") -> None:
         """Provide the playback controller once it has been constructed.
@@ -165,7 +170,6 @@ class NavigationController:
                 title = self._static_selection
                 self._sidebar.select_static_node(self._static_selection)
                 self._asset_model.set_filter_mode(None)
-                self._album_label.setText(f"{title} — {root}")
                 self.update_status()
                 return
             title = (
@@ -185,7 +189,6 @@ class NavigationController:
             self._sidebar.select_path(root)
             self._static_selection = None
             self._asset_model.set_filter_mode(None)
-        self._album_label.setText(f"{title} — {root}")
         self.update_status()
 
     # ------------------------------------------------------------------
@@ -218,6 +221,15 @@ class NavigationController:
             self._dialog.bind_library_dialog()
             return
 
+        is_refresh = bool(
+            self._static_selection
+            and self._static_selection.casefold() == "recently deleted"
+        )
+        self._last_open_was_refresh = is_refresh
+
+        if is_refresh:
+            return
+
         try:
             deleted_root = self._context.library.ensure_deleted_directory()
         except AlbumOperationError as exc:
@@ -225,7 +237,6 @@ class NavigationController:
             return
 
         self._reset_playback_for_gallery_navigation()
-        self._last_open_was_refresh = False
         self._view_controller.restore_default_gallery()
         self._view_controller.show_gallery_view()
         self._asset_model.set_filter_mode(None)
@@ -250,12 +261,24 @@ class NavigationController:
         if root is None:
             self._dialog.bind_library_dialog()
             return
+
+        current_static = self._static_selection
+        is_refresh = bool(current_static and current_static.casefold() == title.casefold())
+        self._last_open_was_refresh = is_refresh
+
+        if is_refresh:
+            return
+
         # ``open_static_collection`` is always a user-driven navigation request
         # (e.g. clicking "All Photos" or "Favorites"), so explicitly mark the
         # transition as a fresh navigation instead of a passive refresh.  This
         # prevents the caller that triggered the static switch from assuming
         # the previous album remained visible.
-        self._last_open_was_refresh = False
+        #
+        # Note: The ``is_refresh`` check above now guards against sidebar
+        # reloads triggered by background workers, which maintains the previous
+        # view state (e.g. keeping the detail pane active) when the user did
+        # not initiate the navigation.
 
         # Reset the detail pane whenever a static collection (All Photos,
         # Favorites, etc.) is opened so the UI consistently shows the grid as
@@ -287,26 +310,77 @@ class NavigationController:
     def handle_tree_updated(self) -> None:
         """Record tree rebuilds triggered while background jobs are running."""
 
+        if self._view_controller.is_edit_view_active():
+            # Saving edits touches the filesystem, which in turn causes the
+            # library watcher to rebuild the sidebar tree.  Those rebuilds
+            # re-select the active virtual collection (e.g. "All Photos"),
+            # emitting the corresponding navigation signal.  If the detail view
+            # is still showing the edited asset we must ignore the signal to
+            # avoid the gallery stealing focus.  Suppressing sidebar-triggered
+            # navigation keeps the user anchored in the detail surface until the
+            # edit workflow formally ends.
+            self._suppress_tree_refresh = True
+            self._tree_refresh_suppression_reason = "edit"
+            return
+
+        if (
+            self._tree_refresh_suppression_reason == "edit"
+            and self._suppress_tree_refresh
+        ):
+            # The edit view already closed, but the sidebar has not yet
+            # reissued its selection change.  Keep the suppression active so the
+            # automatic navigation will be ignored once before re-enabling the
+            # normal behaviour.
+            return
+
         if self._facade.is_performing_background_operation():
             # ``AlbumSidebar`` rebuilds the model whenever the library tree is
             # refreshed.  During a move/import this happens while the index is
             # still in flux, so we flag the refresh and let the controller skip
             # redundant navigation callbacks.
             self._suppress_tree_refresh = True
+            self._tree_refresh_suppression_reason = "operation"
         else:
             # The tree settled without a concurrent background job, therefore
             # the controller can react to subsequent sidebar events normally.
             self._suppress_tree_refresh = False
+            self._tree_refresh_suppression_reason = None
+
+    def suppress_tree_refresh_for_edit(self) -> None:
+        """Ignore sidebar reselections triggered by edit saves."""
+
+        # Saving adjustments writes sidecar files, which in turn causes the
+        # library watcher to rebuild the sidebar tree.  Those rebuilds reselect
+        # the active virtual collection and emit navigation signals.  Mark the
+        # tree as suppressed ahead of the disk write so the automatic callback
+        # is swallowed exactly once while the detail pane remains visible.
+        self._suppress_tree_refresh = True
+        self._tree_refresh_suppression_reason = "edit"
 
     def should_suppress_tree_refresh(self) -> bool:
         """Return ``True`` when sidebar callbacks should be ignored temporarily."""
 
         return self._suppress_tree_refresh
 
+    def release_tree_refresh_suppression_if_edit(self) -> None:
+        """Stop suppressing sidebar callbacks when the last edit finished."""
+
+        if self._tree_refresh_suppression_reason == "edit":
+            self._suppress_tree_refresh = False
+            self._tree_refresh_suppression_reason = None
+
     def clear_tree_refresh_suppression(self) -> None:
         """Allow sidebar selections to trigger navigation again."""
 
         self._suppress_tree_refresh = False
+        self._tree_refresh_suppression_reason = None
+
+    def suspend_library_watcher(self, duration: int = 250) -> None:
+        """Pause the filesystem watcher to prevent auto-reloads during file operations."""
+
+        manager = self._context.library
+        manager.pause_watcher()
+        QTimer.singleShot(duration, manager.resume_watcher)
 
     # ------------------------------------------------------------------
     # Status helpers

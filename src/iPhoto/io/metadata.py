@@ -118,19 +118,17 @@ def _coerce_fractional(value: Any) -> Optional[float]:
         matches = list(re.finditer(r"-?\d+(?:/\d+|\.\d+)?", candidate))
         if not matches:
             return None
-        total = 0.0
-        parsed_any = False
+
         for match in matches:
             token = match.group(0)
             try:
                 if "/" in token:
-                    total += float(Fraction(token))
-                else:
-                    total += float(token)
-                parsed_any = True
+                    return float(Fraction(token))
+                return float(token)
             except (ValueError, ZeroDivisionError):
                 continue
-        return total if parsed_any else None
+
+        return None
     return None
 
 

@@ -6,7 +6,7 @@ import subprocess
 import sys
 from functools import partial
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from PySide6.QtCore import QCoreApplication, QMimeData, QObject, QPoint, QUrl, Qt
 from PySide6.QtGui import QGuiApplication, QPalette
@@ -34,6 +34,7 @@ class ContextMenuController(QObject):
         status_bar: StatusBarController,
         notification_toast: NotificationToast,
         selection_controller: SelectionController,
+        export_callback: Callable[[], None],
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
@@ -44,6 +45,7 @@ class ContextMenuController(QObject):
         self._status_bar = status_bar
         self._toast = notification_toast
         self._selection_controller = selection_controller
+        self._export_callback = export_callback
 
         self._grid_view.customContextMenuRequested.connect(self._handle_context_menu)
 
@@ -104,6 +106,9 @@ class ContextMenuController(QObject):
                     "MainWindow", "Reveal in File Manager"
                 )
             )
+            export_action = menu.addAction(
+                QCoreApplication.translate("MainWindow", "Export")
+            )
             move_menu = menu.addMenu(
                 QCoreApplication.translate("MainWindow", "Move to")
             )
@@ -123,6 +128,7 @@ class ContextMenuController(QObject):
 
             copy_action.triggered.connect(self._copy_selection_to_clipboard)
             reveal_action.triggered.connect(self._reveal_selection_in_file_manager)
+            export_action.triggered.connect(self._export_callback)
             is_recently_deleted = self._navigation.is_recently_deleted_view()
             if is_recently_deleted:
                 delete_action.setVisible(False)
@@ -198,18 +204,22 @@ class ContextMenuController(QObject):
             return
 
         source_model = self._asset_model.source_model()
-        if selected_indexes:
-            source_model.remove_rows(selected_indexes)
 
         try:
-            self._facade.restore_assets(paths)
+            queued_restore = self._facade.restore_assets(paths)
         except Exception:
             self._facade.rescan_current()
             raise
         finally:
             self._selection_controller.set_selection_mode(False)
 
-        self._toast.show_toast("Restoring ...")
+        if queued_restore:
+            if selected_indexes:
+                # Removing the rows only after the restore task has been accepted
+                # avoids hiding assets when the backend declined to queue any
+                # work (for example because the user rejected every fallback).
+                source_model.remove_rows(selected_indexes)
+            self._toast.show_toast("Restoring ...")
 
     def _copy_selection_to_clipboard(self) -> None:
         """Copy the selected asset file paths into the system clipboard."""

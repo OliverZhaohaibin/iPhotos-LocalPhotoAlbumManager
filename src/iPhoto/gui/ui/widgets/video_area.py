@@ -229,6 +229,11 @@ class VideoArea(QWidget):
             return
         super().mouseDoubleClickEvent(event)
 
+    def showEvent(self, event) -> None:  # pragma: no cover - GUI behaviour
+        """Force position update when widget becomes visible."""
+        super().showEvent(event)
+        self._update_bar_geometry()
+
     def hideEvent(self, event) -> None:  # pragma: no cover - GUI behaviour
         super().hideEvent(event)
         self.hide_controls(animate=False)
@@ -378,12 +383,28 @@ class VideoArea(QWidget):
 
         if self._controls_enabled == enabled:
             return
+
         self._controls_enabled = enabled
+        self._player_bar.setEnabled(enabled)
+        self._hide_timer.stop()
+
         if not enabled:
-            self.hide_controls(animate=False)
-        else:
+            # Collapse the chrome immediately so Live Photos play without any
+            # overlays, mirroring the legacy image viewer's behaviour.
             self._controls_visible = False
-            self._overlay.hide()
+            self._target_opacity = 0.0
+            self.hide_controls(animate=False)
+            effect = self._player_bar.graphicsEffect()
+            if isinstance(effect, QGraphicsOpacityEffect):
+                effect.setOpacity(0.0)
+        else:
+            # Reset fade bookkeeping so the next activity pulse can reveal the
+            # controls smoothly from a known baseline.
+            self._controls_visible = False
+            self._target_opacity = 0.0
+            effect = self._player_bar.graphicsEffect()
+            if isinstance(effect, QGraphicsOpacityEffect):
+                effect.setOpacity(0.0)
             self._player_bar.hide()
 
     def controls_enabled(self) -> bool:

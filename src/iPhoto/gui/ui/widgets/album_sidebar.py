@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QModelIndex, QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QModelIndex, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QCursor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QFont, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -23,8 +23,11 @@ from ..delegates.album_sidebar_delegate import (
     BranchIndicatorController,
 )
 from ..menus.album_sidebar_menu import show_context_menu
+from ..styles import modern_scrollbar_style
 from ..palette import (
     SIDEBAR_BACKGROUND_COLOR,
+    SIDEBAR_SELECTED_BACKGROUND,
+    SIDEBAR_ICON_COLOR,
     SIDEBAR_ICON_SIZE,
     SIDEBAR_INDENT_PER_LEVEL,
     SIDEBAR_INDICATOR_HOTZONE_MARGIN,
@@ -153,6 +156,7 @@ class AlbumSidebar(QWidget):
 
     def __init__(self, library: LibraryManager, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._updating_style = False
         self._library = library
         self._model = AlbumTreeModel(library, self)
         self._pending_selection: Path | None = None
@@ -165,10 +169,28 @@ class AlbumSidebar(QWidget):
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
+        # Give the widget a stable object name so the stylesheet targets only the
+        # sidebar shell and does not bleed into child controls such as the tree view.
+        self.setObjectName("albumSidebar")
+        # ``WA_StyledBackground`` tells Qt to honour our palette/stylesheet even when the
+        # parent widgets are translucent (required for the rounded window shell).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Apply the light blue background with a stylesheet to override the
+        # transparent background inherited from the frameless window chrome.
+        self.setStyleSheet(
+            "QWidget#albumSidebar {\n"
+            f"    background-color: {SIDEBAR_BACKGROUND_COLOR.name()};\n"
+            "}"
+        )
+
         self._title = QLabel("Basic Library")
         self._title.setObjectName("albumSidebarTitle")
         self._title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self._title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        # `Ignored` allows the label to be compressed below its size hint so the navigation
+        # pane can animate all the way to zero width without the title text imposing a hard
+        # minimum size.  The text will be elided once the layout becomes narrower than the
+        # rendered string, which keeps the animation visually smooth.
+        self._title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         title_font = QFont(self._title.font())
         title_font.setPointSizeF(title_font.pointSizeF() + 0.5)
         title_font.setBold(True)
@@ -187,7 +209,6 @@ class AlbumSidebar(QWidget):
         self._tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._tree.doubleClicked.connect(self._on_double_clicked)
         self._tree.clicked.connect(self._on_clicked)
-        self._tree.setMinimumWidth(SIDEBAR_TREE_MIN_WIDTH)
         self._tree.setIndentation(0)
         self._tree.setIconSize(QSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE))
         self._tree.setMouseTracking(True)
@@ -202,11 +223,23 @@ class AlbumSidebar(QWidget):
         tree_palette = self._tree.palette()
         tree_palette.setColor(QPalette.ColorRole.Base, SIDEBAR_BACKGROUND_COLOR)
         tree_palette.setColor(QPalette.ColorRole.Window, SIDEBAR_BACKGROUND_COLOR)
-        tree_palette.setColor(QPalette.ColorRole.Highlight, Qt.GlobalColor.transparent)
+        tree_palette.setColor(QPalette.ColorRole.Highlight, SIDEBAR_SELECTED_BACKGROUND)
         tree_palette.setColor(QPalette.ColorRole.HighlightedText, SIDEBAR_TEXT_COLOR)
+        tree_palette.setColor(QPalette.ColorRole.Link, SIDEBAR_ICON_COLOR)
         self._tree.setPalette(tree_palette)
         self._tree.setAutoFillBackground(True)
-        self._tree.setStyleSheet(SIDEBAR_TREE_STYLESHEET)
+
+        self._apply_scrollbar_style()
+
+        # Track the minimum width that should apply when the user resizes the splitter manually.
+        # The sidebar should never collapse completely in that situation, so we keep a computed
+        # "manual" minimum width and only relax it when an animated transition is in progress.
+        self._manual_minimum_width = max(
+            SIDEBAR_TREE_MIN_WIDTH,
+            self._title.sizeHint().width(),
+        )
+        self._default_sidebar_maximum_width = super().maximumWidth()
+        self._minimum_width_relaxed = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(*SIDEBAR_LAYOUT_MARGIN)
@@ -214,10 +247,82 @@ class AlbumSidebar(QWidget):
         layout.addWidget(self._title)
         layout.addWidget(self._tree, stretch=1)
 
+        # Apply the initial manual minimum width so the splitter respects the configured
+        # constraint during user-driven resizing.  This call also covers the case where Qt
+        # calculates a slightly different minimum width once the layout has been populated.
+        self._apply_current_minimum_width()
+
         self._model.modelReset.connect(self._on_model_reset)
         self._tree.filesDropped.connect(self._on_files_dropped)
         self._expand_defaults()
         self._update_title()
+
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.PaletteChange:
+            if not self._updating_style:
+                self._apply_scrollbar_style()
+        super().changeEvent(event)
+
+    def _apply_scrollbar_style(self) -> None:
+        if not hasattr(self, "_tree"):
+            return
+
+        # Explicitly use the sidebar's dark text color to ensure contrast against the
+        # fixed light background, regardless of the active application theme.
+        scrollbar_style = modern_scrollbar_style(SIDEBAR_TEXT_COLOR, track_alpha=30)
+
+        full_style = SIDEBAR_TREE_STYLESHEET + "\n" + scrollbar_style
+
+        if self._tree.styleSheet() == full_style:
+            return
+
+        self._updating_style = True
+        try:
+            self._tree.setStyleSheet(full_style)
+        finally:
+            self._updating_style = False
+
+    # ------------------------------------------------------------------
+    # Animation helpers
+    # ------------------------------------------------------------------
+    def relax_minimum_width_for_animation(self) -> None:
+        """Temporarily relax the sidebar so splitter animations can collapse it to zero."""
+
+        if self._minimum_width_relaxed:
+            return
+        self._minimum_width_relaxed = True
+        # When the relaxed flag is set we force the minimum width to zero so that the surrounding
+        # splitter can animate the pane without being clamped by our manual constraint.
+        self._apply_current_minimum_width()
+
+    def restore_minimum_width_after_animation(self) -> None:
+        """Reapply the manual minimum width once an animation has completed."""
+
+        if not self._minimum_width_relaxed:
+            return
+        self._minimum_width_relaxed = False
+        # Refresh the manual constraint in case the title text (and therefore the size hint)
+        # changed while the sidebar was collapsed, then apply the non-relaxed minimum width.
+        self._refresh_manual_minimum_width()
+        self.setMaximumWidth(self._default_sidebar_maximum_width)
+        self.updateGeometry()
+
+    def _apply_current_minimum_width(self) -> None:
+        """Synchronise the widget's minimum width with the current relaxation state."""
+
+        if self._minimum_width_relaxed:
+            self.setMinimumWidth(0)
+            return
+        self.setMinimumWidth(self._manual_minimum_width)
+
+    def _refresh_manual_minimum_width(self) -> None:
+        """Recalculate the manual minimum width based on the current title text."""
+
+        self._manual_minimum_width = max(
+            SIDEBAR_TREE_MIN_WIDTH,
+            self._title.sizeHint().width(),
+        )
+        self._apply_current_minimum_width()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -254,9 +359,18 @@ class AlbumSidebar(QWidget):
     def _update_title(self) -> None:
         root = self._library.root()
         if root is None:
+            # Keep the unbound state explicit so users know they still need to
+            # attach a library before navigating, but avoid appending verbose
+            # filesystem paths that clutter the chrome.
             self._title.setText("Basic Library — not bound")
         else:
-            self._title.setText(f"Basic Library — {root}")
+            # Always display a concise title without the backing path to keep
+            # the window chrome tidy while the sidebar continues to show the
+            # simple library name.
+            self._title.setText("Basic Library")
+        # Recalculate the manual minimum so manual splitter drags continue to honour the
+        # configured width even if the displayed path becomes longer or shorter.
+        self._refresh_manual_minimum_width()
 
     def _on_selection_changed(self, _selected, _deselected) -> None:
         index = self._tree.currentIndex()
