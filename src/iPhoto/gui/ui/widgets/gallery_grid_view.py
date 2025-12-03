@@ -5,11 +5,31 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QAbstractItemView, QListView
+from PySide6.QtGui import QIcon, QPalette
+from PySide6.QtWidgets import QAbstractItemView, QListView, QStyledItemDelegate
 
 from ..styles import modern_scrollbar_style
 from .asset_grid import AssetGrid
+
+
+class ScalingDelegate(QStyledItemDelegate):
+    """Delegate that forces icons to scale up to the view's icon size."""
+
+    def initStyleOption(self, option, index) -> None:
+        super().initStyleOption(option, index)
+        target_size = option.decorationSize
+        if not option.icon.isNull() and target_size.isValid():
+            # Get the best available pixmap from the icon
+            pix = option.icon.pixmap(target_size)
+            # If the pixmap is smaller than the target size, force upscale
+            if pix.width() < target_size.width() or pix.height() < target_size.height():
+                # Scale smoothly to fill the target size
+                scaled_pix = pix.scaled(
+                    target_size,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                option.icon = QIcon(scaled_pix)
 
 
 class GalleryGridView(AssetGrid):
@@ -22,6 +42,7 @@ class GalleryGridView(AssetGrid):
         self.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setIconSize(icon_size)
+        self.setItemDelegate(ScalingDelegate(self))
         # We handle layout dynamically in resizeEvent, so we remove the fixed grid size
         # and set the spacing strictly to 4px as requested.
         self.setSpacing(4)
