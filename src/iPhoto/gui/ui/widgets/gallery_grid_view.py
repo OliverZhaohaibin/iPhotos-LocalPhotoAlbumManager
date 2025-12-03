@@ -66,6 +66,8 @@ class GalleryGridView(AssetGrid):
         # boundary checks.
         cell_size = int((viewport_width - self.SAFETY_MARGIN) / num_cols)
         new_item_width = cell_size - self.ITEM_GAP
+        if new_item_width < self.MIN_ITEM_WIDTH:
+            return  # Don't update if it would make items too small
 
         current_size = self.iconSize().width()
         if current_size != new_item_width:
