@@ -14,6 +14,7 @@ from ..ui_main_window import Ui_MainWindow
 from ..widgets.collapsible_section import CollapsibleSection
 from ..window_manager import RoundedWindowShell
 from ..theme_manager import ThemeManager, ThemeColors, DARK_THEME
+from ..palette import SIDEBAR_SELECTED_BACKGROUND, SIDEBAR_ICON_COLOR
 
 if TYPE_CHECKING:
     from .detail_ui_controller import DetailUIController
@@ -121,8 +122,9 @@ class WindowThemeController(QObject):
         )
         # Apply specific palette for sidebar selection visualization
         sidebar_palette = self._ui.sidebar.palette()
-        sidebar_palette.setColor(QPalette.ColorRole.Highlight, colors.sidebar_selected)
+        sidebar_palette.setColor(QPalette.ColorRole.Highlight, SIDEBAR_SELECTED_BACKGROUND)
         sidebar_palette.setColor(QPalette.ColorRole.HighlightedText, colors.sidebar_text)
+        sidebar_palette.setColor(QPalette.ColorRole.Link, SIDEBAR_ICON_COLOR)
         self._ui.sidebar.setPalette(sidebar_palette)
 
         # Status Bar
