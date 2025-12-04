@@ -105,7 +105,7 @@ def test_gallery_responsive_layout(qapp_instance, monkeypatch):
     # Test Case 4: Dead Zone check (Bug Fix Verification)
     # Width 582px triggers the dead zone where:
     #   Old logic: 582 / 194 = 3 cols. (582-10)/3 = 190.6 < 192. Reject.
-    #   New logic: (582-10) / 194 = 2 cols. (582-10)/2 = 286. Item 284. Accept.
+    #   New logic: (582-10) / 194 = 2 cols. (582-10)/2 = 286. Item size 284px. Accept.
     # -------------------------------------------------------------------------
     view.resize(582, 1200)
     qapp_instance.processEvents()
