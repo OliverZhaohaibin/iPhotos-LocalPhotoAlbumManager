@@ -117,6 +117,10 @@ def _create_styled_input_dialog(
         QPushButton:hover {{
             background-color: {base};
         }}
+        QPushButton:pressed {{
+            background-color: {text_col};
+            color: {bg};
+        }}
     """
     dialog.setStyleSheet(stylesheet)
 
