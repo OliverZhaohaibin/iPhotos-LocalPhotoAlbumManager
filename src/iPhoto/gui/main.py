@@ -69,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
     # Allow opening an album directly via argv[1].
     if len(arguments) > 1:
         window.open_album_from_path(Path(arguments[1]))
+    else:
+        window.ui.sidebar.select_all_photos()
     return app.exec()
 
 
