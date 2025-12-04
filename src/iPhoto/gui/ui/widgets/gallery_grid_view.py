@@ -26,12 +26,11 @@ class GalleryGridView(AssetGrid):
 
     def __init__(self, parent=None) -> None:  # type: ignore[override]
         super().__init__(parent)
-        icon_size = QSize(self.MIN_ITEM_WIDTH, self.MIN_ITEM_WIDTH)
         self._selection_mode_enabled = False
         self.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.setViewMode(QListView.ViewMode.IconMode)
-        self.setIconSize(icon_size)
-        self.setGridSize(QSize(self.MIN_ITEM_WIDTH + self.ITEM_GAP, self.MIN_ITEM_WIDTH + self.ITEM_GAP))
+        # Defer initial size calculation to resizeEvent to avoid rendering the
+        # default 192px layout before the viewport dimensions are known.
         self.setSpacing(0)
         self.setUniformItemSizes(True)
         self.setResizeMode(QListView.ResizeMode.Adjust)
