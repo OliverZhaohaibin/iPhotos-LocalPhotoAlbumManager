@@ -106,10 +106,16 @@ class WindowThemeController(QObject):
         self._ui.window_title_label.setStyleSheet(f"color: {fg_color};")
 
         # Sidebar (Navigation)
-        # Note: sidebar background is handled by the shell, but maybe we want explicit?
-        # The existing code set it to transparent.
+        # Apply theme-aware background to ensure visual hierarchy (Light Blue in Light Mode, Gray in Dark Mode).
+        sidebar_bg = colors.sidebar_background.name()
+
+        # Match the window's rounded corners at the bottom-left
+        radius = 0
+        if self._rounded_window_shell:
+            radius = self._rounded_window_shell.corner_radius()
+
         self._ui.sidebar.setStyleSheet(
-            f"QWidget#albumSidebar {{ background-color: transparent; color: {fg_color}; }}\n"
+            f"QWidget#albumSidebar {{ background-color: {sidebar_bg}; color: {fg_color}; border-bottom-left-radius: {radius}px; }}\n"
             f"QWidget#albumSidebar QLabel {{ color: {fg_color}; }}\n"
             f"QWidget#albumSidebar QTreeView {{ background-color: transparent; color: {fg_color}; }}"
         )
