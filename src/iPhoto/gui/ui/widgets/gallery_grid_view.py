@@ -22,7 +22,7 @@ class GalleryGridView(AssetGrid):
     # Safety margin to prevent layout engine from dropping columns due to rounding
     # errors or strict boundary checks. This accounts for frame borders and
     # potential internal margins.
-    SAFETY_MARGIN = 6
+    SAFETY_MARGIN = 10
 
     def __init__(self, parent=None) -> None:  # type: ignore[override]
         super().__init__(parent)
@@ -57,7 +57,11 @@ class GalleryGridView(AssetGrid):
         # Determine how many columns can fit with the minimum size constraint.
         # We model the grid cell as (item_width + gap), which provides 1px padding
         # on each side of the item, resulting in a visual 2px gutter between items.
-        num_cols = max(1, int(viewport_width / (self.MIN_ITEM_WIDTH + self.ITEM_GAP)))
+        # We subtract SAFETY_MARGIN to align with the cell_size calculation below,
+        # ensuring we don't calculate a column count that immediately fails the
+        # minimum size check.
+        available_width = viewport_width - self.SAFETY_MARGIN
+        num_cols = max(1, int(available_width / (self.MIN_ITEM_WIDTH + self.ITEM_GAP)))
 
         # Calculate the expanded cell size that will fill the available width.
         # We subtract SAFETY_MARGIN from the viewport width to prevent the layout

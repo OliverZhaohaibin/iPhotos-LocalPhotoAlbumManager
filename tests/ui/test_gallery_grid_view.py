@@ -51,10 +51,10 @@ def test_gallery_responsive_layout(qapp_instance, monkeypatch):
         gap = GalleryGridView.ITEM_GAP
         # Use the safety margin from the implementation
         safety = GalleryGridView.SAFETY_MARGIN
-        # Code uses raw viewport width for column count
-        cols = max(1, int(viewport_w / (min_w + gap)))
-        # Code uses safety margin for cell size calculation
+        # Code uses safety margin for column count too (Bug fix)
         avail = viewport_w - safety
+        cols = max(1, int(avail / (min_w + gap)))
+        # Code uses safety margin for cell size calculation
         cell = int(avail / cols)
         item = cell - gap
         return cols, cell, item
@@ -100,6 +100,31 @@ def test_gallery_responsive_layout(qapp_instance, monkeypatch):
     r_last = view.visualRect(model.index(last_item_idx, 0))
     r0 = view.visualRect(model.index(0, 0))
     assert r_last.y() == r0.y()
+
+    # -------------------------------------------------------------------------
+    # Test Case 4: Dead Zone check (Bug Fix Verification)
+    # Width 582px triggers the dead zone where:
+    #   Old logic: 582 / 194 = 3 cols. (582-10)/3 = 190.6 < 192. Reject.
+    #   New logic: (582-10) / 194 = 2 cols. (582-10)/2 = 286. Item 284. Accept.
+    # -------------------------------------------------------------------------
+    view.resize(582, 1200)
+    qapp_instance.processEvents()
+    view.doItemsLayout()
+    qapp_instance.processEvents()
+
+    vp_w = view.viewport().width()
+    cols, cell, item = get_expectations(vp_w)
+
+    # Assert that we DO get an update (item size matches expectation)
+    # If the bug were present, the item size would remain from previous step (Test Case 3)
+    # Test Case 3 ended with ~790px -> 4 cols.
+    # If update rejected, we would still have 4 cols logic on 582px? No, QListView would reflow.
+    # But GridSize would be from Test Case 3 (approx 196px).
+    # New expectation is 2 cols -> Cell ~288px.
+
+    assert cols == 2
+    assert view.gridSize().width() == cell
+    assert view.iconSize().width() == item
 
     # -------------------------------------------------------------------------
     # Test Case 3: Expanding back to more columns
