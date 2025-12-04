@@ -40,7 +40,7 @@ class ThemeColors:
 
 
 LIGHT_THEME = ThemeColors(
-    window_background=QColor("#FFFFFF"),
+    window_background=QColor("#F5F5F5"),
     text_primary=QColor("#2b2b2b"),
     text_secondary=QColor(0, 0, 0, 160),
     text_disabled=QColor(0, 0, 0, 90),

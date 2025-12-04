@@ -110,7 +110,8 @@ class WindowThemeController(QObject):
         # The existing code set it to transparent.
         self._ui.sidebar.setStyleSheet(
             f"QWidget#albumSidebar {{ background-color: transparent; color: {fg_color}; }}\n"
-            f"QWidget#albumSidebar QLabel {{ color: {fg_color}; }}"
+            f"QWidget#albumSidebar QLabel {{ color: {fg_color}; }}\n"
+            f"QWidget#albumSidebar QTreeView {{ background-color: transparent; color: {fg_color}; }}"
         )
         # Apply specific palette for sidebar selection visualization
         sidebar_palette = self._ui.sidebar.palette()
@@ -136,12 +137,7 @@ class WindowThemeController(QObject):
         )
 
         # Menu Bar
-        self._ui.menu_bar.setStyleSheet(
-            f"QMenuBar#chromeMenuBar {{ background-color: transparent; color: {fg_color}; }}\n"
-            f"QMenuBar#chromeMenuBar::item {{ color: {fg_color}; }}\n"
-            f"QMenuBar#chromeMenuBar::item:selected {{ background-color: {outline_color}; border-radius: 6px; }}\n"
-            f"QMenuBar#chromeMenuBar::item:pressed {{ background-color: {accent_color}; }}"
-        )
+        # Handled by WindowManager via _refresh_menu_styles, but we need to ensure the container is transparent
         self._ui.menu_bar_container.setStyleSheet(
             f"QWidget#menuBarContainer {{ background-color: transparent; color: {fg_color}; }}"
         )
@@ -193,10 +189,36 @@ class WindowThemeController(QObject):
             f"QWidget#editPage #collapsibleSection QLabel {{ color: {fg_color}; }}"
         )
         self._ui.detail_page.edit_container.setStyleSheet(edit_stylesheet)
-        self._ui.edit_image_viewer.set_surface_color_override(colors.window_background.name() if colors.is_dark else None)
 
-        # 3. Update Icons
+        # Detail/Edit View Background: Black in Dark Mode
+        target_surface = "#000000" if colors.is_dark else None
+        self._ui.image_viewer.set_surface_color_override(target_surface)
+
+        # 3. Update Icons and Buttons
         self._update_icon_tints(colors)
+
+        # Update Edit Button style
+        # It's in DetailPageWidget, so we need to construct it or assume logic matches
+        edit_btn_bg = colors.window_background.name()
+        edit_btn_hover = colors.window_background.darker(105).name()
+        edit_btn_pressed = colors.window_background.darker(110).name()
+        edit_btn_border = QColor(fg_color)
+        edit_btn_border.setAlpha(30)
+
+        self._ui.edit_button.setStyleSheet(
+            "QPushButton {"
+            f"  background-color: {edit_btn_bg};"
+            f"  border: 1px solid {edit_btn_border.name(QColor.NameFormat.HexArgb)};"
+            "  border-radius: 8px;"
+            f"  color: {fg_color};"
+            "  font-weight: 600;"
+            "  padding-left: 20px;"
+            "  padding-right: 20px;"
+            "}"
+            f"QPushButton:hover {{ background-color: {edit_btn_hover}; }}"
+            f"QPushButton:pressed {{ background-color: {edit_btn_pressed}; }}"
+            f"QPushButton:disabled {{ color: {disabled_fg}; border-color: {edit_btn_border.name(QColor.NameFormat.HexArgb)}; }}"
+        )
 
         # 4. Refresh Menus
         self._refresh_menu_styles()
@@ -231,12 +253,14 @@ class WindowThemeController(QObject):
             load_icon("square.fill.and.line.vertical.and.square.svg", color=icon_color)
         )
 
-        # Detail Header buttons (Info, Favorite)
+        # Detail Header buttons (Info, Favorite, Share, Rotate)
         if self._detail_ui_controller:
             self._detail_ui_controller.set_toolbar_icon_tint(colors.text_primary)
         else:
             self._ui.info_button.setIcon(load_icon("info.circle.svg", color=icon_color))
             self._ui.favorite_button.setIcon(load_icon("suit.heart.svg", color=icon_color))
+            self._ui.share_button.setIcon(load_icon("square.and.arrow.up.svg", color=icon_color))
+            self._ui.rotate_left_button.setIcon(load_icon("rotate.left.svg", color=icon_color))
 
     def _refresh_menu_styles(self) -> None:
         if self._window is None:
