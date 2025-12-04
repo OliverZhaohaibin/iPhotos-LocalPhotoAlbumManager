@@ -207,6 +207,10 @@ class AlbumSidebar(QWidget):
         self._tree.setAlternatingRowColors(False)
         self._tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        tree_palette = self._tree.palette()
+        tree_palette.setColor(QPalette.ColorRole.Highlight, SIDEBAR_SELECTED_BACKGROUND)
+        tree_palette.setColor(QPalette.ColorRole.Link, SIDEBAR_ICON_COLOR)
+        self._tree.setPalette(tree_palette)
         self._tree.setAutoFillBackground(True)
 
         self._apply_scrollbar_style()
