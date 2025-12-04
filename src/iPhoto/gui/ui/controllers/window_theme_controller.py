@@ -158,6 +158,10 @@ class WindowThemeController(QObject):
         self._ui.window_shell.setPalette(shell_palette)
 
         if self._rounded_window_shell:
+            # Update the rounded shell's palette too, as WindowManager relies on it for menu styling
+            rounded_palette = self._rounded_window_shell.palette()
+            rounded_palette.setColor(QPalette.ColorRole.Window, colors.window_background)
+            self._rounded_window_shell.setPalette(rounded_palette)
             self._rounded_window_shell.set_override_color(colors.window_background)
 
         # 2. Update Edit Container
@@ -191,7 +195,8 @@ class WindowThemeController(QObject):
         self._ui.detail_page.edit_container.setStyleSheet(edit_stylesheet)
 
         # Detail/Edit View Background: Black in Dark Mode
-        target_surface = "#000000" if colors.is_dark else None
+        # Explicitly set the background color even for Light Mode to prevent sticky state
+        target_surface = "#000000" if colors.is_dark else colors.window_background.name()
         self._ui.image_viewer.set_surface_color_override(target_surface)
 
         # 3. Update Icons and Buttons
