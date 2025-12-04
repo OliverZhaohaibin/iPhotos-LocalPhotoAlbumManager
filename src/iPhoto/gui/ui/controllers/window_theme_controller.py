@@ -118,7 +118,8 @@ class WindowThemeController(QObject):
         self._ui.sidebar.setStyleSheet(
             f"QWidget#albumSidebar {{ background-color: {sidebar_bg}; color: {fg_color}; border-bottom-left-radius: {radius}px; }}\n"
             f"QWidget#albumSidebar QLabel {{ color: {fg_color}; }}\n"
-            f"QWidget#albumSidebar QTreeView {{ background-color: transparent; color: {fg_color}; }}"
+            f"QWidget#albumSidebar QTreeView {{ background-color: transparent; color: {fg_color}; }}\n"
+            f"QWidget#albumSidebar QTreeView::item:selected {{ color: {colors.sidebar_text.name()}; }}"
         )
         # Apply specific palette for sidebar selection visualization
         sidebar_palette = self._ui.sidebar.palette()
