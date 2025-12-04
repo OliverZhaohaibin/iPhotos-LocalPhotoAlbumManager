@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QPalette
 from PySide6.QtWidgets import (
+    QApplication,
     QInputDialog,
     QMenu,
     QMessageBox,
@@ -80,6 +81,44 @@ def _create_styled_input_dialog(
     dialog.setWindowTitle(title)
     dialog.setLabelText(label)
     dialog.setTextValue(text)
+
+    # Retrieve the application-wide palette to ensure the dialog respects the active theme.
+    # While inheritance usually handles this, we explicitly query the global state to
+    # guarantee the correct colors are applied regardless of the parent widget's styling.
+    palette = QApplication.palette()
+    bg = palette.color(QPalette.ColorRole.Window).name()
+    text_col = palette.color(QPalette.ColorRole.WindowText).name()
+    base = palette.color(QPalette.ColorRole.Base).name()
+    text_input = palette.color(QPalette.ColorRole.Text).name()
+    button = palette.color(QPalette.ColorRole.Button).name()
+    button_text = palette.color(QPalette.ColorRole.ButtonText).name()
+
+    stylesheet = f"""
+        QInputDialog {{
+            background-color: {bg};
+            color: {text_col};
+        }}
+        QLabel {{
+            color: {text_col};
+        }}
+        QLineEdit {{
+            background-color: {base};
+            color: {text_input};
+            border: 1px solid {text_col};
+            padding: 4px;
+        }}
+        QPushButton {{
+            background-color: {button};
+            color: {button_text};
+            border: 1px solid {text_col};
+            padding: 6px 16px;
+            min-width: 60px;
+        }}
+        QPushButton:hover {{
+            background-color: {base};
+        }}
+    """
+    dialog.setStyleSheet(stylesheet)
 
     # Execute dialog and return result
     accepted = dialog.exec()
