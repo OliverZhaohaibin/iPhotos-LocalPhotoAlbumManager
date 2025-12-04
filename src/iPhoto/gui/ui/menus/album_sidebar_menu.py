@@ -62,18 +62,17 @@ def _apply_main_window_menu_style(menu: QMenu, anchor: QWidget | None) -> None:
 def _create_styled_input_dialog(
     parent: QWidget, title: str, label: str, text: str = ""
 ) -> tuple[str, bool]:
-    """Create an input dialog styled to match the sidebar's light theme.
-    
-    This helper ensures that input dialogs for album operations (new album, rename)
-    use the consistent light background and dark text defined in palette.py, instead
-    of inheriting potentially incorrect system defaults.
-    
+    """Create an input dialog for album operations.
+
+    This helper used to enforce a light theme but now inherits the application-wide
+    theme settings to support both Light and Dark modes.
+
     Args:
         parent: Parent widget for the dialog
         title: Dialog window title
         label: Prompt label text
         text: Default input text value
-        
+
     Returns:
         Tuple of (user_input_text, accepted_bool)
     """
@@ -81,42 +80,7 @@ def _create_styled_input_dialog(
     dialog.setWindowTitle(title)
     dialog.setLabelText(label)
     dialog.setTextValue(text)
-    
-    # Apply stylesheet using colors from palette.py to ensure consistent light theme
-    # Background uses SIDEBAR_BACKGROUND_COLOR (#eef3f6), text uses SIDEBAR_TEXT_COLOR (#2b2b2b)
-    background_color = SIDEBAR_BACKGROUND_COLOR.name()
-    text_color = SIDEBAR_TEXT_COLOR.name()
-    
-    stylesheet = f"""
-        QInputDialog {{
-            background-color: {background_color};
-            color: {text_color};
-        }}
-        QLabel {{
-            color: {text_color};
-        }}
-        QLineEdit {{
-            background-color: white;
-            color: {text_color};
-            border: 1px solid #c0c0c0;
-            padding: 4px;
-        }}
-        QPushButton {{
-            background-color: white;
-            color: {text_color};
-            border: 1px solid #c0c0c0;
-            padding: 6px 16px;
-            min-width: 60px;
-        }}
-        QPushButton:hover {{
-            background-color: #f0f0f0;
-        }}
-        QPushButton:pressed {{
-            background-color: #e0e0e0;
-        }}
-    """
-    dialog.setStyleSheet(stylesheet)
-    
+
     # Execute dialog and return result
     accepted = dialog.exec()
     return (dialog.textValue(), accepted == QInputDialog.DialogCode.Accepted)
