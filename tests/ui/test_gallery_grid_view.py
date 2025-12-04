@@ -102,10 +102,28 @@ def test_gallery_responsive_layout(qapp_instance, monkeypatch):
     assert r_last.y() == r0.y()
 
     # -------------------------------------------------------------------------
+    # Test Case 3: Expanding back to more columns
+    # -------------------------------------------------------------------------
+    view.resize(790, 1200)
+    qapp_instance.processEvents()
+    view.doItemsLayout()
+    qapp_instance.processEvents()
+
+    vp_w = view.viewport().width()
+    cols, cell, item = get_expectations(vp_w)
+
+    assert view.gridSize().width() == cell
+
+    last_item_idx = cols - 1
+    r_last = view.visualRect(model.index(last_item_idx, 0))
+    r0 = view.visualRect(model.index(0, 0))
+    assert r_last.y() == r0.y()
+
+    # -------------------------------------------------------------------------
     # Test Case 4: Dead Zone check (Bug Fix Verification)
     # Width 582px triggers the dead zone where:
     #   Old logic: 582 / 194 = 3 cols. (582-10)/3 = 190.6 < 192. Reject.
-    #   New logic: (582-10) / 194 = 2 cols. (582-10)/2 = 286. Item size 284px. Accept.
+    #   New logic: (582-10) / 194 = 2 cols. (582-10)/2 = 286. Item 284. Accept.
     # -------------------------------------------------------------------------
     view.resize(582, 1200)
     qapp_instance.processEvents()
@@ -125,21 +143,3 @@ def test_gallery_responsive_layout(qapp_instance, monkeypatch):
     assert cols == 2
     assert view.gridSize().width() == cell
     assert view.iconSize().width() == item
-
-    # -------------------------------------------------------------------------
-    # Test Case 3: Expanding back to more columns
-    # -------------------------------------------------------------------------
-    view.resize(790, 1200)
-    qapp_instance.processEvents()
-    view.doItemsLayout()
-    qapp_instance.processEvents()
-
-    vp_w = view.viewport().width()
-    cols, cell, item = get_expectations(vp_w)
-
-    assert view.gridSize().width() == cell
-
-    last_item_idx = cols - 1
-    r_last = view.visualRect(model.index(last_item_idx, 0))
-    r0 = view.visualRect(model.index(0, 0))
-    assert r_last.y() == r0.y()
