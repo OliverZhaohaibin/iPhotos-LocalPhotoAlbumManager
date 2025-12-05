@@ -1042,6 +1042,8 @@ class CurvesDemo(QWidget):
 
         # Update point
         p_end = points[-1]
+        if len(points) > 1:
+            val = max(val, points[-2].x() + self.curve.MIN_DISTANCE_THRESHOLD)
         points[-1] = QPointF(val, p_end.y())
 
         # Trigger update in curve
