@@ -511,7 +511,6 @@ class CurveGraph(QWidget):
                 self.update_spline_and_lut()
 
         self.dragging = True
-        self.update()
 
     def mouseMoveEvent(self, event):
         if self.dragging and self.selected_index != -1:
