@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QPalette
 
 from ..icon import load_icon
 from ..widgets.collapsible_section import CollapsibleSection
-from ..window_manager import RoundedWindowShell
+from ..window_shell import RoundedWindowShell
 from ..theme_manager import ThemeManager, ThemeColors, DARK_THEME
 from ..palette import SIDEBAR_SELECTED_BACKGROUND, SIDEBAR_ICON_COLOR
 
