@@ -998,9 +998,14 @@ class CurvesDemo(QWidget):
         tools_layout.addStretch()
         controls_layout.addLayout(tools_layout)
 
+        # -- Graph + Sliders Group (Spacing=0) --
+        graph_sliders_layout = QVBoxLayout()
+        graph_sliders_layout.setSpacing(0)
+        graph_sliders_layout.setContentsMargins(0, 0, 0, 0)
+
         self.curve = CurveGraph()
         self.curve.lutChanged.connect(self.image_viewer.upload_lut)
-        controls_layout.addWidget(self.curve)
+        graph_sliders_layout.addWidget(self.curve)
 
         # 2.2 Replace Gradient Bar with Interactive Sliders
         self.input_sliders = InputLevelSliders()
@@ -1014,7 +1019,9 @@ class CurvesDemo(QWidget):
         self.curve.startPointMoved.connect(self.input_sliders.setBlackPoint)
         self.curve.endPointMoved.connect(self.input_sliders.setWhitePoint)
 
-        controls_layout.addWidget(self.input_sliders)
+        graph_sliders_layout.addWidget(self.input_sliders)
+
+        controls_layout.addLayout(graph_sliders_layout)
 
         controls_layout.addStretch()
         self.main_layout.addWidget(self.controls_panel)
