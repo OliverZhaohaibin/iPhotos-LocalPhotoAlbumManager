@@ -149,7 +149,10 @@ class MonotoneCubicSpline:
         else:
             m = ((2*h0 + h1)*d0 - h0*d1) / denom
 
-        if np.sign(m) != np.sign(d0):
+        # Use a tolerance to check if d0 is effectively zero
+        if np.isclose(d0, 0.0, atol=1e-12):
+            m = 0
+        elif np.sign(m) != np.sign(d0):
             m = 0
         elif (np.sign(d0) != np.sign(d1)) and (abs(m) > abs(3*d0)):
             m = 3 * d0
