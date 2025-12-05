@@ -591,6 +591,13 @@ class CurveGraph(QWidget):
         self.add_point_smart()
 
     def update_spline_and_lut(self):
+        """
+        Recalculate the spline, update the lookup table (LUT), and refresh the UI.
+
+        This method should be called after any change to the control points or the curve,
+        such as adding, moving, or removing points, to ensure that the displayed curve
+        and the LUT remain consistent with the current state.
+        """
         self._recalculate_spline()
         self.update_lut()
         self.update()
