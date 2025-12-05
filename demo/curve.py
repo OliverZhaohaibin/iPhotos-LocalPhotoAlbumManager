@@ -663,11 +663,10 @@ class CurveGraph(QWidget):
         ys = spline.evaluate(xs)
 
         # Apply Clamping for visualization
-        # Note: spline.evaluate effectively extrapolates or returns edge value depending on implementation
-        # But we must ensure the flat lines are drawn correctly for the "clamped" regions outside [start_x, end_x]
-
-        # We assume xs covers 0 to 1 sufficiently to show the flat clamped regions
-        # as the loop below clamps y values for x < start_x and x > end_x.
+        # Clamping is explicitly applied in the loop below: for x < start_pt.x(), y is set to start_pt.y();
+        # for x > end_pt.x(), y is set to end_pt.y(). This overrides any extrapolation or edge-value behavior
+        # from spline.evaluate, ensuring the flat lines are drawn correctly for the "clamped" regions.
+        # We assume xs covers 0 to 1 sufficiently to show the flat clamped regions.
 
         path = QPainterPath()
 
