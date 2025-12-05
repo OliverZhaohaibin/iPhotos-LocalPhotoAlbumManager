@@ -405,13 +405,13 @@ class CurveGraph(QWidget):
 
         # Determine point color based on channel
         if self.active_channel == "Red":
-             pt_color = QColor("#FF4444")
+            pt_color = QColor("#FF4444")
         elif self.active_channel == "Green":
-             pt_color = QColor("#44FF44")
+            pt_color = QColor("#44FF44")
         elif self.active_channel == "Blue":
-             pt_color = QColor("#4444FF")
+            pt_color = QColor("#4444FF")
         else:
-             pt_color = QColor("white")
+            pt_color = QColor("white")
 
         for i, p in enumerate(current_points):
             sx = p.x() * w
