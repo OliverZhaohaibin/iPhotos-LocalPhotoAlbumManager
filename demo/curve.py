@@ -508,6 +508,10 @@ class CurveGraph(QWidget):
         if channel_name in self.channels and channel_name != self.active_channel:
             self.active_channel = channel_name
             self.selected_index = -1
+            # Emit signals to sync sliders with new channel's endpoints
+            points = self.channels[self.active_channel]
+            self.startPointMoved.emit(points[0].x())
+            self.endPointMoved.emit(points[-1].x())
             self.update()
 
     def set_histogram(self, hist_data):
