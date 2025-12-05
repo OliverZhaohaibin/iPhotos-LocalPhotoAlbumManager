@@ -132,7 +132,23 @@ class MonotoneCubicSpline:
 
     def evaluate(self, x_eval):
         """
-        Evaluate the spline at points x_eval.
+        Evaluate the spline at the specified x-coordinates.
+
+        Parameters
+        ----------
+        x_eval : float or array-like
+            The x-coordinates at which to evaluate the spline. Can be a scalar or array-like.
+
+        Returns
+        -------
+        float or ndarray
+            The interpolated y-values at the specified x-coordinates. Returns a scalar if input is scalar, or a NumPy array if input is array-like.
+
+        Notes
+        -----
+        - Out-of-bounds values are handled by clamping to the nearest interval (i.e., the spline is evaluated at the closest valid interval).
+        - If a degenerate interval (zero width) is encountered, the corresponding y-value is returned.
+        - The output type matches the input: scalar input returns a scalar, array input returns an array.
         """
         x_eval = np.asarray(x_eval)
         scalar = x_eval.ndim == 0
