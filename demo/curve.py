@@ -597,7 +597,7 @@ class CurveGraph(QWidget):
 
     def update_lut(self):
         if not self.spline:
-             return
+            return
 
         # 3.1 Data (LUT): Sample exact same function
         # Resolution: 256
