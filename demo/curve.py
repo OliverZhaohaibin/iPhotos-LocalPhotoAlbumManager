@@ -660,20 +660,9 @@ class CurveGraph(QWidget):
         # Note: spline.evaluate effectively extrapolates or returns edge value depending on implementation
         # But we must ensure the flat lines are drawn correctly for the "clamped" regions outside [start_x, end_x]
 
-        path = QPainterPath()
+        # We assume xs covers 0 to 1 sufficiently to show the flat clamped regions
+        # as the loop below clamps y values for x < start_x and x > end_x.
 
-        # Start clamping region
-        # From x=0 to start_pt.x, line is flat at start_pt.y
-        path.moveTo(0, h - start_pt.y() * h)
-        if start_pt.x() > 0:
-            path.lineTo(start_pt.x() * w, h - start_pt.y() * h)
-
-        # Curve body
-        # xs goes from 0 to 1. We only want to draw the part within [start_pt.x, end_pt.x]
-        # or we rely on the fact that xs covers everything and we clip the Y values?
-        # Actually, let's just draw the full xs but modify y values.
-
-        # Re-build path from scratch using modified ys
         path = QPainterPath()
 
         first_pt = True
