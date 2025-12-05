@@ -20,6 +20,7 @@ pytest.importorskip("PySide6", reason="PySide6 is required for GUI tests", exc_t
 pytest.importorskip("PySide6.QtWidgets", reason="Qt widgets not available", exc_type=ImportError)
 from PySide6.QtCore import Qt, QSize, QObject, Signal, QEventLoop
 from PySide6.QtGui import QPixmap, QImage
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import (
     QApplication,  # type: ignore  # noqa: E402
@@ -126,7 +127,7 @@ class _StubMediaController(QObject):
         return self.loaded
 
 
-class _StubGLImageViewer(QWidget):
+class _StubGLImageViewer(QOpenGLWidget):
     replayRequested = Signal()
     zoomChanged = Signal(float)
     nextItemRequested = Signal()
