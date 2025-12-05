@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QWidget, QToolButton, QLabel, QTreeView, QGroupBox, QPushButton
 
 from iPhotos.src.iPhoto.gui.ui.controllers.window_theme_controller import WindowThemeController
-from iPhotos.src.iPhoto.gui.ui.theme_manager import ThemeManager, LIGHT_THEME, DARK_THEME, ThemeColors
+from iPhotos.src.iPhoto.gui.ui.theme_manager import ThemeManager, LIGHT_THEME, DARK_THEME
 from iPhotos.src.iPhoto.gui.ui.widgets.collapsible_section import CollapsibleSection
 from iPhotos.src.iPhoto.gui.ui.window_manager import RoundedWindowShell
 
