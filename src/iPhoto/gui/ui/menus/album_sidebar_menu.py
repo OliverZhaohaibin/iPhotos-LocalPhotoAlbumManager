@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QInputDialog,
     QMenu,
-    QMessageBox,
     QTreeView,
     QWidget,
 )
@@ -21,6 +20,7 @@ from ....library.manager import LibraryManager
 from ....library.tree import AlbumNode
 from ..models.album_tree_model import AlbumTreeItem, AlbumTreeModel, NodeType
 from ..palette import SIDEBAR_BACKGROUND_COLOR, SIDEBAR_TEXT_COLOR
+from ..widgets import dialogs
 
 
 def _apply_main_window_menu_style(menu: QMenu, anchor: QWidget | None) -> None:
@@ -194,7 +194,7 @@ class AlbumSidebarContextMenu(QMenu):
             return
         target_name = name.strip()
         if not target_name:
-            QMessageBox.warning(self.parentWidget(), "iPhoto", "Album name cannot be empty.")
+            dialogs.show_warning(self.parentWidget(), "Album name cannot be empty.")
             return
         try:
             if base_item.node_type == NodeType.ALBUM and base_item.album is not None:
@@ -202,7 +202,7 @@ class AlbumSidebarContextMenu(QMenu):
             else:
                 node = self._library.create_album(target_name)
         except LibraryError as exc:  # pragma: no cover - GUI feedback
-            QMessageBox.warning(self.parentWidget(), "iPhoto", str(exc))
+            dialogs.show_warning(self.parentWidget(), str(exc))
             return
         self._set_pending_selection(node.path)
 
@@ -220,12 +220,12 @@ class AlbumSidebarContextMenu(QMenu):
             return
         target_name = name.strip()
         if not target_name:
-            QMessageBox.warning(self.parentWidget(), "iPhoto", "Album name cannot be empty.")
+            dialogs.show_warning(self.parentWidget(), "Album name cannot be empty.")
             return
         try:
             self._library.rename_album(item.album, target_name)
         except LibraryError as exc:  # pragma: no cover - GUI feedback
-            QMessageBox.warning(self.parentWidget(), "iPhoto", str(exc))
+            dialogs.show_warning(self.parentWidget(), str(exc))
             return
         self._set_pending_selection(item.album.path.parent / target_name)
 

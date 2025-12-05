@@ -53,3 +53,34 @@ def show_information(parent: QWidget, message: str, *, title: str = "iPhoto") ->
     box = QMessageBox(QMessageBox.Icon.Information, title, message, QMessageBox.StandardButton.Ok, parent)
     _apply_theme(box, parent)
     box.exec()
+
+
+def show_warning(parent: QWidget, message: str, *, title: str = "iPhoto") -> None:
+    """Display a blocking warning message."""
+
+    box = QMessageBox(QMessageBox.Icon.Warning, title, message, QMessageBox.StandardButton.Ok, parent)
+    _apply_theme(box, parent)
+    box.exec()
+
+
+def confirm_action(
+    parent: QWidget,
+    message: str,
+    *,
+    title: str = "Confirmation",
+    yes_label: str = "Yes",
+    no_label: str = "No",
+) -> bool:
+    """Ask the user to confirm an action.
+
+    Returns:
+        True if the user selected the affirmative option, False otherwise.
+    """
+    box = QMessageBox(QMessageBox.Icon.Question, title, message, QMessageBox.StandardButton.NoButton, parent)
+    yes_btn = box.addButton(yes_label, QMessageBox.ButtonRole.YesRole)
+    box.addButton(no_label, QMessageBox.ButtonRole.NoRole)
+
+    _apply_theme(box, parent)
+    box.exec()
+
+    return box.clickedButton() == yes_btn
