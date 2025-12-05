@@ -13,7 +13,6 @@ from iPhotos.src.iPhoto.gui.ui.widgets.collapsible_section import CollapsibleSec
 from iPhotos.src.iPhoto.gui.ui.window_manager import RoundedWindowShell
 
 # Mock load_icon globally to avoid disk/resource access and crashes during tests
-from unittest.mock import MagicMock
 import sys
 sys.modules["iPhotos.src.iPhoto.gui.ui.icon"] = MagicMock()
 sys.modules["iPhotos.src.iPhoto.gui.ui.icon"].load_icon = MagicMock()
