@@ -25,12 +25,12 @@ from PySide6.QtWidgets import (
 
 from .icon import load_icon
 from .styles import modern_scrollbar_style
-from .ui_main_window import Ui_MainWindow
 from .widgets.custom_tooltip import FloatingToolTip, ToolTipEventFilter
 
 if TYPE_CHECKING:  # pragma: no cover - used only for type checking
     from PySide6.QtGui import QResizeEvent
 
+    from .ui_main_window import Ui_MainWindow
     from .controllers.main_controller import MainController
     from .controllers.edit_controller import EditController
 
