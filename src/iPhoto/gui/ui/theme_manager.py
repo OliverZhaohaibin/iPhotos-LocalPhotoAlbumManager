@@ -10,7 +10,6 @@ from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QColor, QPalette, QGuiApplication
 
 from ...settings import SettingsManager
-from .icon import load_icon
 from .palette import SIDEBAR_ICON_COLOR_HEX
 
 _LOGGER = logging.getLogger(__name__)
