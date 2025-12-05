@@ -142,7 +142,12 @@ class MonotoneCubicSpline:
         else:
             d1 = (self.y[idx_1] - self.y[idx_2]) / (self.x[idx_1] - self.x[idx_2])
 
-        m = ((2*h0 + h1)*d0 - h0*d1) / (h0 + h1)
+        denom = h0 + h1
+        # Safety check: avoid division by zero or near-zero denominator
+        if np.isclose(denom, 0.0, atol=1e-12):
+            m = 0.0
+        else:
+            m = ((2*h0 + h1)*d0 - h0*d1) / denom
 
         if np.sign(m) != np.sign(d0):
             m = 0
