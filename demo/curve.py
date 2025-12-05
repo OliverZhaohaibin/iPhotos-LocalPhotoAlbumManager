@@ -304,13 +304,13 @@ class InputLevelSliders(QWidget):
         self._dragging = None  # 'black', 'white', or None
 
         # Style constants
-        self.handle_width = 10
-        self.handle_height = 12
+        self.handle_width = 12
+        self.handle_height = 18
         self.hit_radius = 15
 
         # Magic numbers replacement
         self.limit_gap = 0.01
-        self.inner_circle_radius = 1.5
+        self.inner_circle_radius = 3
         self.hit_padding_y = 5
         self.bezier_ctrl_y_factor = 0.4
         self.bezier_ctrl_x_factor = 0.5
