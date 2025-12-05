@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QColor, QPalette, QGuiApplication
