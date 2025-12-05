@@ -99,7 +99,6 @@ class WindowThemeController(QObject):
         fg_color = colors.text_primary.name()
         disabled_fg = colors.text_disabled.name()
         outline_color = colors.border_color.name()
-        accent_color = colors.accent_color.name()
 
         # Update window title label color directly
         self._ui.window_title_label.setStyleSheet(f"color: {fg_color};")
