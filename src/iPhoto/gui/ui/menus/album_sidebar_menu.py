@@ -19,7 +19,6 @@ from ....errors import LibraryError
 from ....library.manager import LibraryManager
 from ....library.tree import AlbumNode
 from ..models.album_tree_model import AlbumTreeItem, AlbumTreeModel, NodeType
-from ..widgets import dialogs
 
 
 def _apply_main_window_menu_style(menu: QMenu, anchor: QWidget | None) -> None:
