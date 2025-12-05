@@ -80,8 +80,23 @@ class MonotoneCubicSpline:
 
     def _edge_tangent(self, k, k_next):
         """
-        Compute tangent for endpoint k using neighbor k_next.
-        PCHIP endpoint logic (scipy implementation style).
+        Compute the tangent (first derivative) at an endpoint for PCHIP interpolation.
+        This method implements the endpoint formula from the Piecewise Cubic Hermite Interpolating Polynomial (PCHIP)
+        algorithm, following the SciPy implementation. The endpoint tangent is computed using a three-point formula:
+            m0 = ((2*h0 + h1)*d0 - h0*d1) / (h0 + h1)
+        where:
+            - h0 = x[1] - x[0] (distance from endpoint to its neighbor)
+            - h1 = x[2] - x[1] (distance between the next two points)
+            - d0 = (y[1] - y[0]) / h0 (secant slope at the endpoint)
+            - d1 = (y[2] - y[1]) / h1 (secant slope of the next interval)
+        Monotonicity constraints are applied:
+            - If the computed tangent m0 has a different sign than d0, it is set to zero.
+            - If d0 and d1 have different signs and |m0| > 3*|d0|, then m0 is limited to 3*d0.
+        Args:
+            k (int): Index of the endpoint (0 for start, n-1 for end).
+            k_next (int): Index of the neighbor to the endpoint (1 for start, n-2 for end).
+        Returns:
+            float: The computed tangent (first derivative) at the endpoint, constrained to preserve monotonicity.
         """
         h0 = self.x[1] - self.x[0] if k == 0 else self.x[-1] - self.x[-2]
         d0 = self.d[0] if k == 0 else self.d[-1]
