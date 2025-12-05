@@ -5,7 +5,7 @@ import pytest
 
 from PySide6.QtCore import QObject
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QWidget, QToolButton, QLabel, QTreeView, QGroupBox, QPushButton
+from PySide6.QtWidgets import QWidget, QToolButton, QLabel, QPushButton
 
 from iPhotos.src.iPhoto.gui.ui.controllers.window_theme_controller import WindowThemeController
 from iPhotos.src.iPhoto.gui.ui.theme_manager import ThemeManager, LIGHT_THEME, DARK_THEME
