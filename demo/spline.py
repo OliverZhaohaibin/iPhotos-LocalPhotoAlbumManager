@@ -112,12 +112,22 @@ class MonotoneCubicSpline:
 
         idx_0, idx_1, idx_2 = (0, 1, 2) if k == 0 else (self.n-1, self.n-2, self.n-3)
 
+        h0 = self.x[idx_1] - self.x[idx_0]
+        h1 = self.x[idx_2] - self.x[idx_1] # This is directed distance
         # Actually distances are always positive if sorted.
         h0 = abs(self.x[idx_1] - self.x[idx_0])
         h1 = abs(self.x[idx_2] - self.x[idx_1])
 
-        d0 = (self.y[idx_1] - self.y[idx_0]) / (self.x[idx_1] - self.x[idx_0])
-        d1 = (self.y[idx_2] - self.y[idx_1]) / (self.x[idx_2] - self.x[idx_1])
+        # Ensure correct direction for d0 and d1 regardless of endpoint
+        if idx_1 > idx_0:
+            d0 = (self.y[idx_1] - self.y[idx_0]) / (self.x[idx_1] - self.x[idx_0])
+        else:
+            d0 = (self.y[idx_0] - self.y[idx_1]) / (self.x[idx_0] - self.x[idx_1])
+
+        if idx_2 > idx_1:
+            d1 = (self.y[idx_2] - self.y[idx_1]) / (self.x[idx_2] - self.x[idx_1])
+        else:
+            d1 = (self.y[idx_1] - self.y[idx_2]) / (self.x[idx_1] - self.x[idx_2])
 
         m = ((2*h0 + h1)*d0 - h0*d1) / (h0 + h1)
 
@@ -130,23 +140,7 @@ class MonotoneCubicSpline:
 
     def evaluate(self, x_eval):
         """
-        Evaluate the spline at the specified x-coordinates.
-
-        Parameters
-        ----------
-        x_eval : float or array-like
-            The x-coordinates at which to evaluate the spline. Can be a scalar or array-like.
-
-        Returns
-        -------
-        float or ndarray
-            The interpolated y-values at the specified x-coordinates. Returns a scalar if input is scalar, or a NumPy array if input is array-like.
-
-        Notes
-        -----
-        - Out-of-bounds values are handled by clamping to the nearest interval (i.e., the spline is evaluated at the closest valid interval).
-        - If a degenerate interval (zero width) is encountered, the corresponding y-value is returned.
-        - The output type matches the input: scalar input returns a scalar, array input returns an array.
+        Evaluate the spline at points x_eval.
         """
         x_eval = np.asarray(x_eval)
         scalar = x_eval.ndim == 0

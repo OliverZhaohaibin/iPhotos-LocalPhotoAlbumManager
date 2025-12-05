@@ -19,7 +19,7 @@ try:
 except ImportError:
     # Try local import if running as script from root
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from iPhotos.demo.spline import MonotoneCubicSpline
+    from demo.spline import MonotoneCubicSpline
 
 
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
@@ -470,9 +470,9 @@ class CurveGraph(QWidget):
             self.selected_index = click_idx
             # Delete point on right click if not endpoint
             if event.button() == Qt.RightButton and 0 < click_idx < len(self.points) - 1:
-                self.points.pop(click_idx)
-                self.selected_index = -1
-                self.update_spline_and_lut()
+                 self.points.pop(click_idx)
+                 self.selected_index = -1
+                 self.update_spline_and_lut()
         else:
             # If not clicking a point, maybe adding one?
             # Requirement says "Add Point" button logic is specific.
@@ -595,7 +595,7 @@ class CurveGraph(QWidget):
 
     def update_lut(self):
         if not self.spline:
-            return
+             return
 
         # 3.1 Data (LUT): Sample exact same function
         # Resolution: 256
