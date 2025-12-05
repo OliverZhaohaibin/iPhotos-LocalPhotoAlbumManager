@@ -284,6 +284,128 @@ class GLImageViewer(QOpenGLWidget):
 # ==========================================
 # UI Classes
 # ==========================================
+class InputLevelSliders(QWidget):
+    blackPointChanged = Signal(float)
+    whitePointChanged = Signal(float)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(24)
+        self.setStyleSheet("background-color: #222222;")
+
+        self._black_val = 0.0
+        self._white_val = 1.0
+        self._dragging = None  # 'black', 'white', or None
+
+        # Style constants
+        self.handle_width = 14
+        self.handle_height = 18
+        self.hit_radius = 15
+
+    def setBlackPoint(self, val):
+        self._black_val = max(0.0, min(val, 1.0))
+        self.update()
+
+    def setWhitePoint(self, val):
+        self._white_val = max(0.0, min(val, 1.0))
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+
+        # Background (Track)
+        painter.fillRect(self.rect(), QColor("#222222"))
+
+        # Draw Handles
+        self._draw_handle(painter, self._black_val * w, is_black=True)
+        self._draw_handle(painter, self._white_val * w, is_black=False)
+
+    def _draw_handle(self, painter, x_pos, is_black):
+        y_bottom = self.height() - 2
+        y_top = y_bottom - self.handle_height
+        hw = self.handle_width / 2.0
+
+        # Upward pointing teardrop / pin shape
+        # Top point at (x_pos, y_top)
+        # Bottom rounded
+
+        path = QPainterPath()
+        path.moveTo(x_pos, y_top)
+
+        # Curve out to bottom-right
+        # Control points to make it look like a teardrop
+        path.cubicTo(x_pos + hw, y_top + self.handle_height * 0.5,
+                     x_pos + hw, y_bottom - hw,
+                     x_pos, y_bottom)
+
+        # Curve up to top from bottom-left
+        path.cubicTo(x_pos - hw, y_bottom - hw,
+                     x_pos - hw, y_top + self.handle_height * 0.5,
+                     x_pos, y_top)
+
+        # Fill - Light Gray
+        painter.setBrush(QColor("#BBBBBB"))
+        painter.setPen(Qt.NoPen)
+        painter.drawPath(path)
+
+        # Inner Circle
+        circle_radius = 2.5
+        center_y = y_bottom - 5
+
+        inner_color = QColor("black") if is_black else QColor("white")
+        painter.setBrush(inner_color)
+        painter.drawEllipse(QPointF(x_pos, center_y), circle_radius, circle_radius)
+
+    def mousePressEvent(self, event):
+        pos = event.position()
+        w = self.width()
+
+        bx = self._black_val * w
+        wx = self._white_val * w
+
+        # Check distance
+        dist_b = abs(pos.x() - bx)
+        dist_w = abs(pos.x() - wx)
+
+        # Check Y range too roughly
+        if pos.y() > self.height() - self.handle_height - 5:
+            # Prioritize closer one
+            if dist_b < self.hit_radius and dist_b <= dist_w:
+                self._dragging = 'black'
+            elif dist_w < self.hit_radius:
+                self._dragging = 'white'
+
+    def mouseMoveEvent(self, event):
+        if not self._dragging:
+            return
+
+        w = self.width()
+        if w == 0: return
+
+        val = event.position().x() / w
+        val = max(0.0, min(1.0, val))
+
+        if self._dragging == 'black':
+            # Constraint: cannot cross white point (minus small gap)
+            limit = self._white_val - 0.01
+            if val > limit: val = limit
+            self._black_val = val
+            self.blackPointChanged.emit(val)
+
+        elif self._dragging == 'white':
+            limit = self._black_val + 0.01
+            if val < limit: val = limit
+            self._white_val = val
+            self.whitePointChanged.emit(val)
+
+        self.update()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = None
+
+
 class StyledComboBox(QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -334,6 +456,9 @@ class StyledComboBox(QComboBox):
 
 class CurveGraph(QWidget):
     lutChanged = Signal(object)
+    startPointMoved = Signal(float)
+    endPointMoved = Signal(float)
+
     HIT_DETECTION_RADIUS = 15  # pixels
     MIN_DISTANCE_THRESHOLD = 0.01
 
@@ -490,6 +615,10 @@ class CurveGraph(QWidget):
         if spline is None:
             return
 
+        points = self.channels[self.active_channel]
+        start_pt = points[0]
+        end_pt = points[-1]
+
         # 2.3 Visual Feedback (Curve Color)
         color_map = {
             "RGB": QColor("#FFFFFF"),
@@ -505,13 +634,46 @@ class CurveGraph(QWidget):
         xs = np.linspace(0, 1, steps)
         ys = spline.evaluate(xs)
 
-        path = QPainterPath()
-        path.moveTo(xs[0] * w, h - ys[0] * h)
+        # Apply Clamping for visualization
+        # Note: spline.evaluate effectively extrapolates or returns edge value depending on implementation
+        # But we must ensure the flat lines are drawn correctly for the "clamped" regions outside [start_x, end_x]
 
-        for i in range(1, len(xs)):
-            cx = xs[i] * w
-            cy = h - ys[i] * h
-            path.lineTo(cx, cy)
+        path = QPainterPath()
+
+        # Start clamping region
+        # From x=0 to start_pt.x, line is flat at start_pt.y
+        path.moveTo(0, h - start_pt.y() * h)
+        if start_pt.x() > 0:
+            path.lineTo(start_pt.x() * w, h - start_pt.y() * h)
+
+        # Curve body
+        # xs goes from 0 to 1. We only want to draw the part within [start_pt.x, end_pt.x]
+        # or we rely on the fact that xs covers everything and we clip the Y values?
+        # Actually, let's just draw the full xs but modify y values.
+
+        # Re-build path from scratch using modified ys
+        path = QPainterPath()
+
+        first_pt = True
+
+        for i in range(len(xs)):
+            x_val = xs[i]
+
+            if x_val < start_pt.x():
+                y_val = start_pt.y()
+            elif x_val > end_pt.x():
+                y_val = end_pt.y()
+            else:
+                y_val = ys[i]
+
+            cx = x_val * w
+            cy = h - y_val * h
+
+            if first_pt:
+                path.moveTo(cx, cy)
+                first_pt = False
+            else:
+                path.lineTo(cx, cy)
 
         painter.setPen(QPen(pen_color, 2))
         painter.setBrush(Qt.NoBrush)
@@ -573,9 +735,21 @@ class CurveGraph(QWidget):
             ny = max(0.0, min(1.0, (h - pos.y()) / h))
 
             if self.selected_index == 0:
-                nx = 0.0
+                # Start Point - moveable X
+                # Constraint: cannot cross next point
+                if len(points) > 1:
+                    max_x = points[1].x() - self.MIN_DISTANCE_THRESHOLD
+                    if nx > max_x: nx = max_x
+                nx = max(0.0, nx) # Cannot go below 0
+
             elif self.selected_index == len(points) - 1:
-                nx = 1.0
+                # End Point - moveable X
+                # Constraint: cannot cross prev point
+                if len(points) > 1:
+                    min_x = points[self.selected_index - 1].x() + self.MIN_DISTANCE_THRESHOLD
+                    if nx < min_x: nx = min_x
+                nx = min(1.0, nx) # Cannot go above 1
+
             else:
                 prev_p = points[self.selected_index - 1]
                 next_p = points[self.selected_index + 1]
@@ -587,6 +761,12 @@ class CurveGraph(QWidget):
 
             points[self.selected_index] = QPointF(nx, ny)
             self.update_spline_and_lut()
+
+            # Emit signals if endpoints moved
+            if self.selected_index == 0:
+                self.startPointMoved.emit(nx)
+            elif self.selected_index == len(points) - 1:
+                self.endPointMoved.emit(nx)
 
     def mouseReleaseEvent(self, event):
         self.dragging = False
@@ -641,10 +821,30 @@ class CurveGraph(QWidget):
         xs = np.linspace(0, 1, 256)
 
         # Helper to get eval from spline or identity if missing
+        # Also applies clamping logic for points outside [start_x, end_x]
         def eval_spline(name, inputs):
             s = self.splines.get(name)
             if s:
-                return np.clip(s.evaluate(inputs), 0.0, 1.0)
+                # Determine start/end x/y from points
+                pts = self.channels[name]
+                start_pt = pts[0]
+                end_pt = pts[-1]
+
+                # Evaluate spline
+                vals = s.evaluate(inputs)
+
+                # Clamp based on X range of the curve definition
+                # inputs < start_pt.x => start_pt.y
+                # inputs > end_pt.x => end_pt.y
+
+                # Masks
+                mask_low = inputs < start_pt.x()
+                mask_high = inputs > end_pt.x()
+
+                vals[mask_low] = start_pt.y()
+                vals[mask_high] = end_pt.y()
+
+                return np.clip(vals, 0.0, 1.0)
             return inputs # Identity
 
         # 1. Apply individual channel curves
@@ -653,16 +853,10 @@ class CurveGraph(QWidget):
         b_curve = eval_spline("Blue", xs)
 
         # 2. Apply master curve to the result of individual curves
-        master_spline = self.splines.get("RGB")
-        if master_spline:
-            # We must map the previous output through the master spline
-            r_final = np.clip(master_spline.evaluate(r_curve), 0.0, 1.0)
-            g_final = np.clip(master_spline.evaluate(g_curve), 0.0, 1.0)
-            b_final = np.clip(master_spline.evaluate(b_curve), 0.0, 1.0)
-        else:
-            r_final = r_curve
-            g_final = g_curve
-            b_final = b_curve
+        # We reuse eval_spline but pass the intermediate results as inputs
+        r_final = eval_spline("RGB", r_curve)
+        g_final = eval_spline("RGB", g_curve)
+        b_final = eval_spline("RGB", b_curve)
 
         # Stack: (256, 3)
         lut = np.stack([r_final, g_final, b_final], axis=1).astype(np.float32)
@@ -792,13 +986,46 @@ class CurvesDemo(QWidget):
         self.curve.lutChanged.connect(self.image_viewer.upload_lut)
         controls_layout.addWidget(self.curve)
 
-        grad_bar = QFrame()
-        grad_bar.setFixedHeight(15)
-        grad_bar.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 black, stop:1 white); border-radius: 2px;")
-        controls_layout.addWidget(grad_bar)
+        # 2.2 Replace Gradient Bar with Interactive Sliders
+        self.input_sliders = InputLevelSliders()
+
+        # Connect Sliders <-> Graph
+        # Sliders -> Graph
+        self.input_sliders.blackPointChanged.connect(self.update_black_point)
+        self.input_sliders.whitePointChanged.connect(self.update_white_point)
+
+        # Graph -> Sliders
+        self.curve.startPointMoved.connect(self.input_sliders.setBlackPoint)
+        self.curve.endPointMoved.connect(self.input_sliders.setWhitePoint)
+
+        controls_layout.addWidget(self.input_sliders)
 
         controls_layout.addStretch()
         self.main_layout.addWidget(self.controls_panel)
+
+    def update_black_point(self, val):
+        # User moved the black slider. We need to update the Curve's start point (index 0).
+        points = self.curve.channels[self.curve.active_channel]
+        if not points: return
+
+        # Update point
+        p0 = points[0]
+        points[0] = QPointF(val, p0.y())
+
+        # Trigger update in curve
+        self.curve.update_spline_and_lut()
+
+    def update_white_point(self, val):
+        # User moved the white slider. We need to update the Curve's end point (index -1).
+        points = self.curve.channels[self.curve.active_channel]
+        if not points: return
+
+        # Update point
+        pEnd = points[-1]
+        points[-1] = QPointF(val, pEnd.y())
+
+        # Trigger update in curve
+        self.curve.update_spline_and_lut()
 
     def open_image(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
