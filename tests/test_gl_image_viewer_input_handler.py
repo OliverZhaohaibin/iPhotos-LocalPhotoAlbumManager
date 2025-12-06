@@ -18,6 +18,7 @@ sys.path.insert(0, str(project_root))
 sys.modules['PySide6'] = MagicMock()
 sys.modules['PySide6.QtCore'] = MagicMock()
 sys.modules['PySide6.QtGui'] = MagicMock()
+sys.modules['PySide6.QtWidgets'] = MagicMock()
 
 from src.iPhoto.gui.ui.widgets.gl_image_viewer import input_handler  # noqa: E402
 
