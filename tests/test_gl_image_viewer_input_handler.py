@@ -15,10 +15,31 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Mock Qt modules before importing
+# We must mock ALL Qt modules that might be imported to avoid segfaults
+# caused by mixing mocks and real C-extension modules.
 sys.modules['PySide6'] = MagicMock()
 sys.modules['PySide6.QtCore'] = MagicMock()
 sys.modules['PySide6.QtGui'] = MagicMock()
 sys.modules['PySide6.QtWidgets'] = MagicMock()
+sys.modules['PySide6.QtOpenGL'] = MagicMock()
+sys.modules['PySide6.QtOpenGLWidgets'] = MagicMock()
+
+# Mock OpenGL modules
+sys.modules['OpenGL'] = MagicMock()
+sys.modules['OpenGL.GL'] = MagicMock()
+
+# Configure Qt constants
+# Ensure Qt.LeftButton is an integer (1) to match the test expectations
+sys.modules['PySide6.QtCore'].Qt.LeftButton = 1
+
+# Mock AlbumTreeModel to ensure STATIC_NODES is present
+# This is necessary because AlbumTreeModel inherits from QAbstractItemModel (a mock instance),
+# causing it to lose its class attributes in the test environment.
+mock_album_model_module = MagicMock()
+mock_album_tree_model_class = MagicMock()
+mock_album_tree_model_class.STATIC_NODES = ("All Photos", "Videos", "Live Photos", "Favorites", "Location")
+mock_album_model_module.AlbumTreeModel = mock_album_tree_model_class
+sys.modules['src.iPhoto.gui.ui.models.album_tree_model'] = mock_album_model_module
 
 from src.iPhoto.gui.ui.widgets.gl_image_viewer import input_handler  # noqa: E402
 
