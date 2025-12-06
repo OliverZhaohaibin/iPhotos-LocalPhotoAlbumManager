@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import QObject, QThreadPool, Signal, QSize
+from PySide6.QtCore import QObject, QThreadPool, Signal
 from PySide6.QtGui import QImage
 
 from ..tasks.image_load_worker import ImageLoadWorker
