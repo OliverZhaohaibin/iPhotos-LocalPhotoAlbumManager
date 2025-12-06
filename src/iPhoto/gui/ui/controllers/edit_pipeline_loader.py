@@ -15,7 +15,7 @@ from ..tasks.edit_sidebar_preview_worker import (
     EditSidebarPreviewWorker,
 )
 
-if TYPE_CHECKING:
+
 
 _LOGGER = logging.getLogger(__name__)
 
