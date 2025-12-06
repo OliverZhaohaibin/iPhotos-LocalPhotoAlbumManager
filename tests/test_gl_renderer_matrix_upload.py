@@ -58,6 +58,7 @@ def renderer(mock_gl_funcs):
     # Patch QOpenGLShaderProgram to avoid needing a real GL context
     with patch('iPhoto.gui.ui.widgets.gl_renderer.QOpenGLShaderProgram') as MockProgram, \
          patch('iPhoto.gui.ui.widgets.gl_renderer.QOpenGLVertexArrayObject') as MockVAO, \
+         patch('iPhoto.gui.ui.widgets.gl_renderer.gl') as MockGL, \
          patch('iPhoto.gui.ui.widgets.gl_renderer._load_shader_source', return_value="void main() {}"):
 
         MockProgram.return_value.addShaderFromSourceCode.return_value = True
@@ -65,6 +66,9 @@ def renderer(mock_gl_funcs):
         MockProgram.return_value.uniformLocation.return_value = 1
 
         MockVAO.return_value.isCreated.return_value = True
+
+        # Ensure glGenBuffers returns a value compatible with int()
+        MockGL.glGenBuffers.return_value = 1
 
         renderer = GLRenderer(mock_gl_funcs)
         renderer.initialize_resources()
