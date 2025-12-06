@@ -40,7 +40,7 @@ def test_sidebar_preview_worker_scales_and_emits(qapp: QApplication) -> None:
     worker.run()
 
     assert ready_spy.count() == 1
-    result, generation = ready_spy.takeFirst()
+    result, generation = ready_spy.at(0)
     assert generation == 7
     assert result.image.height() == 160
     assert result.image.format() == QImage.Format.Format_ARGB32
