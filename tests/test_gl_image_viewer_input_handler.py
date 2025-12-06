@@ -23,6 +23,12 @@ sys.modules['PySide6.QtGui'] = MagicMock()
 sys.modules['PySide6.QtWidgets'] = MagicMock()
 sys.modules['PySide6.QtOpenGL'] = MagicMock()
 sys.modules['PySide6.QtOpenGLWidgets'] = MagicMock()
+sys.modules['PySide6.QtMultimedia'] = MagicMock()
+sys.modules['PySide6.QtMultimediaWidgets'] = MagicMock()
+
+# Ensure __spec__ is set for modules checked via importlib.util.find_spec
+sys.modules['PySide6.QtMultimedia'].__spec__ = MagicMock()
+sys.modules['PySide6.QtMultimediaWidgets'].__spec__ = MagicMock()
 
 # Mock OpenGL modules
 sys.modules['OpenGL'] = MagicMock()
