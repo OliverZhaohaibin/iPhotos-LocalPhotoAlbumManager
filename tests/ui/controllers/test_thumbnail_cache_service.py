@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 from pathlib import Path
 
 import pytest
