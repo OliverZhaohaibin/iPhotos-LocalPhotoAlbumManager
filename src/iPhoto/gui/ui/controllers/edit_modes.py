@@ -49,7 +49,7 @@ class AdjustModeState(EditModeState):
 
         # Block signals to prevent recursion if the control emits signal on same index
         was_blocked = self._ui.edit_mode_control.blockSignals(True)
-        self._ui.edit_mode_control.setCurrentIndex(0)
+        self._ui.edit_mode_control.setCurrentIndex(0, animate=True)
         self._ui.edit_mode_control.blockSignals(was_blocked)
 
 
