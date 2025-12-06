@@ -666,34 +666,17 @@ class EditController(QObject):
 
     def _handle_top_bar_index_changed(self, index: int) -> None:
         """Synchronise action state when the segmented bar changes selection."""
-        # This handles the interaction where the user clicks the segmented control directly.
-        # We need to map index to mode string.
         mode = "adjust" if index == 0 else "crop"
-
-        # Check if we need to update the action state to match
-        target_action = self._ui.edit_adjust_action if mode == "adjust" else self._ui.edit_crop_action
-        if not target_action.isChecked():
-            target_action.setChecked(True)
-
-        # If the mode is already active, we don't need to do anything,
-        # BUT the segmented control might have animated, so we might want to ensure state consistency.
-        # However, calling _set_mode will re-apply state which is fine.
-        # The key is avoiding infinite recursion if actions trigger index changes.
-
-        # In current logic: action.triggered -> _handle_mode_change -> _set_mode -> setCurrentIndex
-        # setCurrentIndex -> _handle_top_bar_index_changed -> action.setChecked -> (recursion blocked by checked check?)
-
         self._set_mode(mode)
 
-    def _set_mode(self, mode: str, *, from_top_bar: bool = False) -> None:
+    def _set_mode(self, mode: str) -> None:
         if mode == "adjust":
             new_state = self._adjust_mode
         else:
             new_state = self._crop_mode
 
         if self._current_mode == new_state:
-            # Re-applying enter() is generally safe and ensures UI sync
-            pass
+            return
 
         if self._current_mode:
             self._current_mode.exit()
