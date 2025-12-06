@@ -1,7 +1,7 @@
 
 import pytest
-from iPhotos.src.iPhoto.io.scanner import scan_album
-from iPhotos.src.iPhoto.config import DEFAULT_INCLUDE, DEFAULT_EXCLUDE
+from src.iPhoto.io.scanner import scan_album
+from src.iPhoto.config import DEFAULT_INCLUDE, DEFAULT_EXCLUDE
 
 @pytest.fixture
 def scan_test_dir(tmp_path):

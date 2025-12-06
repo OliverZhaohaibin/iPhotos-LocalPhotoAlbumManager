@@ -10,9 +10,9 @@ from typing import Callable, Dict, Iterable, Optional, Sequence
 from PySide6.QtCore import QObject, QPointF, QRectF, QSize, QThread, QTimer, Signal
 from PySide6.QtGui import QPixmap
 
-from iPhotos.maps.map_widget.map_gl_widget import MapGLWidget
-from iPhotos.maps.map_widget.map_widget import MapWidget
-from iPhotos.maps.map_widget.map_renderer import CityAnnotation
+from maps.map_widget.map_gl_widget import MapGLWidget
+from maps.map_widget.map_widget import MapWidget
+from maps.map_widget.map_renderer import CityAnnotation
 
 from ....library.manager import GeotaggedAsset
 from ..tasks.thumbnail_loader import ThumbnailLoader

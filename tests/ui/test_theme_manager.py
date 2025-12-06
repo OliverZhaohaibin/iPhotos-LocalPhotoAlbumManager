@@ -6,13 +6,13 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 
-from iPhotos.src.iPhoto.gui.ui.theme_manager import (
+from src.iPhoto.gui.ui.theme_manager import (
     DARK_THEME,
     LIGHT_THEME,
     ThemeManager,
     ThemeColors,
 )
-from iPhotos.src.iPhoto.settings.manager import SettingsManager
+from src.iPhoto.settings.manager import SettingsManager
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ def test_get_effective_theme_mode_settings(theme_manager, mock_settings):
     assert theme_manager.get_effective_theme_mode() == "light"
 
 
-@patch("iPhotos.src.iPhoto.gui.ui.theme_manager.QGuiApplication")
+@patch("src.iPhoto.gui.ui.theme_manager.QGuiApplication")
 def test_get_effective_theme_mode_system(mock_qgui_app, theme_manager, mock_settings):
     """Test system theme detection when setting is 'system'."""
     mock_settings.get.return_value = "system"
@@ -175,7 +175,7 @@ def test_base_colors(theme_manager, mock_settings):
     assert theme_manager.base_colors() == LIGHT_THEME
 
 
-@patch("iPhotos.src.iPhoto.gui.ui.theme_manager.QGuiApplication")
+@patch("src.iPhoto.gui.ui.theme_manager.QGuiApplication")
 def test_apply_palette(mock_qgui_app, theme_manager, mock_settings):
     """Test that QPalette is set on the application."""
     mock_inst = MagicMock()

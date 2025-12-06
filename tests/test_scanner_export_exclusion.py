@@ -1,6 +1,6 @@
 from pathlib import Path
-from iPhotos.src.iPhoto.config import DEFAULT_EXCLUDE, DEFAULT_INCLUDE, EXPORT_DIR_NAME
-from iPhotos.src.iPhoto.io.scanner import gather_media_paths
+from src.iPhoto.config import DEFAULT_EXCLUDE, DEFAULT_INCLUDE, EXPORT_DIR_NAME
+from src.iPhoto.io.scanner import gather_media_paths
 
 def test_gather_media_paths_excludes_exported_directory(tmp_path: Path) -> None:
     # Setup: Create a normal file and a file in the exported directory

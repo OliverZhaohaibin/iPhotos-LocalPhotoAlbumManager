@@ -10,7 +10,7 @@ from typing import Dict, Iterable, Optional, Tuple
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
 
-from iPhotos.maps.style_resolver import StyleResolver
+from maps.style_resolver import StyleResolver
 
 from .geometry import extract_geometry, normalize_lines, normalize_points, normalize_polygons
 from .layer import LayerPlan

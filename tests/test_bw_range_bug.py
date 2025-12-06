@@ -1,7 +1,7 @@
 
 import pytest
-from iPhotos.src.iPhoto.io.sidecar import resolve_render_adjustments
-from iPhotos.src.iPhoto.core.color_resolver import ColorStats
+from src.iPhoto.io.sidecar import resolve_render_adjustments
+from src.iPhoto.core.color_resolver import ColorStats
 
 def test_bw_render_adjustments_range() -> None:
     """

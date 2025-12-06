@@ -9,8 +9,8 @@ from typing import Callable, Protocol, Sequence
 from PySide6.QtCore import QPointF, QTimer
 from PySide6.QtGui import QPainter
 
-from iPhotos.maps.style_resolver import StyleLoadError, StyleResolver
-from iPhotos.maps.tile_parser import TileParser
+from maps.style_resolver import StyleLoadError, StyleResolver
+from maps.tile_parser import TileParser
 
 from .input_handler import InputHandler
 from .layer import LayerPlan

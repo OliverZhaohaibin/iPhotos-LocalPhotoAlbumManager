@@ -7,8 +7,8 @@ import subprocess
 
 import pytest
 
-from iPhotos.src.iPhoto.utils import ffmpeg
-from iPhotos.src.iPhoto.errors import ExternalToolError
+from src.iPhoto.utils import ffmpeg
+from src.iPhoto.errors import ExternalToolError
 
 
 def _fake_completed_process(command: list[str]) -> subprocess.CompletedProcess[bytes]:

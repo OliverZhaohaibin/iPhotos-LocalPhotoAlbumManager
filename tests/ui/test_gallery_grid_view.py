@@ -3,9 +3,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QStandardItem, QStandardItemModel, QPixmap
 from PySide6.QtWidgets import QApplication
 
-from iPhotos.src.iPhoto.gui.ui.widgets.gallery_grid_view import GalleryGridView
-from iPhotos.src.iPhoto.gui.ui.widgets.asset_delegate import AssetGridDelegate
-from iPhotos.src.iPhoto.gui.ui.models.roles import Roles
+from src.iPhoto.gui.ui.widgets.gallery_grid_view import GalleryGridView
+from src.iPhoto.gui.ui.widgets.asset_delegate import AssetGridDelegate
+from src.iPhoto.gui.ui.models.roles import Roles
 
 # Attempt to patch load_icon in asset_delegate if it exists
 def patch_delegate_icons(monkeypatch):
@@ -14,7 +14,7 @@ def patch_delegate_icons(monkeypatch):
         return QIcon()
 
     # Patch where it is used. AssetGridDelegate imports it as `from ..icons import load_icon`
-    monkeypatch.setattr("iPhotos.src.iPhoto.gui.ui.widgets.asset_delegate.load_icon", mock_load_icon)
+    monkeypatch.setattr("src.iPhoto.gui.ui.widgets.asset_delegate.load_icon", mock_load_icon)
 
 @pytest.fixture(scope="module")
 def qapp_instance():

@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from iPhotos.src.iPhoto.io import sidecar
+from src.iPhoto.io import sidecar
 
 
 def _write_xml(path, content: str) -> None:

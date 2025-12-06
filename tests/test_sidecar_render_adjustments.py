@@ -1,8 +1,8 @@
 import pytest
 
-from iPhotos.src.iPhoto.core.light_resolver import resolve_light_vector
-from iPhotos.src.iPhoto.core.color_resolver import ColorStats
-from iPhotos.src.iPhoto.io.sidecar import resolve_render_adjustments
+from src.iPhoto.core.light_resolver import resolve_light_vector
+from src.iPhoto.core.color_resolver import ColorStats
+from src.iPhoto.io.sidecar import resolve_render_adjustments
 
 
 def test_resolve_render_adjustments_blends_master_and_overrides() -> None:

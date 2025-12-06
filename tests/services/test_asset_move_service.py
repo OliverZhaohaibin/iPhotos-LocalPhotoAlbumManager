@@ -21,11 +21,11 @@ pytest.importorskip(
 
 from PySide6.QtWidgets import QApplication
 
-from iPhotos.src.iPhoto.cache.index_store import IndexStore
-from iPhotos.src.iPhoto.gui.services.asset_move_service import AssetMoveService
-from iPhotos.src.iPhoto.gui.ui.tasks import move_worker as move_worker_module
-from iPhotos.src.iPhoto.gui.ui.tasks.move_worker import MoveSignals, MoveWorker
-from iPhotos.src.iPhoto.library.manager import LibraryManager
+from src.iPhoto.cache.index_store import IndexStore
+from src.iPhoto.gui.services.asset_move_service import AssetMoveService
+from src.iPhoto.gui.ui.tasks import move_worker as move_worker_module
+from src.iPhoto.gui.ui.tasks.move_worker import MoveSignals, MoveWorker
+from src.iPhoto.library.manager import LibraryManager
 
 
 @pytest.fixture()

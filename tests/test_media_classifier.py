@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from iPhotos.src.iPhoto.media_classifier import classify_media, VIDEO_EXTENSIONS
+from src.iPhoto.media_classifier import classify_media, VIDEO_EXTENSIONS
 
 
 def test_classify_media_prefers_mime_for_video() -> None:

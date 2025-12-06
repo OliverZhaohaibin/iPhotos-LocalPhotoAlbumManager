@@ -1,4 +1,4 @@
-from iPhotos.src.iPhoto.io.metadata import _coerce_fractional
+from src.iPhoto.io.metadata import _coerce_fractional
 import pytest
 
 def test_coerce_fractional_duplicate_sum():
