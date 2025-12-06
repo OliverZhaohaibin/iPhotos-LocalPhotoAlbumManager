@@ -1,4 +1,4 @@
-"""Helper package to support ``iPhotos.src`` imports in tests."""
+"""Helper package to support ``src`` imports in tests."""
 
 from __future__ import annotations
 

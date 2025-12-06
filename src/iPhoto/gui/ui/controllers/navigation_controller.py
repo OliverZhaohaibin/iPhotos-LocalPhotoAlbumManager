@@ -7,21 +7,21 @@ from typing import Literal, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QTimer
 
-# Support both package-style and legacy ``iPhotos.src`` imports during GUI
+# Support both package-style and legacy ``src`` imports during GUI
 # bootstrap.
 try:  # pragma: no cover - path-sensitive import
     from ...appctx import AppContext
 except ImportError:  # pragma: no cover - executed in script mode
-    from iPhotos.src.iPhoto.appctx import AppContext
+    from src.iPhoto.appctx import AppContext
 from ...facade import AppFacade
 from ....errors import AlbumOperationError
 from ..models.asset_model import AssetModel
 from ..widgets.album_sidebar import AlbumSidebar
-from ..ui_main_window import ChromeStatusBar
 from .dialog_controller import DialogController
 from .view_controller import ViewController
 
 if TYPE_CHECKING:  # pragma: no cover - runtime import cycle guard
+    from ..widgets.chrome_status_bar import ChromeStatusBar
     from .playback_controller import PlaybackController
 
 

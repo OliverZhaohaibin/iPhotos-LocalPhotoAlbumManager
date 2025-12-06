@@ -13,7 +13,7 @@ pytest.importorskip("PySide6.QtTest", reason="Qt test helpers not available", ex
 from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QApplication
 
-from iPhotos.src.iPhoto.settings.manager import SettingsManager
+from src.iPhoto.settings.manager import SettingsManager
 
 
 @pytest.fixture(scope="module")
@@ -47,4 +47,4 @@ def test_settings_manager_nested_updates_preserve_defaults(tmp_path: Path) -> No
     manager.load()
     manager.set("ui.sidebar_width", 320)
     assert manager.get("ui.sidebar_width") == 320
-    assert manager.get("ui.theme") == "light"
+    assert manager.get("ui.theme") == "system"

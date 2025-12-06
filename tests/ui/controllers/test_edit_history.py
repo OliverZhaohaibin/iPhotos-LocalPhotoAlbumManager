@@ -18,8 +18,8 @@ from PySide6.QtCore import QObject, Signal, QSize
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QPalette
 
-from iPhotos.src.iPhoto.gui.ui.controllers.edit_controller import EditController
-from iPhotos.src.iPhoto.gui.ui.models.edit_session import EditSession
+from src.iPhoto.gui.ui.controllers.edit_controller import EditController
+from src.iPhoto.gui.ui.models.edit_session import EditSession
 
 
 @pytest.fixture()
@@ -155,9 +155,9 @@ def edit_controller(qapp):
     playlist.current_source.return_value = None
     asset_model = Mock()
 
-    with patch("iPhotos.src.iPhoto.gui.ui.controllers.edit_controller.EditViewTransitionManager") as MockTransitionManager, \
-         patch("iPhotos.src.iPhoto.gui.ui.controllers.edit_controller.EditFullscreenManager") as MockFullscreenManager, \
-         patch("iPhotos.src.iPhoto.gui.ui.controllers.edit_controller.EditPreviewManager") as MockPreviewManager:
+    with patch("src.iPhoto.gui.ui.controllers.edit_controller.EditViewTransitionManager") as MockTransitionManager, \
+         patch("src.iPhoto.gui.ui.controllers.edit_controller.EditFullscreenManager") as MockFullscreenManager, \
+         patch("src.iPhoto.gui.ui.controllers.edit_controller.EditPreviewManager") as MockPreviewManager:
 
         # We use the REAL EditController but mock its inputs
         controller = EditController(

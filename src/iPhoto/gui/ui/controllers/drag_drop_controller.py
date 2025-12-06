@@ -11,7 +11,7 @@ from ....media_classifier import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 try:  # pragma: no cover - keep compatibility with script execution
     from ...appctx import AppContext
 except ImportError:  # pragma: no cover - fallback for ``python -m`` usage
-    from iPhotos.src.iPhoto.appctx import AppContext
+    from src.iPhoto.appctx import AppContext
 from ...facade import AppFacade
 from ..widgets.asset_grid import AssetGrid
 from ..widgets.album_sidebar import AlbumSidebar

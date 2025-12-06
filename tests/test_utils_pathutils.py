@@ -1,6 +1,6 @@
 """Tests for pathutils."""
 
-from iPhotos.src.iPhoto.utils.pathutils import _expand, is_excluded
+from src.iPhoto.utils.pathutils import _expand, is_excluded
 
 def test_expand_single_brace():
     """Verify that single braces without commas are NOT expanded."""

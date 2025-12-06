@@ -20,8 +20,8 @@ pytest.importorskip(
 
 from PySide6.QtWidgets import QApplication
 
-from iPhotos.src.iPhoto.gui.services.asset_import_service import AssetImportService
-from iPhotos.src.iPhoto.gui.ui.tasks.import_worker import ImportWorker
+from src.iPhoto.gui.services.asset_import_service import AssetImportService
+from src.iPhoto.gui.ui.tasks.import_worker import ImportWorker
 
 
 @pytest.fixture()

@@ -5,16 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtWidgets import QWidget
 
-# Allow both ``iPhoto.gui`` and legacy ``iPhotos.src.iPhoto.gui`` import paths.
+# Allow both ``iPhoto.gui`` and legacy ``src.iPhoto.gui`` import paths.
 try:  # pragma: no cover - depends on runtime packaging
     from ...appctx import AppContext
 except ImportError:  # pragma: no cover - fallback for script execution
-    from iPhotos.src.iPhoto.appctx import AppContext
+    from src.iPhoto.appctx import AppContext
+from typing import TYPE_CHECKING
 from ....errors import LibraryError
 from ..widgets import dialogs
-from ..ui_main_window import ChromeStatusBar
+
+if TYPE_CHECKING:
+    from ..widgets.chrome_status_bar import ChromeStatusBar
 
 
 class DialogController:
@@ -65,11 +68,10 @@ class DialogController:
             "location could not be determined. Do you want to restore this file "
             "to the main 'Basic Library' folder instead?"
         ).format(name=filename)
-        choice = QMessageBox.question(
+        return dialogs.confirm_action(
             self._parent,
-            "Restore Failed",
             message,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
+            title="Restore Failed",
+            yes_label="Yes",
+            no_label="No",
         )
-        return choice == QMessageBox.StandardButton.Yes

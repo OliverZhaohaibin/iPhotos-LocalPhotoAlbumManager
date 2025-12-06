@@ -21,9 +21,9 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
-from iPhotos.maps.map_widget.map_gl_widget import MapGLWidget
-from iPhotos.maps.map_widget.map_widget import MapWidget
-from iPhotos.maps.map_widget.map_renderer import CityAnnotation
+from maps.map_widget.map_gl_widget import MapGLWidget
+from maps.map_widget.map_widget import MapWidget
+from maps.map_widget.map_renderer import CityAnnotation
 
 from ....library.manager import GeotaggedAsset
 from ..tasks.thumbnail_loader import ThumbnailLoader

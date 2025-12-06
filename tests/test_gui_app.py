@@ -20,6 +20,7 @@ pytest.importorskip("PySide6", reason="PySide6 is required for GUI tests", exc_t
 pytest.importorskip("PySide6.QtWidgets", reason="Qt widgets not available", exc_type=ImportError)
 from PySide6.QtCore import Qt, QSize, QObject, Signal, QEventLoop
 from PySide6.QtGui import QPixmap, QImage
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import (
     QApplication,  # type: ignore  # noqa: E402
@@ -31,32 +32,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from iPhotos.src.iPhoto.gui.facade import AppFacade
-from iPhotos.src.iPhoto.library.manager import LibraryManager
-from iPhotos.src.iPhoto.models.album import Album
-from iPhotos.src.iPhoto.gui.ui.controllers.detail_ui_controller import DetailUIController
-from iPhotos.src.iPhoto.gui.ui.controllers.header_controller import HeaderController
-from iPhotos.src.iPhoto.gui.ui.controllers.player_view_controller import (
-    PlayerViewController,
-)
-from iPhotos.src.iPhoto.gui.ui.controllers.playback_controller import PlaybackController
-from iPhotos.src.iPhoto.gui.ui.controllers.playback_state_manager import (
-    PlaybackStateManager,
-)
-from iPhotos.src.iPhoto.gui.ui.controllers.preview_controller import PreviewController
-from iPhotos.src.iPhoto.gui.ui.controllers.view_controller import ViewController
-from iPhotos.src.iPhoto.gui.ui.models.asset_model import AssetModel, Roles
-from iPhotos.src.iPhoto.gui.ui.media.playlist_controller import PlaylistController
-from iPhotos.src.iPhoto.gui.ui.models.spacer_proxy_model import SpacerProxyModel
-from iPhotos.src.iPhoto.gui.ui.tasks.thumbnail_loader import ThumbnailJob
-from iPhotos.src.iPhoto.gui.ui.widgets.gallery_grid_view import GalleryGridView
-from iPhotos.src.iPhoto.gui.ui.widgets.filmstrip_view import FilmstripView
-from iPhotos.src.iPhoto.gui.ui.widgets.gl_image_viewer import GLImageViewer
-from iPhotos.src.iPhoto.gui.ui.widgets.info_panel import InfoPanel
-from iPhotos.src.iPhoto.gui.ui.widgets.live_badge import LiveBadge
-from iPhotos.src.iPhoto.gui.ui.widgets.player_bar import PlayerBar
-from iPhotos.src.iPhoto.gui.ui.widgets.video_area import VideoArea
-from iPhotos.src.iPhoto.config import WORK_DIR_NAME
+from src.iPhoto.gui.facade import AppFacade
+from src.iPhoto.library.manager import LibraryManager
+from src.iPhoto.models.album import Album
+from src.iPhoto.gui.ui.models.asset_model import AssetModel, Roles
+from src.iPhoto.gui.ui.tasks.thumbnail_loader import ThumbnailJob
+from src.iPhoto.config import WORK_DIR_NAME
 
 
 def _create_image(path: Path) -> None:
@@ -126,7 +107,7 @@ class _StubMediaController(QObject):
         return self.loaded
 
 
-class _StubGLImageViewer(QWidget):
+class _StubGLImageViewer(QOpenGLWidget):
     replayRequested = Signal()
     zoomChanged = Signal(float)
     nextItemRequested = Signal()
@@ -520,7 +501,7 @@ def test_asset_model_pairs_live_when_links_missing(
     os.utime(still, (timestamp, timestamp))
     os.utime(video, (timestamp, timestamp))
 
-    from iPhotos.src.iPhoto.gui.ui.models import asset_list_model as alm
+    from src.iPhoto.gui.ui.models import asset_list_model as alm
 
     monkeypatch.setattr(alm, "load_live_map", lambda _: {})
 

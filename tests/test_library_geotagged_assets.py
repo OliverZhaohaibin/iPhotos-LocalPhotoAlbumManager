@@ -17,8 +17,8 @@ pytest.importorskip(
 
 from PySide6.QtWidgets import QApplication
 
-from iPhotos.src.iPhoto.config import WORK_DIR_NAME
-from iPhotos.src.iPhoto.library.manager import LibraryManager
+from src.iPhoto.config import WORK_DIR_NAME
+from src.iPhoto.library.manager import LibraryManager
 
 
 @pytest.fixture(scope="module")

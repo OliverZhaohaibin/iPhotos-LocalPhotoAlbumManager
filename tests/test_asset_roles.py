@@ -10,8 +10,8 @@ from PySide6.QtCore import QEventLoop
 from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QApplication
 
-from iPhotos.src.iPhoto.gui.facade import AppFacade
-from iPhotos.src.iPhoto.gui.ui.models.asset_model import AssetModel, Roles
+from src.iPhoto.gui.facade import AppFacade
+from src.iPhoto.gui.ui.models.asset_model import AssetModel, Roles
 
 try:
     from PIL import Image

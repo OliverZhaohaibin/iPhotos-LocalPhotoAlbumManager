@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QMainWindow, QMenuBar
 try:  # pragma: no cover - exercised in packaging scenarios
     from ...appctx import AppContext
 except ImportError:  # pragma: no cover - script execution fallback
-    from iPhotos.src.iPhoto.appctx import AppContext
+    from src.iPhoto.appctx import AppContext
 
 from .controllers.main_controller import MainController
 from .media import require_multimedia
