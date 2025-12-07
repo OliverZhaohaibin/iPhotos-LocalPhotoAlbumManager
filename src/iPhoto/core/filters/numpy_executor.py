@@ -196,12 +196,6 @@ def apply_bw_vectorized(
     expected_size = bytes_per_line * height
     buffer = np.frombuffer(view, dtype=np.uint8, count=expected_size)
 
-    # Reusing common logic?
-    # To keep it safe and avoid regression, I'll just call the new buffer logic
-    # BUT apply_bw_vectorized only does BW. apply_adjustments_buffer does EVERYTHING.
-    # So I will inline the BW logic here or keep the old implementation.
-    # The safest bet is to KEEP the old implementation for apply_bw_vectorized
-    # to avoid breaking anything unrelated.
 
     # ... Restoring old implementation body ...
     try:
