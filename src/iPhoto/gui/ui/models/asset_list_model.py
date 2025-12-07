@@ -71,6 +71,12 @@ class AssetListModel(QAbstractListModel):
         self._pending_loader_root: Optional[Path] = None
         self._deferred_incremental_refresh: Optional[Path] = None
 
+        self._incoming_buffer: List[Dict[str, object]] = []
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setInterval(250)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.timeout.connect(self._flush_buffer)
+
         self._facade.linksUpdated.connect(self.handle_links_updated)
         self._facade.assetUpdated.connect(self.handle_asset_updated)
         self._facade.scanChunkReady.connect(self._on_scan_chunk_ready)
@@ -344,6 +350,8 @@ class AssetListModel(QAbstractListModel):
         self._album_root = root
         self._cache_manager.reset_for_album(root)
         self._set_deferred_incremental_refresh(None)
+        self._flush_timer.stop()
+        self._incoming_buffer.clear()
         self.beginResetModel()
         self._state_manager.clear_rows()
         self.endResetModel()
@@ -386,6 +394,8 @@ class AssetListModel(QAbstractListModel):
         # Clear the model before starting a fresh load so progressive updates
         # build the view from scratch.  This replaces the old behaviour where we
         # waited for the full payload and then did a single ``beginResetModel``.
+        self._flush_timer.stop()
+        self._incoming_buffer.clear()
         self.beginResetModel()
         self._state_manager.clear_rows()
         self.endResetModel()
@@ -419,7 +429,9 @@ class AssetListModel(QAbstractListModel):
         ):
             return
 
-        self._merge_chunk(chunk)
+        self._incoming_buffer.extend(chunk)
+        if not self._flush_timer.isActive():
+            self._flush_timer.start()
 
     def _on_scan_chunk_ready(self, root: Path, chunk: List[Dict[str, object]]) -> None:
         """Integrate fresh rows from the scanner into the live view."""
@@ -455,7 +467,21 @@ class AssetListModel(QAbstractListModel):
                 entries.append(entry)
 
         if entries:
-            self._merge_chunk(entries)
+            self._incoming_buffer.extend(entries)
+            if not self._flush_timer.isActive():
+                self._flush_timer.start()
+
+    def _flush_buffer(self) -> None:
+        """Commit accumulated rows to the model."""
+
+        if not self._incoming_buffer:
+            return
+
+        # Move items out of the buffer so the list remains consistent if new
+        # chunks arrive while we are merging.
+        payload = list(self._incoming_buffer)
+        self._incoming_buffer.clear()
+        self._merge_chunk(payload)
 
     def _merge_chunk(self, chunk: List[Dict[str, object]]) -> None:
         """Append or update rows in the model efficiently."""
@@ -526,6 +552,11 @@ class AssetListModel(QAbstractListModel):
             if should_restart:
                 QTimer.singleShot(0, self.start_load)
             return
+
+        # Ensure any remaining items are committed before announcing completion.
+        if self._flush_timer.isActive():
+            self._flush_timer.stop()
+        self._flush_buffer()
 
         self.loadFinished.emit(root, success)
 
