@@ -1,8 +1,10 @@
 import os
 import sys
 
-# Force AOT build mode in jit_executor to ensure we get raw python functions
-# instead of AOT-compiled extensions (which lack .py_func).
+# Force AOT build mode in jit_executor to ensure we get the raw Python functions.
+# This is necessary because we need the original Python functions to compile them into AOT extensions.
+# Pre-existing AOT-compiled extensions do not expose the original Python code (i.e., lack .py_func),
+# so cannot be recompiled
 os.environ["IPHOTO_BUILD_AOT"] = "1"
 
 from numba.pycc import CC
