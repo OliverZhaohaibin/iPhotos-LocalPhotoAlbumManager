@@ -45,13 +45,8 @@ def atomic_write_text(path: Path, data: str) -> None:
             break
         except PermissionError as exc:
             last_exc = exc
-            if path.exists():
-                try:
-                    path.unlink()
-                except PermissionError:
-                    # If the destination is locked keep retrying – a later attempt
-                    # may succeed once the lock is released.
-                    pass
+            # Do not attempt to unlink the destination; if the replacement fails
+            # repeatedly, we must abort without destroying the existing data.
             if attempt == 4:
                 tmp_path.unlink(missing_ok=True)
                 raise exc
