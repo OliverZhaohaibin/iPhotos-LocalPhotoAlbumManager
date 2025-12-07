@@ -337,9 +337,10 @@ def apply_adjustments_buffer(
     r_float = pixels_view[..., 2].astype(np.float32) / 255.0
 
     # 1. Tone Curve
-    r_float = _np_apply_channel_adjustments(r_float, exposure_term, brightness_term, brilliance_strength, highlights, shadows, contrast_factor, black_point)
-    g_float = _np_apply_channel_adjustments(g_float, exposure_term, brightness_term, brilliance_strength, highlights, shadows, contrast_factor, black_point)
-    b_float = _np_apply_channel_adjustments(b_float, exposure_term, brightness_term, brilliance_strength, highlights, shadows, contrast_factor, black_point)
+    channel_args = (exposure_term, brightness_term, brilliance_strength, highlights, shadows, contrast_factor, black_point)
+    r_float = _np_apply_channel_adjustments(r_float, *channel_args)
+    g_float = _np_apply_channel_adjustments(g_float, *channel_args)
+    b_float = _np_apply_channel_adjustments(b_float, *channel_args)
 
     # 2. Color Transform
     if apply_color:
