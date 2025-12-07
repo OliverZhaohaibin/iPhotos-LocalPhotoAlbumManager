@@ -501,7 +501,8 @@ class AssetListModel(QAbstractListModel):
                 continue
 
             # The row lookup keys are normalized relative paths.
-            rel_key = self._state_manager._normalise_key(str(rel))
+            # TODO: Replace direct access to private method with a public method in AssetListStateManager.
+            rel_key = self._state_manager.normalise_key(str(rel))  # Use public method if available
             if not rel_key:
                 continue
 
