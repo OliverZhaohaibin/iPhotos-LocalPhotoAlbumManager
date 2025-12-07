@@ -195,6 +195,37 @@ def test_facade_open_album_emits_signals(tmp_path: Path, qapp: QApplication) -> 
     assert "opened" in received and "index" in received
 
 
+def test_progressive_scan_updates_model(tmp_path: Path, qapp: QApplication) -> None:
+    # Create enough files to trigger multiple chunks (chunk size is 10)
+    for i in range(15):
+        (tmp_path / f"IMG_{i}.JPG").touch()
+
+    facade = AppFacade()
+    model = AssetModel(facade)
+
+    # Spy on the chunk ready signal to verify emission
+    chunk_spy = QSignalSpy(facade.scanChunkReady)
+    load_spy = QSignalSpy(facade.loadFinished)
+
+    # Open album (triggering scan)
+    facade.open_album(tmp_path)
+
+    # Pump loop until we receive at least one chunk signal
+    deadline = time.monotonic() + 5.0
+    while chunk_spy.count() == 0 and time.monotonic() < deadline:
+        qapp.processEvents(QEventLoop.AllEvents, 50)
+
+    assert chunk_spy.count() > 0, "scanChunkReady signal was not emitted"
+
+    # Verify that the model eventually reflects all items (after buffering and flush)
+    # The scan might still be running or flushing.
+    deadline = time.monotonic() + 10.0
+    while model.rowCount() < 15 and time.monotonic() < deadline:
+        qapp.processEvents(QEventLoop.AllEvents, 50)
+
+    assert model.rowCount() == 15
+
+
 def test_facade_rescan_emits_links(tmp_path: Path, qapp: QApplication) -> None:
     asset = tmp_path / "IMG_1101.JPG"
     _create_image(asset)
