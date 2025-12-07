@@ -120,6 +120,11 @@ def _bw_unsigned_to_signed(value: float) -> float:
     return float(max(-1.0, min(1.0, float(value) * 2.0 - 1.0)))
 
 def _np_gamma_neutral_signed(gray: np.ndarray, neutral_adjust: float) -> np.ndarray:
+    """Apply a gamma-based neutral adjustment to a grayscale array.
+
+    The `neutral_adjust` parameter (in [-1.0, 1.0]) modulates the gamma curve,
+    shifting midtones toward lighter or darker values for neutral balance.
+    """
     neutral = float(max(-1.0, min(1.0, neutral_adjust)))
     magnitude = 0.6 * abs(neutral)
     gamma = math.pow(2.0, -magnitude) if neutral >= 0.0 else math.pow(2.0, magnitude)
