@@ -369,7 +369,7 @@ def apply_adjustments_buffer(
         if intensity_s >= 0.0:
             gray = _np_mix(g_neutral, g_rich, intensity_s)
         else:
-             gray = _np_mix(g_soft, g_neutral, intensity_s + 1.0)
+            gray = _np_mix(g_soft, g_neutral, intensity_s + 1.0)
 
         gray = _np_gamma_neutral_signed(gray, neutrals_s)
         gray = _np_contrast_tone_signed(gray, tone_s)
