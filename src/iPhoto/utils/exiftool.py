@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -13,16 +14,11 @@ from ..errors import ExternalToolError
 
 
 def get_metadata_batch(paths: List[Path]) -> List[Dict[str, Any]]:
-    """Return metadata for *paths* by launching ``exiftool`` in batches.
+    """Return metadata for *paths* by launching a single ``exiftool`` process.
 
-    The prior implementation spawned one external process per asset which was
-    both slow and prone to locale-related decoding errors on Windows.  Issuing
-    batch requests avoids that overhead and lets us explicitly request UTF-8 so
-    ``exiftool`` output is decoded consistently across platforms.
-
-    On Windows, the command line length is limited (approx 32k chars).  We chunk
-    the requests to prevent `Argument list too long` or `FileNotFoundError` when
-    processing thousands of files.
+    We use an argument file (via ``-@``) to pass the file list to ``exiftool``.
+    This bypasses command-line length limits (especially on Windows) and ensures
+    correct handling of non-ASCII filenames by explicitly specifying the charset.
 
     Parameters
     ----------
@@ -47,32 +43,34 @@ def get_metadata_batch(paths: List[Path]) -> List[Dict[str, Any]]:
     if not paths:
         return []
 
-    # Windows command line limit is around 32k.
-    # Safe batch size of 50 files ensures we stay well under limits even with long paths.
-    BATCH_SIZE = 50
-    results: List[Dict[str, Any]] = []
+    # Create a temporary argument file
+    # We use delete=False to close it before passing to subprocess (Windows lock safety),
+    # then manually delete it.
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as tmp_arg_file:
+        for path in paths:
+            tmp_arg_file.write(str(path) + "\n")
+        tmp_arg_path = tmp_arg_file.name
 
-    # Define startupinfo to hide the window on Windows
-    startupinfo = None
-    creationflags = 0
-    if os.name == 'nt':
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = subprocess.SW_HIDE
-        creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-
-    for i in range(0, len(paths), BATCH_SIZE):
-        batch = paths[i : i + BATCH_SIZE]
-
+    try:
         cmd = [
             executable,
             "-n",  # emit numeric GPS values instead of DMS strings
             "-g1",  # keep group information (e.g. Composite, GPS) in the payload
             "-json",
             "-charset",
-            "UTF8",  # tell exiftool how to interpret incoming file paths
-            *[str(path) for path in batch],
+            "filename=utf8",  # Input filenames are UTF-8 (from arg file)
+            "-@",
+            tmp_arg_path,
         ]
+
+        # Define startupinfo to hide the window on Windows
+        startupinfo = None
+        creationflags = 0
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
         try:
             # ``encoding`` forces Python to decode the JSON using UTF-8 even on
@@ -90,16 +88,13 @@ def get_metadata_batch(paths: List[Path]) -> List[Dict[str, Any]]:
             )
 
             try:
-                chunk_results = json.loads(process.stdout)
-                if isinstance(chunk_results, list):
-                    results.extend(chunk_results)
+                return json.loads(process.stdout)
             except json.JSONDecodeError as exc:
                 raise ExternalToolError(f"Failed to parse JSON output from ExifTool: {exc}") from exc
 
         except FileNotFoundError as exc:
-            # Since we checked shutil.which above, this likely means the command line
-            # is still too long or some other OS limitation was hit, rather than
-            # the executable missing.
+            # Since we checked shutil.which above, this likely means some OS limitation
+            # was hit, rather than the executable missing.
             raise ExternalToolError(
                 f"Failed to execute exiftool (FileNotFoundError): {exc}"
             ) from exc
@@ -111,10 +106,7 @@ def get_metadata_batch(paths: List[Path]) -> List[Dict[str, Any]]:
             # failure details to the caller.
             if "image files read" in stderr.lower() and exc.stdout:
                 try:
-                    chunk_results = json.loads(exc.stdout)
-                    if isinstance(chunk_results, list):
-                        results.extend(chunk_results)
-                    continue
+                    return json.loads(exc.stdout)
                 except json.JSONDecodeError as json_exc:  # pragma: no cover - defensive
                     raise ExternalToolError(
                         "Failed to parse JSON output from ExifTool: "
@@ -124,7 +116,12 @@ def get_metadata_batch(paths: List[Path]) -> List[Dict[str, Any]]:
             # If we are here, it's a real failure
             raise ExternalToolError(f"ExifTool failed with an error: {stderr}") from exc
 
-    return results
+    finally:
+        # Cleanup temporary argument file
+        try:
+            os.remove(tmp_arg_path)
+        except OSError:
+            pass
 
 
 __all__ = ["get_metadata_batch"]
