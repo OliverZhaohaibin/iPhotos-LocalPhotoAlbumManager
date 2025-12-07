@@ -56,54 +56,70 @@ def gather_media_paths(
 
 
 def process_media_paths(
-    root: Path, image_paths: List[Path], video_paths: List[Path]
+    root: Path,
+    image_paths: List[Path],
+    video_paths: List[Path],
+    batch_size: Optional[int] = None,
 ) -> Iterator[Dict[str, Any]]:
     """Yield populated index rows for the provided media paths."""
 
     all_paths = image_paths + video_paths
-    try:
-        metadata_payloads = get_metadata_batch(all_paths)
-    except ExternalToolError as exc:
-        LOGGER.warning("Batch ExifTool query failed for %s files: %s", len(all_paths), exc)
-        metadata_payloads = []
+    total_files = len(all_paths)
 
-    metadata_lookup: Dict[Path, Dict[str, Any]] = {}
-    for payload in metadata_payloads:
-        if not isinstance(payload, dict):
-            continue
+    if not batch_size or batch_size <= 0:
+        chunk_size = total_files
+    else:
+        chunk_size = batch_size
 
-        source = payload.get("SourceFile")
-        if isinstance(source, str):
-            source_path = Path(source)
-            # Register both the raw path reported by ExifTool and the resolved
-            # absolute path so lookups succeed regardless of how the caller
-            # constructed the candidate list.
-            metadata_lookup[source_path] = payload
-            metadata_lookup[source_path.resolve()] = payload
+    if total_files == 0:
+        return
 
-    for path in all_paths:
+    for i in range(0, total_files, chunk_size):
+        chunk = all_paths[i : i + chunk_size]
+
         try:
-            resolved = path.resolve()
-            metadata = metadata_lookup.get(resolved)
-            if metadata is None:
-                metadata = metadata_lookup.get(path)
-            yield _build_row(root, path, metadata)
-        except (IPhotoError, OSError) as exc:
-            # Each asset must be processed independently so that one corrupt
-            # file does not abort the entire album scan.  When metadata
-            # extraction raises an ``IPhotoError`` or the underlying imaging
-            # libraries throw ``OSError`` (common for truncated fixtures during
-            # tests), we log the failure and fall back to a minimal row built
-            # from filesystem metadata so the asset still appears in the index.
-            LOGGER.warning("Could not process file %s: %s", path, exc)
-            try:
-                stat = path.stat()
-            except OSError as stat_exc:
-                LOGGER.warning(
-                    "Unable to stat file %s after metadata failure: %s", path, stat_exc
-                )
+            metadata_payloads = get_metadata_batch(chunk)
+        except ExternalToolError as exc:
+            LOGGER.warning("Batch ExifTool query failed for %s files: %s", len(chunk), exc)
+            metadata_payloads = []
+
+        metadata_lookup: Dict[Path, Dict[str, Any]] = {}
+        for payload in metadata_payloads:
+            if not isinstance(payload, dict):
                 continue
-            yield _build_base_row(root, path, stat)
+
+            source = payload.get("SourceFile")
+            if isinstance(source, str):
+                source_path = Path(source)
+                # Register both the raw path reported by ExifTool and the resolved
+                # absolute path so lookups succeed regardless of how the caller
+                # constructed the candidate list.
+                metadata_lookup[source_path] = payload
+                metadata_lookup[source_path.resolve()] = payload
+
+        for path in chunk:
+            try:
+                resolved = path.resolve()
+                metadata = metadata_lookup.get(resolved)
+                if metadata is None:
+                    metadata = metadata_lookup.get(path)
+                yield _build_row(root, path, metadata)
+            except (IPhotoError, OSError) as exc:
+                # Each asset must be processed independently so that one corrupt
+                # file does not abort the entire album scan.  When metadata
+                # extraction raises an ``IPhotoError`` or the underlying imaging
+                # libraries throw ``OSError`` (common for truncated fixtures during
+                # tests), we log the failure and fall back to a minimal row built
+                # from filesystem metadata so the asset still appears in the index.
+                LOGGER.warning("Could not process file %s: %s", path, exc)
+                try:
+                    stat = path.stat()
+                except OSError as stat_exc:
+                    LOGGER.warning(
+                        "Unable to stat file %s after metadata failure: %s", path, stat_exc
+                    )
+                    continue
+                yield _build_base_row(root, path, stat)
 
 
 def scan_album(

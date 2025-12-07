@@ -77,6 +77,7 @@ class LibraryUpdateService(QObject):
 
         signals = ScannerSignals()
         signals.progressUpdated.connect(self._relay_scan_progress)
+        signals.batchProcessed.connect(self._on_scan_batch_processed)
 
         worker = ScannerWorker(album.root, include, exclude, signals)
         self._scanner_worker = worker
@@ -260,6 +261,29 @@ class LibraryUpdateService(QObject):
         """Forward worker progress updates to keep Qt's type system satisfied."""
 
         self.scanProgress.emit(root, current, total)
+
+    def _on_scan_batch_processed(self, root: Path, rows: List[dict]) -> None:
+        """Persist intermediate scan results and trigger a partial UI refresh."""
+
+        try:
+            # We persist each batch immediately so that (a) the user sees photos
+            # appearing in the grid, and (b) if the scan is interrupted, we do
+            # not lose the work done so far.
+            backend._update_index_snapshot(root, rows)
+            # We also try to build links incrementally.  While complete pairing
+            # is only possible when all assets are known, processing links per
+            # batch allows simple cases (like side-by-side files) to appear as
+            # Live Photos early.
+            backend._ensure_links(root, rows)
+        except IPhotoError as exc:
+            LOGGER.warning("Failed to persist scan batch for %s: %s", root, exc)
+            return
+
+        self.indexUpdated.emit(root)
+        self.linksUpdated.emit(root)
+        # Request a UI reload without forcing a full model reset or re-announcing
+        # the index (since we just did).
+        self.assetReloadRequested.emit(root, False, False)
 
     def _on_scan_finished(
         self,
