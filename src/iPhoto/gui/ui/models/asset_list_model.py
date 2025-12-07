@@ -512,6 +512,10 @@ class AssetListModel(QAbstractListModel):
                     self._state_manager.rows[existing_index] = row
                     updates.append(existing_index)
             else:
+                # Ensure the new row has a normalized rel key before appending
+                # so the lookup table populated by append_chunk is consistent
+                # with the normalized keys we use for searching.
+                row["rel"] = rel_key
                 new_items.append(row)
 
         # Batch inserts for better performance.
