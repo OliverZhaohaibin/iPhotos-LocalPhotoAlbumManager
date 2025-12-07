@@ -196,6 +196,7 @@ def apply_bw_vectorized(
     except (BufferError, RuntimeError, TypeError):
         return False
 
+    # Keep a reference to the Qt buffer wrapper to prevent premature deallocation
     _ = guard
 
     # Reuse the buffer implementation
