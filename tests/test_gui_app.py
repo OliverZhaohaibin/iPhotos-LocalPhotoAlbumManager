@@ -205,7 +205,6 @@ def test_progressive_scan_updates_model(tmp_path: Path, qapp: QApplication) -> N
 
     # Spy on the chunk ready signal to verify emission
     chunk_spy = QSignalSpy(facade.scanChunkReady)
-    load_spy = QSignalSpy(facade.loadFinished)
 
     # Open album (triggering scan)
     facade.open_album(tmp_path)
