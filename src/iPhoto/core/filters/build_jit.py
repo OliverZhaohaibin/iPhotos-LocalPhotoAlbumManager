@@ -22,6 +22,18 @@ except ImportError as e:
     print(f"Error importing jit_executor: {e}")
     sys.exit(1)
 
+# Validate that the imported functions have the .py_func attribute (Numba JIT-compiled)
+for func_name, func in [
+    ("_apply_adjustments_fast", _apply_adjustments_fast),
+    ("_apply_color_adjustments_inplace", _apply_color_adjustments_inplace),
+]:
+    if not hasattr(func, "py_func"):
+        print(
+            f"Error: The function '{func_name}' does not have a '.py_func' attribute. "
+            "This usually means Numba is not installed or JIT is not properly initialized. "
+            "Numba must be installed and available for AOT compilation."
+        )
+        sys.exit(1)
 cc = CC("_jit_compiled")
 cc.verbose = True
 
