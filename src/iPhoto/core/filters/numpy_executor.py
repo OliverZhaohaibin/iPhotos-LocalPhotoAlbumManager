@@ -366,7 +366,7 @@ def apply_adjustments_buffer(
         g_rich = _np_contrast_tone_signed(np.power(luma, 1.0/1.22), -0.3)
 
         if intensity_s >= 0.0:
-             gray = _np_mix(g_neutral, g_rich, intensity_s)
+            gray = _np_mix(g_neutral, g_rich, intensity_s)
         else:
              gray = _np_mix(g_soft, g_neutral, intensity_s + 1.0)
 
