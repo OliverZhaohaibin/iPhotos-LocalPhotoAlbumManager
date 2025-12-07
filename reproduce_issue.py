@@ -2,7 +2,6 @@
 import sys
 from unittest.mock import MagicMock
 from pathlib import Path
-from PySide6.QtCore import QObject
 
 # Mock dependencies before importing modules that depend on them
 sys.modules['src.iPhoto.gui.facade'] = MagicMock()
