@@ -454,10 +454,11 @@ class AssetListModel(QAbstractListModel):
         # Note: During a fresh scan, `chunk` contains new items that might form
         # Live Photo pairs.  However, `live_map_snapshot` is based on the
         # *existing* `links.json`.  We can't easily update the live map incrementally
-        # here without reimplementing the full pairing logic.  Accept that
-        # progressively scanned items might appear unpaired until the scan completes
-        # and `linksUpdated` fires.
-        #
+        # here without reimplementing the full pairing logic.
+        # User experience: Items that could form Live Photo pairs may temporarily
+        # appear unpaired in the UI during the scan. Once the scan completes and
+        # `linksUpdated` fires, the model will update and correctly pair these items.
+        # This is an acceptable trade-off to avoid complex incremental pairing logic.
         # Use the existing map to at least resolve known pairs.
         resolved_map = resolve_live_map(chunk, live_map_snapshot)
         paths_to_hide = get_motion_paths_to_hide(resolved_map)
@@ -501,7 +502,8 @@ class AssetListModel(QAbstractListModel):
                 continue
 
             # The row lookup keys are normalized relative paths.
-            rel_key = self._state_manager._normalise_key(str(rel))
+            # TODO: Replace direct access to private method with a public method in AssetListStateManager.
+            rel_key = self._state_manager.normalise_key(str(rel))  # Use public method if available
             if not rel_key:
                 continue
 
