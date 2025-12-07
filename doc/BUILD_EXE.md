@@ -7,7 +7,7 @@ This document outlines the process for building the iPhoto executable, including
 Ensure you have the development dependencies installed:
 
 ```bash
-pip install -r pyproject.toml
+pip install .[dev]
 ```
 
 ## Step 1: AOT Compilation
