@@ -264,6 +264,35 @@ def apply_bw_only(
     return apply_bw_vectorized(image, intensity, neutrals, tone, grain)
 
 
+def _prepare_pixel_view(
+    buffer: np.ndarray,
+    width: int,
+    height: int,
+    bytes_per_line: int,
+) -> np.ndarray | None:
+    """Validate buffer dimensions and return a reshaped view (H, W, 4).
+
+    Returns None if validation fails.
+    """
+    if width <= 0 or height <= 0:
+        return None
+
+    expected_size = bytes_per_line * height
+    if buffer.size < expected_size:
+        return None
+
+    try:
+        lines = buffer[:expected_size].reshape((height, bytes_per_line))
+    except ValueError:
+        return None
+
+    valid_width = width * 4
+    if valid_width > bytes_per_line:
+        return None
+
+    return lines[:, :valid_width].reshape((height, width, 4))
+
+
 def apply_adjustments_buffer(
     buffer: np.ndarray,
     width: int,
@@ -291,23 +320,9 @@ def apply_adjustments_buffer(
 ) -> None:
     """Apply adjustments using NumPy vectorization on a raw buffer."""
 
-    if width <= 0 or height <= 0:
+    pixels_view = _prepare_pixel_view(buffer, width, height, bytes_per_line)
+    if pixels_view is None:
         return
-
-    expected_size = bytes_per_line * height
-    if buffer.size < expected_size:
-        return
-
-    try:
-        lines = buffer[:expected_size].reshape((height, bytes_per_line))
-    except ValueError:
-        return
-
-    valid_width = width * 4
-    if valid_width > bytes_per_line:
-        return
-
-    pixels_view = lines[:, :valid_width].reshape((height, width, 4))
 
     b_float = pixels_view[..., 0].astype(np.float32) / 255.0
     g_float = pixels_view[..., 1].astype(np.float32) / 255.0
@@ -380,23 +395,9 @@ def apply_color_adjustments_inplace_buffer(
 ) -> None:
     """Apply only color adjustments using NumPy vectorization."""
 
-    if width <= 0 or height <= 0:
+    pixels_view = _prepare_pixel_view(buffer, width, height, bytes_per_line)
+    if pixels_view is None:
         return
-
-    expected_size = bytes_per_line * height
-    if buffer.size < expected_size:
-        return
-
-    try:
-        lines = buffer[:expected_size].reshape((height, bytes_per_line))
-    except ValueError:
-        return
-
-    valid_width = width * 4
-    if valid_width > bytes_per_line:
-        return
-
-    pixels_view = lines[:, :valid_width].reshape((height, width, 4))
 
     b_float = pixels_view[..., 0].astype(np.float32) / 255.0
     g_float = pixels_view[..., 1].astype(np.float32) / 255.0
