@@ -116,7 +116,7 @@ class ScannerWorker(QRunnable):
                     last_reported = processed_count
 
             if current_batch:
-                self._signals.batchProcessed.emit(self._root, list(current_batch))
+                self._signals.batchProcessed.emit(self._root, current_batch)
                 current_batch.clear()
         except Exception as exc:  # pragma: no cover - best-effort error propagation
             if not self._is_cancelled:
