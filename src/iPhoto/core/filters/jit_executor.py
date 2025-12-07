@@ -63,7 +63,7 @@ if not _AOT_AVAILABLE:
             from numba import jit
             _JIT_AVAILABLE = True
         except ImportError:
-            pass
+            logger.debug("Numba is not available; falling back to NumPy implementation.")
 
     if _JIT_AVAILABLE:
         logger.debug("Using runtime Numba JIT compilation.")
