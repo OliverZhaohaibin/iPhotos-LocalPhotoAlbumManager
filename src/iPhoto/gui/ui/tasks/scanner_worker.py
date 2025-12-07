@@ -24,6 +24,11 @@ class ScannerSignals(QObject):
 class ScannerWorker(QRunnable):
     """Scan album files in a worker thread and emit progress updates."""
 
+    # Number of items to process before emitting a progressive update signal.
+    # A smaller chunk size makes the UI feel more responsive during the initial
+    # load, while a larger one reduces the overhead of signal emission.
+    SCAN_CHUNK_SIZE = 10
+
     def __init__(
         self,
         root: Path,
@@ -91,7 +96,6 @@ class ScannerWorker(QRunnable):
             processed_count = 0
             last_reported = 0
             chunk: List[dict] = []
-            chunk_size = 10
 
             for row in process_media_paths(self._root, image_paths, video_paths):
                 if self._is_cancelled:
@@ -104,7 +108,7 @@ class ScannerWorker(QRunnable):
                     processed_count == total_files or processed_count - last_reported >= 25
                 )
 
-                if len(chunk) >= chunk_size:
+                if len(chunk) >= self.SCAN_CHUNK_SIZE:
                     self._signals.chunkReady.emit(self._root, chunk)
                     chunk = []
 
