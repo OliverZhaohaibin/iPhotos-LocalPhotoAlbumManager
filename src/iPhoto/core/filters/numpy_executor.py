@@ -143,6 +143,10 @@ def _np_contrast_tone_signed(gray: np.ndarray, tone_adjust: float) -> np.ndarray
     return np.clip(result.astype(np.float32, copy=False), 0.0, 1.0)
 
 def _generate_grain_field(width: int, height: int) -> np.ndarray:
+    """Generate a deterministic pseudo-random grain field for the given dimensions.
+
+    Uses a sine-based hash to create a repeatable noise pattern in [0.0, 1.0].
+    """
     if width <= 0 or height <= 0:
         return np.zeros((max(1, height), max(1, width)), dtype=np.float32)
 
