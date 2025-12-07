@@ -34,7 +34,7 @@ nuitka --standalone --nofollow-import-to=numba --include-package=iPhoto --output
 
 **Note:** Ensure that the generated `_jit_compiled` extension is included in the package. Nuitka usually detects binary extensions in included packages automatically.
 
-## troubleshooting
+## Troubleshooting
 
 If the application fails to start with errors related to image adjustments:
 1. Verify that the `_jit_compiled` file exists in the `iPhoto/core/filters` directory of the distribution.
