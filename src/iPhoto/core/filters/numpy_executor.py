@@ -15,7 +15,7 @@ from .utils import _resolve_pixel_buffer
 
 
 def _np_mix(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
-    """Vectorised equivalent of GLSL's ``mix`` helper."""
+    """Vectorized equivalent of GLSL's ``mix`` helper."""
     return a * (1.0 - t) + b * t
 
 
