@@ -85,7 +85,7 @@ class GalleryGridView(AssetGrid):
         gl_viewport.setFormat(gl_format)
 
         self.setViewport(gl_viewport)
-        self.viewport().setAutoFillBackground(True)
+        self.viewport().setAutoFillBackground(False)
 
         self._updating_style = False
         self._apply_scrollbar_style()
@@ -146,7 +146,7 @@ class GalleryGridView(AssetGrid):
         # because QOpenGLWidget in a translucent window context defaults to transparent.
         # By adding a background-color rule to the stylesheet, we ensure it's painted opaque.
         style = modern_scrollbar_style(text_color)
-        bg_style = f"QListView {{ background-color: {base_color.name()}; }}"
+        bg_style = f"QListView {{ background-color: transparent; border: none; }}"
 
         full_style = f"{style}\n{bg_style}"
 
