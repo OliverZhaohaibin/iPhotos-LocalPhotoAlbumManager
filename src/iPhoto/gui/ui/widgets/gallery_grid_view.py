@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from OpenGL import GL as gl
-from PySide6.QtGui import QPalette, QSurfaceFormat
+from PySide6.QtGui import QPalette
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QAbstractItemView, QListView
 
@@ -82,12 +82,6 @@ class GalleryGridView(AssetGrid):
 
         # Enable hardware acceleration for the viewport to improve scrolling performance
         gl_viewport = GalleryViewport()
-
-        # Disable the alpha buffer to prevent transparency issues with the DWM
-        # when using a frameless window configuration.
-        gl_format = QSurfaceFormat()
-        gl_format.setAlphaBufferSize(0)
-        gl_viewport.setFormat(gl_format)
 
         # Explicitly disable the style background to prevent Qt's style engine
         # from interfering with the OpenGL background clearing.
