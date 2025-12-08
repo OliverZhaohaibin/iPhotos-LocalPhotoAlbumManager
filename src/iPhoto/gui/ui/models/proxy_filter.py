@@ -173,14 +173,17 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
                 left_ts = -1
                 left_rel = ""
                 if left_row is not None:
-                    # Use .get() with a default to safely handle legacy/incomplete rows
-                    left_ts = int(left_row.get("ts") or -1)
+                    # Use .get() with a default to safely handle legacy/incomplete rows.
+                    # We avoid `or -1` because 0 is a valid timestamp (Unix epoch).
+                    raw_ts = left_row.get("ts")
+                    left_ts = int(raw_ts) if raw_ts is not None else -1
                     left_rel = str(left_row.get("rel") or "")
 
                 right_ts = -1
                 right_rel = ""
                 if right_row is not None:
-                    right_ts = int(right_row.get("ts") or -1)
+                    raw_ts = right_row.get("ts")
+                    right_ts = int(raw_ts) if raw_ts is not None else -1
                     right_rel = str(right_row.get("rel") or "")
 
                 if left_ts == right_ts:
@@ -188,8 +191,8 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
                 return left_ts < right_ts
 
             # Fallback for standard models (rarely used in the main grid).
-            left_value = float(left.data(Roles.DT_SORT) if left.data(Roles.DT_SORT) is not None and left.data(Roles.DT_SORT) != float("-inf") else -1 / 1_000_000)
-            right_value = float(right.data(Roles.DT_SORT) if right.data(Roles.DT_SORT) is not None and right.data(Roles.DT_SORT) != float("-inf") else -1 / 1_000_000)
+            left_value = float(left.data(Roles.DT_SORT) if left.data(Roles.DT_SORT) is not None else float("-inf"))
+            right_value = float(right.data(Roles.DT_SORT) if right.data(Roles.DT_SORT) is not None else float("-inf"))
             if left_value == right_value:
                 left_rel = str(left.data(Roles.REL) or "")
                 right_rel = str(right.data(Roles.REL) or "")
