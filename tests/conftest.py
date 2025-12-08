@@ -54,6 +54,7 @@ class MockQOpenGLWidget(QWidget):
     def makeCurrent(self): pass
     def doneCurrent(self): pass
     def context(self): return MagicMock()
+    def setFormat(self, format): pass
 
 mock_gl_widgets = MagicMock()
 mock_gl_widgets.QOpenGLWidget = MockQOpenGLWidget

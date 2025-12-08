@@ -105,6 +105,13 @@ class GalleryGridView(AssetGrid):
         text_color = self.palette().color(QPalette.ColorRole.WindowText)
         base_color = self.palette().color(QPalette.ColorRole.Base)
 
+        # Apply the background color to the viewport's palette to ensure it's painted opaque.
+        # This is necessary because QOpenGLWidget in a translucent window context might not
+        # respect the parent's stylesheet background or default to transparent.
+        viewport_palette = self.viewport().palette()
+        viewport_palette.setColor(QPalette.ColorRole.Window, base_color)
+        self.viewport().setPalette(viewport_palette)
+
         # We need to enforce the background color on the GalleryGridView (and its viewport)
         # because QOpenGLWidget in a translucent window context defaults to transparent.
         # By adding a background-color rule to the stylesheet, we ensure it's painted opaque.

@@ -13,8 +13,8 @@ def patch_delegate_icons(monkeypatch):
     def mock_load_icon(*args, **kwargs):
         return QIcon()
 
-    # Patch where it is used. AssetGridDelegate imports it as `from ..icons import load_icon`
-    monkeypatch.setattr("src.iPhoto.gui.ui.widgets.asset_delegate.load_icon", mock_load_icon)
+    # Patch where it is used. BadgeRenderer imports it as `from .icons import load_icon`
+    monkeypatch.setattr("src.iPhoto.gui.ui.badge_renderer.load_icon", mock_load_icon)
 
 @pytest.fixture(scope="module")
 def qapp_instance():
