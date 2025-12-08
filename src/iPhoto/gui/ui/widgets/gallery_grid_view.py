@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from OpenGL import GL as gl
 from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QPalette, QSurfaceFormat
+from PySide6.QtGui import QPaintEvent, QPalette, QSurfaceFormat
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QAbstractItemView, QListView
 
@@ -78,7 +78,7 @@ class GalleryGridView(AssetGrid):
         self._updating_style = False
         self._apply_scrollbar_style()
 
-    def paintEvent(self, event) -> None:  # type: ignore[override]
+    def paintEvent(self, event: QPaintEvent) -> None:  # type: ignore[override]
         """Override paintEvent to force a GL clear before items are drawn."""
         viewport = self.viewport()
         if isinstance(viewport, GalleryViewport):
