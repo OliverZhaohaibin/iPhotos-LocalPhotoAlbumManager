@@ -15,7 +15,6 @@ from PySide6.QtGui import (
     QPalette,
     QPen,
     QPixmap,
-    QStaticText,
 )
 from PySide6.QtWidgets import QStyle, QStyleOptionViewItem, QStyledItemDelegate
 
