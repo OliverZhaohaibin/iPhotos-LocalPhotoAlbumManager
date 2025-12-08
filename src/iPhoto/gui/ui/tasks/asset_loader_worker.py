@@ -330,6 +330,12 @@ class AssetLoaderWorker(QRunnable):
     def _build_payload_chunks(self) -> Iterable[List[Dict[str, object]]]:
         ensure_work_dir(self._root, WORK_DIR_NAME)
         index_rows = list(IndexStore(self._root).read_all())
+
+        # Pre-sort rows by date (descending) to match the UI order.
+        # This ensures "newest" items are sent in the first chunk, preventing
+        # the "append-then-jump" visual glitch.
+        index_rows.sort(key=lambda row: row.get("dt") or "", reverse=True)
+
         live_map = resolve_live_map(index_rows, self._live_map)
         hidden_motion_paths = get_motion_paths_to_hide(live_map)
 
