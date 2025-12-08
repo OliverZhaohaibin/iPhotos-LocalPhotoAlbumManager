@@ -289,6 +289,8 @@ class AssetListModel(QAbstractListModel):
             return row["size"]
         if role == Roles.DT:
             return row["dt"]
+        if role == Roles.DT_SORT:
+            return row.get("dt_sort", float("-inf"))
         if role == Roles.LOCATION:
             return row.get("location")
         if role == Roles.FEATURED:

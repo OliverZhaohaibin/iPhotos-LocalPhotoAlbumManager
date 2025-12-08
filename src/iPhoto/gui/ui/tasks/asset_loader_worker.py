@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
@@ -58,6 +59,39 @@ def _is_featured(rel: str, featured: Set[str]) -> bool:
         return True
     live_ref = f"{rel}#live"
     return live_ref in featured
+
+
+def _parse_timestamp(value: object) -> float:
+    """Return a sortable timestamp for ``value``.
+
+    ``index.jsonl`` stores capture times as ISO-8601 strings with a trailing
+    ``Z``.  The helper normalises the representation and falls back to
+    ``-inf`` for missing or unparsable values so assets without metadata sort
+    to the end of descending views.
+    """
+
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, datetime):
+        stamp = value
+    elif isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return float("-inf")
+        if normalized.endswith("Z"):
+            normalized = f"{normalized[:-1]}+00:00"
+        try:
+            stamp = datetime.fromisoformat(normalized)
+        except ValueError:
+            return float("-inf")
+    else:
+        return float("-inf")
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    try:
+        return stamp.timestamp()
+    except OSError:  # pragma: no cover - out-of-range timestamp on platform
+        return float("-inf")
 
 
 def resolve_live_map(
@@ -164,6 +198,7 @@ def build_asset_entry(
         "live_motion_abs": live_motion_abs,
         "size": _determine_size(row, is_image),
         "dt": row.get("dt"),
+        "dt_sort": _parse_timestamp(row.get("dt")),
         "featured": _is_featured(rel, featured),
         "still_image_time": row.get("still_image_time"),
         "dur": row.get("dur"),

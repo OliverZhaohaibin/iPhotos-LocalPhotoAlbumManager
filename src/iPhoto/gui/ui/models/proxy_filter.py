@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Optional
 
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, QSortFilterProxyModel, Qt
@@ -140,8 +139,9 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         """Apply a timestamp-aware comparison when sorting by :data:`Roles.DT`."""
 
         if self.sortRole() == int(Roles.DT):
-            left_value = self._coerce_timestamp(left.data(Roles.DT))
-            right_value = self._coerce_timestamp(right.data(Roles.DT))
+            # Access the pre-calculated timestamp float directly.
+            left_value = float(left.data(Roles.DT_SORT) or float("-inf"))
+            right_value = float(right.data(Roles.DT_SORT) or float("-inf"))
             if left_value == right_value:
                 # Use the relative path as a deterministic tiebreaker so the
                 # proxy order stays stable even when multiple assets share the
@@ -171,35 +171,3 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
 
         self._reapply_default_sort()
 
-    @staticmethod
-    def _coerce_timestamp(value: object) -> float:
-        """Return a sortable timestamp for ``value``.
-
-        ``index.jsonl`` stores capture times as ISO-8601 strings with a trailing
-        ``Z``.  The helper normalises the representation and falls back to
-        ``-inf`` for missing or unparsable values so assets without metadata sort
-        to the end of descending views.
-        """
-
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, datetime):
-            stamp = value
-        elif isinstance(value, str):
-            normalized = value.strip()
-            if not normalized:
-                return float("-inf")
-            if normalized.endswith("Z"):
-                normalized = f"{normalized[:-1]}+00:00"
-            try:
-                stamp = datetime.fromisoformat(normalized)
-            except ValueError:
-                return float("-inf")
-        else:
-            return float("-inf")
-        if stamp.tzinfo is None:
-            stamp = stamp.replace(tzinfo=timezone.utc)
-        try:
-            return stamp.timestamp()
-        except OSError:  # pragma: no cover - out-of-range timestamp on platform
-            return float("-inf")
