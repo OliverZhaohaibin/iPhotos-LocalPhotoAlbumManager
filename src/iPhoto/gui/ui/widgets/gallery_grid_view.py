@@ -26,7 +26,13 @@ class GalleryViewport(QOpenGLWidget):
 
     def paintGL(self) -> None:
         """Clear the background to the theme's base color with full opacity."""
+        self.clear_background()
+
+    def clear_background(self) -> None:
+        """Explicitly clear the viewport background."""
         base_color = self.palette().color(QPalette.ColorRole.Base)
+        # Ensure we have a context before issuing GL commands
+        self.makeCurrent()
         gl.glClearColor(base_color.redF(), base_color.greenF(), base_color.blueF(), 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
@@ -71,6 +77,13 @@ class GalleryGridView(AssetGrid):
 
         self._updating_style = False
         self._apply_scrollbar_style()
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        """Override paintEvent to force a GL clear before items are drawn."""
+        viewport = self.viewport()
+        if isinstance(viewport, GalleryViewport):
+            viewport.clear_background()
+        super().paintEvent(event)
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
