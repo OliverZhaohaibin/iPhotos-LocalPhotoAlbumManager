@@ -92,23 +92,47 @@ class AssetGridDelegate(QStyledItemDelegate):
         if isinstance(pixmap, QPixmap) and not pixmap.isNull():
             painter.setRenderHint(QPainter.Antialiasing, True)
             painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-            scaled = pixmap.scaled(
-                thumb_rect.size(),
-                Qt.KeepAspectRatioByExpanding,
-                Qt.SmoothTransformation,
-            )
-            source = scaled.rect()
-            if source.width() > thumb_rect.width():
-                diff = source.width() - thumb_rect.width()
-                left = diff // 2
-                right = diff - left
-                source.adjust(left, 0, -right, 0)
-            if source.height() > thumb_rect.height():
-                diff = source.height() - thumb_rect.height()
-                top = diff // 2
-                bottom = diff - top
-                source.adjust(0, top, 0, -bottom)
-            painter.drawPixmap(thumb_rect, scaled, source)
+
+            if self._filmstrip_mode:
+                scaled = pixmap.scaled(
+                    thumb_rect.size(),
+                    Qt.KeepAspectRatioByExpanding,
+                    Qt.SmoothTransformation,
+                )
+                source = scaled.rect()
+                if source.width() > thumb_rect.width():
+                    diff = source.width() - thumb_rect.width()
+                    left = diff // 2
+                    right = diff - left
+                    source.adjust(left, 0, -right, 0)
+                if source.height() > thumb_rect.height():
+                    diff = source.height() - thumb_rect.height()
+                    top = diff // 2
+                    bottom = diff - top
+                    source.adjust(0, top, 0, -bottom)
+                painter.drawPixmap(thumb_rect, scaled, source)
+            else:
+                img_size = pixmap.size()
+                view_size = thumb_rect.size()
+                img_w, img_h = img_size.width(), img_size.height()
+                view_w, view_h = view_size.width(), view_size.height()
+
+                if img_w > 0 and img_h > 0 and view_w > 0 and view_h > 0:
+                    img_ratio = img_w / img_h
+                    view_ratio = view_w / view_h
+
+                    if img_ratio > view_ratio:
+                        new_w = img_h * view_ratio
+                        offset_x = (img_w - new_w) / 2.0
+                        source_rect = QRectF(offset_x, 0.0, new_w, float(img_h))
+                    else:
+                        new_h = img_w / view_ratio
+                        offset_y = (img_h - new_h) / 2.0
+                        source_rect = QRectF(0.0, offset_y, float(img_w), new_h)
+
+                    painter.drawPixmap(QRectF(thumb_rect), pixmap, source_rect)
+                else:
+                    painter.fillRect(thumb_rect, QColor("#1b1b1b"))
         else:
             painter.fillRect(thumb_rect, QColor("#1b1b1b"))
 
