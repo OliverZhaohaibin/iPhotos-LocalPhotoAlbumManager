@@ -148,12 +148,7 @@ class AssetGridDelegate(QStyledItemDelegate):
             self._badge_renderer.draw_pano_badge(painter, thumb_rect)
 
         if index.data(Roles.IS_VIDEO):
-            size_info = index.data(Roles.SIZE)
-            duration = 0.0
-            if isinstance(size_info, dict):
-                raw = size_info.get("duration")  # type: ignore[arg-type]
-                if isinstance(raw, (int, float)):
-                    duration = max(0, float(raw))
+            duration = self._extract_duration(index)
             if duration > 0:
                 self._badge_renderer.draw_duration_badge(painter, thumb_rect, duration, option.font)
 
@@ -173,3 +168,16 @@ class AssetGridDelegate(QStyledItemDelegate):
         """Toggle the presence of the selection confirmation badge."""
 
         self._selection_mode_active = bool(enabled)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _extract_duration(index) -> float:
+        """Safely extract the duration from the size role data."""
+        size_info = index.data(Roles.SIZE)
+        if isinstance(size_info, dict):
+            raw = size_info.get("duration")  # type: ignore[arg-type]
+            if isinstance(raw, (int, float)):
+                return max(0.0, float(raw))
+        return 0.0
