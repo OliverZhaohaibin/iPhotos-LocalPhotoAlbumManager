@@ -47,6 +47,7 @@ class GalleryGridView(AssetGrid):
 
         # Enable hardware acceleration for the viewport to improve scrolling performance
         self.setViewport(QOpenGLWidget())
+        self.viewport().setAutoFillBackground(True)
 
         self._updating_style = False
         self._apply_scrollbar_style()
@@ -94,14 +95,22 @@ class GalleryGridView(AssetGrid):
 
     def _apply_scrollbar_style(self) -> None:
         text_color = self.palette().color(QPalette.ColorRole.WindowText)
-        style = modern_scrollbar_style(text_color)
+        base_color = self.palette().color(QPalette.ColorRole.Base)
 
-        if self.styleSheet() == style:
+        # We need to enforce the background color on the GalleryGridView (and its viewport)
+        # because QOpenGLWidget in a translucent window context defaults to transparent.
+        # By adding a background-color rule to the stylesheet, we ensure it's painted opaque.
+        style = modern_scrollbar_style(text_color)
+        bg_style = f"QListView {{ background-color: {base_color.name()}; }}"
+
+        full_style = f"{style}\n{bg_style}"
+
+        if self.styleSheet() == full_style:
             return
 
         self._updating_style = True
         try:
-            self.setStyleSheet(style)
+            self.setStyleSheet(full_style)
         finally:
             self._updating_style = False
 
