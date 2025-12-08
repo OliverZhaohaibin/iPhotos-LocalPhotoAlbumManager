@@ -138,7 +138,7 @@ def test_missing_keys_raises_key_error(qapp):
     that guarantee to prove that the code is using fast direct access (`row['key']`)
     instead of safer but slower `.get('key')`.
     """
-    # Row missing 'is_video'
+    # Row missing required keys (is_video, is_live, featured, id)
     rows = [
         {"rel": "bad.jpg", "ts": 100} # Missing other keys
     ]
