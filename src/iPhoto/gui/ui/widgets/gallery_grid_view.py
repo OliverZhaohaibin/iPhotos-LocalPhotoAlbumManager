@@ -26,6 +26,11 @@ class GalleryViewport(QOpenGLWidget):
         """
         # Retrieve the Window color from the palette
         bg_color = self.palette().color(QPalette.ColorRole.Window)
+        bg_color.setAlpha(255)  # Ensure fully opaque
+
+        # Explicitly set the viewport to cover the entire widget surface (physical pixels)
+        dpr = self.devicePixelRatio()
+        gl.glViewport(0, 0, int(self.width() * dpr), int(self.height() * dpr))
 
         # Set the clear color to the window color with Alpha = 1.0 (Fully Opaque)
         gl.glClearColor(bg_color.redF(), bg_color.greenF(), bg_color.blueF(), 1.0)
