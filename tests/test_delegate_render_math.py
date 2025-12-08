@@ -1,7 +1,6 @@
 
 import sys
 from pathlib import Path
-import pytest
 from PySide6.QtCore import QRectF, QSize
 
 # Ensure src is in python path
