@@ -84,6 +84,10 @@ class GalleryGridView(AssetGrid):
         gl_format.setAlphaBufferSize(0)
         gl_viewport.setFormat(gl_format)
 
+        # Explicitly disable the style background to prevent Qt's style engine
+        # from interfering with the OpenGL background clearing.
+        gl_viewport.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+
         self.setViewport(gl_viewport)
         self.viewport().setAutoFillBackground(False)
 
