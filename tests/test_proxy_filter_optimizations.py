@@ -132,6 +132,11 @@ def test_missing_keys_raises_key_error(qapp):
     """
     Verify that we are indeed using direct access by ensuring it fails when keys are missing.
     This confirms the optimization is active.
+
+    NOTE: This is a synthetic test case. In production, `AssetLoader` guarantees that
+    keys like `is_video`, `ts`, etc., are always present. This test intentionally violates
+    that guarantee to prove that the code is using fast direct access (`row['key']`)
+    instead of safer but slower `.get('key')`.
     """
     # Row missing 'is_video'
     rows = [
