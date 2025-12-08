@@ -345,8 +345,8 @@ class AssetCacheManager(QObject):
         self._thumb_cache[rel] = pixmap
         # Clear old composite if any
         self._composite_cache.pop(rel, None)
-        # Note: We emit the raw pixmap here. The model/delegate will request via resolve_thumbnail
-        # which will trigger composite generation.
+        # Note: We emit the raw pixmap here. The composite thumbnail for this `rel` will be generated
+        # lazily the next time `resolve_thumbnail` is called for this `rel`, ensuring deferred composition.
         self.thumbnailReady.emit(root, rel, pixmap)
 
     def _placeholder_for(self, rel: str, is_video: bool) -> QPixmap:
