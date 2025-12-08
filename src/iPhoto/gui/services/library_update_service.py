@@ -47,6 +47,7 @@ class LibraryUpdateService(QObject):
         self._scan_pending = False
         self._stale_album_roots: Dict[str, Path] = {}
         self._album_root_cache: Dict[str, Optional[Path]] = {}
+        self._model_loading_due_to_scan = False
 
     # ------------------------------------------------------------------
     # Public API used by :class:`~iPhoto.gui.facade.AppFacade`

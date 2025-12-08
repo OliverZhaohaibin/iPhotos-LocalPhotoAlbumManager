@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Optional
 
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, QSortFilterProxyModel, Qt
@@ -20,6 +19,7 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         self._default_sort_role: int = int(Roles.DT)
         self._default_sort_order: Qt.SortOrder = Qt.SortOrder.DescendingOrder
         self._monitored_source: Optional[QAbstractItemModel] = None
+        self._fast_source: Optional[object] = None
         self.setDynamicSortFilter(True)
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
         # ``configure_default_sort`` applies the sort role and ensures the proxy
@@ -104,6 +104,9 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
                 )
             except (TypeError, RuntimeError):  # pragma: no cover - Qt disconnect quirk
                 pass
+        self._fast_source = (
+            sourceModel if sourceModel is not None and hasattr(sourceModel, "get_internal_row") else None
+        )
         super().setSourceModel(sourceModel)
         self._monitored_source = sourceModel
         if sourceModel is not None:
@@ -115,6 +118,26 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
     # QSortFilterProxyModel API
     # ------------------------------------------------------------------
     def filterAcceptsRow(self, row: int, parent) -> bool:  # type: ignore[override]
+        if self._fast_source is not None:
+            # Bypass Qt index creation and role lookups for raw performance.
+            row_data = self._fast_source.get_internal_row(row)  # type: ignore
+            if row_data is None:
+                return False
+            if self._filter_mode == "videos" and not row_data.get("is_video"):
+                return False
+            if self._filter_mode == "live" and not row_data.get("is_live"):
+                return False
+            if self._filter_mode == "favorites" and not row_data.get("featured"):
+                return False
+            if self._search_text:
+                rel = row_data.get("rel")
+                name = str(rel).casefold() if rel is not None else ""
+                asset_id = row_data.get("id")
+                identifier = str(asset_id).casefold() if asset_id is not None else ""
+                if self._search_text not in name and self._search_text not in identifier:
+                    return False
+            return True
+
         source = self.sourceModel()
         if source is None:
             return False
@@ -140,12 +163,37 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         """Apply a timestamp-aware comparison when sorting by :data:`Roles.DT`."""
 
         if self.sortRole() == int(Roles.DT):
-            left_value = self._coerce_timestamp(left.data(Roles.DT))
-            right_value = self._coerce_timestamp(right.data(Roles.DT))
+            if self._fast_source is not None:
+                left_row = self._fast_source.get_internal_row(left.row())  # type: ignore
+                right_row = self._fast_source.get_internal_row(right.row())  # type: ignore
+
+                # Optimization: direct integer comparison for O(1) sorting speed.
+                # We retrieve the pre-calculated microsecond timestamp (`ts`)
+                # directly from the backing store to avoid parsing overhead.
+                left_ts = -1
+                left_rel = ""
+                if left_row is not None:
+                    # Use .get() with a default to safely handle legacy/incomplete rows.
+                    # We avoid `or -1` because 0 is a valid timestamp (Unix epoch).
+                    raw_ts = left_row.get("ts")
+                    left_ts = int(raw_ts) if raw_ts is not None else -1
+                    left_rel = str(left_row.get("rel") or "")
+
+                right_ts = -1
+                right_rel = ""
+                if right_row is not None:
+                    raw_ts = right_row.get("ts")
+                    right_ts = int(raw_ts) if raw_ts is not None else -1
+                    right_rel = str(right_row.get("rel") or "")
+
+                if left_ts == right_ts:
+                    return left_rel < right_rel
+                return left_ts < right_ts
+
+            # Fallback for standard models (rarely used in the main grid).
+            left_value = float(left.data(Roles.DT_SORT) if left.data(Roles.DT_SORT) is not None else float("-inf"))
+            right_value = float(right.data(Roles.DT_SORT) if right.data(Roles.DT_SORT) is not None else float("-inf"))
             if left_value == right_value:
-                # Use the relative path as a deterministic tiebreaker so the
-                # proxy order stays stable even when multiple assets share the
-                # same timestamp.
                 left_rel = str(left.data(Roles.REL) or "")
                 right_rel = str(right.data(Roles.REL) or "")
                 return left_rel < right_rel
@@ -171,35 +219,3 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
 
         self._reapply_default_sort()
 
-    @staticmethod
-    def _coerce_timestamp(value: object) -> float:
-        """Return a sortable timestamp for ``value``.
-
-        ``index.jsonl`` stores capture times as ISO-8601 strings with a trailing
-        ``Z``.  The helper normalises the representation and falls back to
-        ``-inf`` for missing or unparsable values so assets without metadata sort
-        to the end of descending views.
-        """
-
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, datetime):
-            stamp = value
-        elif isinstance(value, str):
-            normalized = value.strip()
-            if not normalized:
-                return float("-inf")
-            if normalized.endswith("Z"):
-                normalized = f"{normalized[:-1]}+00:00"
-            try:
-                stamp = datetime.fromisoformat(normalized)
-            except ValueError:
-                return float("-inf")
-        else:
-            return float("-inf")
-        if stamp.tzinfo is None:
-            stamp = stamp.replace(tzinfo=timezone.utc)
-        try:
-            return stamp.timestamp()
-        except OSError:  # pragma: no cover - out-of-range timestamp on platform
-            return float("-inf")

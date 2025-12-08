@@ -289,6 +289,8 @@ class AssetListModel(QAbstractListModel):
             return row["size"]
         if role == Roles.DT:
             return row["dt"]
+        if role == Roles.DT_SORT:
+            return row.get("dt_sort", float("-inf"))
         if role == Roles.LOCATION:
             return row.get("location")
         if role == Roles.FEATURED:
@@ -321,6 +323,14 @@ class AssetListModel(QAbstractListModel):
 
     def thumbnail_loader(self) -> ThumbnailLoader:
         return self._cache_manager.thumbnail_loader()
+
+    def get_internal_row(self, row_index: int) -> Optional[Dict[str, object]]:
+        """Return the raw dictionary for *row_index* to bypass the Qt role API."""
+
+        rows = self._state_manager.rows
+        if not (0 <= row_index < len(rows)):
+            return None
+        return rows[row_index]
 
     def invalidate_thumbnail(self, rel: str) -> Optional[QModelIndex]:
         """Remove cached thumbnails and notify views for *rel*.
