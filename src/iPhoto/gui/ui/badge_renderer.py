@@ -8,7 +8,6 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import (
     QColor,
     QFont,
-    QFontMetrics,
     QIcon,
     QPainter,
     QStaticText,
