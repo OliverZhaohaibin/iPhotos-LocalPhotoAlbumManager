@@ -6,7 +6,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import QObject, QSize, Signal, Qt, QRect, QRectF
+from PySide6.QtCore import QObject, QSize, Signal, Qt, QRectF
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
 
 from ..tasks.thumbnail_loader import ThumbnailLoader
