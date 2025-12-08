@@ -1,5 +1,4 @@
 
-import pytest
 import sys
 from pathlib import Path
 from PySide6.QtCore import QRectF, QSize
