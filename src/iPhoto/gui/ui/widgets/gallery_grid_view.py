@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QPalette
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QAbstractItemView, QListView
 
 from ..styles import modern_scrollbar_style
@@ -43,6 +44,9 @@ class GalleryGridView(AssetGrid):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setWordWrap(False)
         self.setSelectionRectVisible(False)
+
+        # Enable hardware acceleration for the viewport to improve scrolling performance
+        self.setViewport(QOpenGLWidget())
 
         self._updating_style = False
         self._apply_scrollbar_style()

@@ -15,6 +15,7 @@ from PySide6.QtGui import (
     QPalette,
     QPen,
     QPixmap,
+    QStaticText,
 )
 from PySide6.QtWidgets import QStyle, QStyleOptionViewItem, QStyledItemDelegate
 
@@ -40,6 +41,7 @@ class AssetGridDelegate(QStyledItemDelegate):
         self._filmstrip_border_width = 2
         self._selection_mode_active = False
         self._selection_icon: QIcon = load_icon("checkmark.circle.svg")
+        self._duration_text_cache: dict[str, QStaticText] = {}
 
     def set_base_size(self, size: int) -> None:
         """Update the target rendering size for standard grid tiles."""
@@ -206,14 +208,25 @@ class AssetGridDelegate(QStyledItemDelegate):
         text = self._format_duration(duration)
         if not text:
             return
+
         font = self._duration_font or QFont(option.font)
         font.setPointSizeF(max(9.0, option.font.pointSizeF() - 1))
         font.setBold(True)
         self._duration_font = font
-        metrics = QFontMetrics(font)
+
+        # Use cached QStaticText for performance
+        if text not in self._duration_text_cache:
+            static_text = QStaticText(text)
+            static_text.prepare(painter.transform(), font)
+            self._duration_text_cache[text] = static_text
+
+        static_text = self._duration_text_cache[text]
+
         padding = 6
-        height = metrics.height() + padding
-        width = metrics.horizontalAdvance(text) + padding * 2
+        text_size = static_text.size()
+        width = int(text_size.width()) + padding * 2
+        height = int(text_size.height()) + padding
+
         badge_rect = QRect(
             rect.right() - width - 8,
             rect.bottom() - height - 8,
@@ -227,7 +240,12 @@ class AssetGridDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(badge_rect, 6, 6)
         painter.setPen(QColor("white"))
         painter.setFont(font)
-        painter.drawText(badge_rect, Qt.AlignCenter, text)
+
+        # Center the static text within the badge
+        text_x = badge_rect.x() + (badge_rect.width() - text_size.width()) / 2
+        text_y = badge_rect.y() + (badge_rect.height() - text_size.height()) / 2
+        painter.drawStaticText(int(text_x), int(text_y), static_text)
+
         painter.restore()
 
     def _draw_selection_badge(self, painter: QPainter, rect: QRect) -> None:
