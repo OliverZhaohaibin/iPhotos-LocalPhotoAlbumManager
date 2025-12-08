@@ -50,9 +50,9 @@ class GalleryGridView(AssetGrid):
 
         # Disable the alpha buffer to prevent transparency issues with the DWM
         # when using a frameless window configuration.
-        format = QSurfaceFormat()
-        format.setAlphaBufferSize(0)
-        gl_viewport.setFormat(format)
+        gl_format = QSurfaceFormat()
+        gl_format.setAlphaBufferSize(0)
+        gl_viewport.setFormat(gl_format)
 
         self.setViewport(gl_viewport)
         self.viewport().setAutoFillBackground(True)
