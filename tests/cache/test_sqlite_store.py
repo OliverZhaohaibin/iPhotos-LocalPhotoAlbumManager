@@ -133,17 +133,19 @@ def test_count(store: IndexStore) -> None:
 def test_read_all_sorting(store: IndexStore) -> None:
     rows = [
         {"rel": "old.jpg", "dt": "2020-01-01"},
+        {"rel": "null.jpg", "dt": None},
         {"rel": "new.jpg", "dt": "2023-01-01"},
         {"rel": "mid.jpg", "dt": "2022-01-01"},
     ]
     store.write_rows(rows)
 
-    # Test default order (undefined, but usually insertion order or PK order)
     # Test sorted order
     sorted_rows = list(store.read_all(sort_by_date=True))
     assert sorted_rows[0]["rel"] == "new.jpg"
     assert sorted_rows[1]["rel"] == "mid.jpg"
     assert sorted_rows[2]["rel"] == "old.jpg"
+    # NULL should be last due to "ORDER BY dt IS NULL, dt DESC"
+    assert sorted_rows[3]["rel"] == "null.jpg"
 
 def test_transaction(store: IndexStore) -> None:
     with store.transaction():
