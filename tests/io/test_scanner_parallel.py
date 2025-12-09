@@ -59,7 +59,7 @@ class TestFileDiscoverer:
                     i += 1
                     time.sleep(0.01)
 
-            mock_rglob.side_effect = lambda _: infinite_files()
+            mock_rglob.return_value = infinite_files()
 
             discoverer.start()
             time.sleep(0.1)  # Let it find some files
