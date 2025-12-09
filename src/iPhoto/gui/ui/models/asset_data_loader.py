@@ -46,8 +46,6 @@ class AssetDataLoader(QObject):
         root: Path,
         featured: List[Dict[str, object]],
         live_map: Dict[str, Dict[str, object]],
-        *,
-        max_index_bytes: int,
     ) -> Optional[Tuple[List[Dict[str, object]], int]]:
         """Return cached rows for *root* when the index file remains lightweight.
 
@@ -61,7 +59,6 @@ class AssetDataLoader(QObject):
 
         try:
             # We use row count from SQLite instead of file size.
-            # max_index_bytes is ignored in favor of SYNC_LOAD_THRESHOLD.
             count = IndexStore(root).count()
         except Exception:
             count = 0
