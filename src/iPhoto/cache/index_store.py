@@ -177,14 +177,16 @@ class IndexStore:
         """
         conn = self._get_conn()
         should_close = (conn != self._conn)
-        conn.row_factory = sqlite3.Row
 
         try:
             query = "SELECT * FROM assets"
             if sort_by_date:
                 query += " ORDER BY dt DESC"
 
-            cursor = conn.execute(query)
+            # Use a cursor with a specific row factory to avoid modifying the connection
+            cursor = conn.cursor()
+            cursor.row_factory = sqlite3.Row
+            cursor.execute(query)
             for row in cursor:
                 yield self._db_row_to_dict(row)
         finally:
@@ -195,12 +197,15 @@ class IndexStore:
         """Yield only rows that contain GPS metadata."""
         conn = self._get_conn()
         should_close = (conn != self._conn)
-        conn.row_factory = sqlite3.Row
 
         try:
             # We filter for gps IS NOT NULL at the database level
             query = "SELECT * FROM assets WHERE gps IS NOT NULL"
-            cursor = conn.execute(query)
+
+            # Use a cursor with a specific row factory
+            cursor = conn.cursor()
+            cursor.row_factory = sqlite3.Row
+            cursor.execute(query)
             for row in cursor:
                 yield self._db_row_to_dict(row)
         finally:
