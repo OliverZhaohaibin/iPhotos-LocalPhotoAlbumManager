@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import xxhash
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
@@ -118,7 +119,9 @@ def build_asset_entry(
     if isinstance(live_partner_rel, str) and live_partner_rel:
         live_motion = live_partner_rel
         live_motion_abs = str(root / live_partner_rel)
-        live_group_id = f"live_{hash((rel, live_partner_rel)) & 0xFFFFFF:x}"
+        # Use robust 64-bit hash to prevent collisions in large libraries
+        combined_key = f"{rel}|{live_partner_rel}".encode("utf-8")
+        live_group_id = f"live_{xxhash.xxh64(combined_key).hexdigest()}"
 
     gps_raw = row.get("gps") if isinstance(row, dict) else None
     location_name = resolve_location_name(gps_raw if isinstance(gps_raw, dict) else None)
