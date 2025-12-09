@@ -1,5 +1,14 @@
-"""Persistent storage for album index rows using SQLite."""
+"""
+Persistent storage for album index rows.
 
+This module provides read/write access to the album index, which was previously
+stored as a JSON Lines file (`index.jsonl`). The index is now stored in an
+SQLite database (`index.db`) for improved performance, reliability, and
+concurrency.
+
+The `IndexStore` class manages the creation, reading, updating, and deletion
+of asset records in the SQLite database.
+"""
 from __future__ import annotations
 
 import json
