@@ -209,43 +209,12 @@ class AssetListModel(QAbstractListModel):
         return self._state_manager.has_pending_move_placeholders()
 
     def populate_from_cache(self) -> bool:
-        """Synchronously load cached index data when the file is small."""
+        """Synchronously load cached index data when the file is small.
 
-        if not self._album_root:
-            return False
-        if self._data_loader.is_running():
-            return False
-
-        root = self._album_root
-        manifest = self._facade.current_album.manifest if self._facade.current_album else {}
-        featured = manifest.get("featured", []) or []
-
-        # ``AssetDataLoader.populate_from_cache`` computes the rows immediately yet
-        # defers all signal emission to the next event-loop iteration.  This mirrors
-        # the asynchronous worker behaviour so ``QSignalSpy`` and other listeners
-        # attached right after :meth:`AppFacade.open_album` still observe
-        # ``loadFinished`` notifications.
-        result = self._data_loader.populate_from_cache(
-            root,
-            featured,
-        )
-        if result is None:
-            return False
-
-        rows, _ = result
-
-        self._pending_chunks_buffer = []
-        self._flush_timer.stop()
-        self._pending_loader_root = None
-
-        self.beginResetModel()
-        self._state_manager.set_rows(rows)
-        self.endResetModel()
-
-        self._cache_manager.reset_caches_for_new_rows(rows)
-        self._state_manager.clear_reload_pending()
-
-        return True
+        Deprecated: This method is disabled to enforce streaming behavior
+        and prevent main thread blocking on large albums.
+        """
+        return False
 
     # ------------------------------------------------------------------
     # Qt model implementation

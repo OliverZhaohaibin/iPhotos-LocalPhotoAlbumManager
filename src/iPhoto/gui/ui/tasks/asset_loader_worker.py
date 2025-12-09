@@ -103,7 +103,10 @@ def build_asset_entry(
     if not rel:
         return None
 
-    abs_path = str((root / rel).resolve())
+    # Performance optimization: use string concatenation instead of path.resolve()
+    # to avoid disk I/O. We assume root is absolute.
+    abs_path = str(root / rel)
+
     is_image, is_video = classify_media(row)
     is_pano = _is_panorama_candidate(row, is_image)
 
@@ -114,7 +117,7 @@ def build_asset_entry(
 
     if isinstance(live_partner_rel, str) and live_partner_rel:
         live_motion = live_partner_rel
-        live_motion_abs = str((root / live_partner_rel).resolve())
+        live_motion_abs = str(root / live_partner_rel)
         live_group_id = f"live_{hash((rel, live_partner_rel)) & 0xFFFFFF:x}"
 
     gps_raw = row.get("gps") if isinstance(row, dict) else None
@@ -260,16 +263,8 @@ class AssetLoaderWorker(QRunnable):
         ensure_work_dir(self._root, WORK_DIR_NAME)
         store = IndexStore(self._root)
 
-        # 1. Get total count for scrollbar/progress
-        try:
-            total = store.count(filter_hidden=True)
-        except Exception:
-            total = 0
-
-        self._signals.progressUpdated.emit(self._root, 0, total)
-
-        if total == 0:
-            return
+        # Emit indeterminate progress initially
+        self._signals.progressUpdated.emit(self._root, 0, 0)
 
         # 2. Stream rows
         generator = store.read_all(sort_by_date=True, filter_hidden=True)
@@ -280,6 +275,9 @@ class AssetLoaderWorker(QRunnable):
         # Priority: Emit first 20 items quickly
         first_chunk_size = 20
         normal_chunk_size = 200
+
+        total = 0
+        total_calculated = False
 
         for position, row in enumerate(generator, start=1):
             if self._is_cancelled:
@@ -304,17 +302,27 @@ class AssetLoaderWorker(QRunnable):
             elif len(chunk) >= normal_chunk_size:
                 should_flush = True
 
-            if position == total: # Always flush at end
-                should_flush = True
-
             if should_flush:
                 yield chunk
                 chunk = []
 
+                # Perform count AFTER yielding first chunk
+                if not total_calculated:
+                    try:
+                        total = store.count(filter_hidden=True)
+                        total_calculated = True
+                    except Exception:
+                        total = 0 # fallback
+
             # Update progress periodically
-            if position == total or position - last_reported >= 50:
+            if total_calculated and (position == total or position - last_reported >= 50):
                 last_reported = position
                 self._signals.progressUpdated.emit(self._root, position, total)
 
         if chunk:
             yield chunk
+
+        # Final progress update
+        if not total_calculated: # If we never flushed (e.g. small album)
+             total = position
+        self._signals.progressUpdated.emit(self._root, total, total)
