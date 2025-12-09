@@ -141,7 +141,7 @@ def test_read_all_sorting(store: IndexStore) -> None:
     assert sorted_rows[0]["rel"] == "new.jpg"
     assert sorted_rows[1]["rel"] == "mid.jpg"
     assert sorted_rows[2]["rel"] == "old.jpg"
-    # NULL should be last due to "ORDER BY dt IS NULL, dt DESC"
+    # NULL should be last due to "ORDER BY dt DESC NULLS LAST"
     assert sorted_rows[3]["rel"] == "null.jpg"
 
 def test_transaction(store: IndexStore) -> None:
@@ -169,3 +169,64 @@ def test_transaction_rollback(store: IndexStore) -> None:
 
     # Verify t1 is gone
     assert not any(r["rel"] == "t1.jpg" for r in rows)
+
+def test_apply_live_role_updates(store: IndexStore) -> None:
+    """Verify live role batch updates and reset behavior."""
+    rows = [
+        {"rel": "still.jpg", "id": "1"},
+        {"rel": "motion.mov", "id": "2"},
+        {"rel": "other.jpg", "id": "3"},
+    ]
+    store.write_rows(rows)
+
+    # 1. Test batch update
+    updates = [
+        ("still.jpg", 0, "motion.mov"),
+        ("motion.mov", 1, "still.jpg"),
+    ]
+    store.apply_live_role_updates(updates)
+
+    data = {r["rel"]: r for r in store.read_all()}
+    assert data["still.jpg"]["live_role"] == 0
+    assert data["still.jpg"]["live_partner_rel"] == "motion.mov"
+    assert data["motion.mov"]["live_role"] == 1
+    assert data["motion.mov"]["live_partner_rel"] == "still.jpg"
+    assert data["other.jpg"]["live_role"] == 0 # Default
+
+    # 2. Test reset with empty list (should clear roles)
+    store.apply_live_role_updates([])
+    data = {r["rel"]: r for r in store.read_all()}
+    assert data["still.jpg"]["live_role"] == 0
+    assert data["still.jpg"]["live_partner_rel"] is None
+    assert data["motion.mov"]["live_role"] == 0 # Reset to 0
+    assert data["motion.mov"]["live_partner_rel"] is None
+
+def test_read_all_filtered(store: IndexStore) -> None:
+    """Verify filter_hidden excludes hidden assets."""
+    rows = [
+        {"rel": "visible.jpg", "id": "1"},
+        {"rel": "hidden.mov", "id": "2"},
+    ]
+    store.write_rows(rows)
+    store.apply_live_role_updates([("hidden.mov", 1, "visible.jpg")])
+
+    # Non-filtered
+    all_rows = list(store.read_all(filter_hidden=False))
+    assert len(all_rows) == 2
+
+    # Filtered
+    visible_rows = list(store.read_all(filter_hidden=True))
+    assert len(visible_rows) == 1
+    assert visible_rows[0]["rel"] == "visible.jpg"
+
+def test_count_filtered(store: IndexStore) -> None:
+    """Verify count respects filter_hidden."""
+    rows = [
+        {"rel": "visible.jpg", "id": "1"},
+        {"rel": "hidden.mov", "id": "2"},
+    ]
+    store.write_rows(rows)
+    store.apply_live_role_updates([("hidden.mov", 1, "visible.jpg")])
+
+    assert store.count(filter_hidden=False) == 2
+    assert store.count(filter_hidden=True) == 1
