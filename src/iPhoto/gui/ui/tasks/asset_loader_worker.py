@@ -331,6 +331,6 @@ class AssetLoaderWorker(QRunnable):
             yield chunk
 
         # Final progress update
-        if not total_calculated: # If we never flushed (e.g. small album)
+        if not total_calculated:  # If we never flushed (e.g. small album)
              total = yielded_count
         self._signals.progressUpdated.emit(self._root, total, total)
