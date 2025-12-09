@@ -4,6 +4,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+pytest.importorskip("PySide6", reason="PySide6 is required for library tests", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", reason="Qt widgets not available", exc_type=ImportError)
 from PySide6.QtWidgets import QApplication
 
 from src.iPhoto.library.manager import LibraryManager
