@@ -12,7 +12,12 @@ from ..config import WORK_DIR_NAME
 
 
 class IndexStore:
-    """Read/write helper for ``index.db`` SQLite database."""
+    """Read/write helper for ``index.db`` SQLite database.
+
+    .. note::
+       Instances of this class are not thread-safe. Each thread should create
+       its own instance to avoid race conditions on the shared transaction connection.
+    """
 
     def __init__(self, album_root: Path):
         self.album_root = album_root
