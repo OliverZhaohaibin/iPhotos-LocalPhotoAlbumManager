@@ -168,7 +168,6 @@ def test_incremental_update_existing_row(model):
     args = model.dataChanged.emit.call_args[0]
     assert args[0].row() == 1
 
-    # Verify that the model's data is updated and the appropriate signals are emitted when an existing row is updated.
 def test_accumulator_update_existing_row(model):
     """Regression test: Accumulator merging an update should call invalidate_thumbnail without crash."""
 
