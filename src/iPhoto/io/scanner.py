@@ -153,8 +153,23 @@ def _process_path_stream(
     total_provider: Optional[Callable[[], int]] = None,
     batch_size: int = 50,
 ) -> Iterator[Dict[str, Any]]:
-    """Internal helper to process a stream of paths in batches."""
+    """
+    Internal helper to process a stream of paths in batches.
 
+    Args:
+        root (Path): The root directory for scanning, used for context.
+        path_iterator (Iterator[Path]): An iterator yielding Path objects to process.
+        progress_callback (Optional[Callable[[int, int], None]]): Optional callback function
+            that is called with the number of processed items and the total number of items.
+            Useful for reporting progress. If None, no progress is reported.
+        total_provider (Optional[Callable[[], int]]): Optional function that returns the total
+            number of items to process. Used in conjunction with progress_callback to provide
+            progress updates. If None, total is unknown.
+        batch_size (int): The number of paths to process in each batch. Defaults to 50.
+
+    Yields:
+        Dict[str, Any]: Populated index rows for each processed media file.
+    """
     batch: List[Path] = []
     processed_count = 0
     last_reported_count = 0
