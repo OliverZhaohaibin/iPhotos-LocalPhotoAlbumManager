@@ -323,7 +323,7 @@ class AssetLoaderWorker(QRunnable):
                         total_calculated = True
                     except Exception as exc:
                         LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)
-                        total = 0 # fallback
+                        total = 0  # fallback
 
             # Update progress periodically
             # Use >= total to robustly handle concurrent additions where position might exceed original total
@@ -336,6 +336,6 @@ class AssetLoaderWorker(QRunnable):
             yield chunk
 
         # Final progress update
-        if not total_calculated: # If we never flushed (e.g. small album)
+        if not total_calculated:  # If we never flushed (e.g. small album)
              total = yielded_count
         self._signals.progressUpdated.emit(self._root, total, total)
