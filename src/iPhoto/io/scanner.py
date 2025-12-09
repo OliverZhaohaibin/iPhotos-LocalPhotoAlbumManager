@@ -96,7 +96,7 @@ class FileDiscoverer(threading.Thread):
             # If the queue is full, we are likely stopping and the consumer may have stopped listening,
             # so it's acceptable to ignore this exception.
             except queue.Full:
-                LOGGER.warning("Could not signal end of discovery: queue is full. Consumer may hang waiting for sentinel.")
+                LOGGER.warning("Failed to signal end of discovery due to full queue. Consumer may hang.")
 
 
 def gather_media_paths(
