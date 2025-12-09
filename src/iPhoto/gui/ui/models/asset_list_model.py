@@ -25,7 +25,6 @@ from ..tasks.asset_loader_worker import (
 from .asset_cache_manager import AssetCacheManager
 from .asset_data_loader import AssetDataLoader
 from .asset_state_manager import AssetListStateManager
-from .asset_data_accumulator import AssetDataAccumulator
 from .asset_row_adapter import AssetRowAdapter
 from .list_diff_calculator import ListDiffCalculator
 from .live_map import load_live_map
@@ -53,6 +52,10 @@ class AssetListModel(QAbstractListModel):
     loadProgress = Signal(Path, int, int)
     loadFinished = Signal(Path, bool)
 
+    # Tuning constants for streaming updates
+    _STREAM_FLUSH_INTERVAL_MS = 100
+    _STREAM_FLUSH_THRESHOLD = 500
+
     def __init__(self, facade: "AppFacade", parent=None) -> None:  # type: ignore[override]
         super().__init__(parent)
         self._facade = facade
@@ -68,15 +71,17 @@ class AssetListModel(QAbstractListModel):
         self._state_manager = AssetListStateManager(self, self._cache_manager)
         self._cache_manager.set_recently_removed_limit(256)
 
-        self._accumulator = AssetDataAccumulator(self, self._state_manager, self)
+        # AssetDataAccumulator is removed in favor of direct streaming buffers
         self._row_adapter = AssetRowAdapter(self._thumb_size, self._cache_manager)
 
-        # ``_pending_rows`` accumulates worker results while a background load is
-        # in flight.  Once :meth:`_on_loader_finished` fires we swap the buffered
-        # snapshot into the model in a single reset so aggregate views only see
-        # one visual refresh instead of flickering through multiple incremental
-        # updates.
-        self._pending_rows: List[Dict[str, object]] = []
+        # Streaming buffer state
+        self._pending_chunks_buffer: List[Dict[str, object]] = []
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setInterval(self._STREAM_FLUSH_INTERVAL_MS)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.timeout.connect(self._flush_pending_chunks)
+        self._is_first_chunk = True
+
         self._pending_loader_root: Optional[Path] = None
         self._deferred_incremental_refresh: Optional[Path] = None
 
@@ -233,7 +238,8 @@ class AssetListModel(QAbstractListModel):
 
         rows, _ = result
 
-        self._pending_rows = []
+        self._pending_chunks_buffer = []
+        self._flush_timer.stop()
         self._pending_loader_root = None
 
         self.beginResetModel()
@@ -322,14 +328,16 @@ class AssetListModel(QAbstractListModel):
         self._album_root = root
         self._cache_manager.reset_for_album(root)
         self._set_deferred_incremental_refresh(None)
-        self._accumulator.clear()
+
+        self._pending_chunks_buffer = []
+        self._flush_timer.stop()
+
         self.beginResetModel()
         self._state_manager.clear_rows()
         self.endResetModel()
         self._cache_manager.clear_recently_removed()
         self._state_manager.set_virtual_reload_suppressed(False)
         self._state_manager.set_virtual_move_requires_revisit(False)
-        self._pending_rows = []
         self._pending_loader_root = None
 
     def update_featured_status(self, rel: str, is_featured: bool) -> None:
@@ -362,13 +370,16 @@ class AssetListModel(QAbstractListModel):
             self._state_manager.mark_reload_pending()
             return
 
-        # Clear the model before starting a fresh load so progressive updates
-        # build the view from scratch.  This replaces the old behaviour where we
-        # waited for the full payload and then did a single ``beginResetModel``.
-        self._accumulator.clear()
-        self.beginResetModel()
-        self._state_manager.clear_rows()
-        self.endResetModel()
+        self._pending_chunks_buffer = []
+        self._flush_timer.stop()
+        self._is_first_chunk = True
+
+        # We DON'T reset the model here anymore to allow seamless reloading
+        # But for switching albums, prepare_for_album handles reset.
+        # For simple reload, we might want to clear?
+        # The requirement says: "If it is the first chunk... Call beginResetModel... to clear old data".
+        # So we defer clearing until the first chunk arrives to minimize blank screen time.
+
         self._cache_manager.clear_recently_removed()
 
         manifest = self._facade.current_album.manifest if self._facade.current_album else {}
@@ -399,7 +410,45 @@ class AssetListModel(QAbstractListModel):
         ):
             return
 
-        self._accumulator.add_chunk(chunk)
+        if self._is_first_chunk:
+            self._is_first_chunk = False
+
+            # First chunk: Reset model immediately
+            self.beginResetModel()
+            self._state_manager.clear_rows()
+            self._state_manager.append_chunk(chunk)
+            self.endResetModel()
+
+            # Start loading thumbnails for the first batch immediately
+            self.prioritize_rows(0, len(chunk) - 1)
+
+            return
+
+        # Subsequent chunks: Buffer and throttle
+        self._pending_chunks_buffer.extend(chunk)
+
+        if len(self._pending_chunks_buffer) >= self._STREAM_FLUSH_THRESHOLD:
+            self._flush_pending_chunks()
+        elif not self._flush_timer.isActive():
+            self._flush_timer.start()
+
+    def _flush_pending_chunks(self) -> None:
+        """Commit buffered chunks to the model."""
+        if not self._pending_chunks_buffer:
+            return
+
+        payload = self._pending_chunks_buffer
+        self._pending_chunks_buffer = []
+        self._flush_timer.stop()
+
+        start_row = self._state_manager.row_count()
+        end_row = start_row + len(payload) - 1
+
+        self.beginInsertRows(QModelIndex(), start_row, end_row)
+        self._state_manager.append_chunk(payload)
+        self.endInsertRows()
+
+        self._state_manager.on_external_row_inserted(start_row, len(payload))
 
     def _on_scan_chunk_ready(self, root: Path, chunk: List[Dict[str, object]]) -> None:
         """Integrate fresh rows from the scanner into the live view."""
@@ -423,7 +472,13 @@ class AssetListModel(QAbstractListModel):
                 entries.append(entry)
 
         if entries:
-            self._accumulator.add_chunk(entries)
+            # For live scanning, we just append directly as it's not high-frequency streaming
+            start_row = self._state_manager.row_count()
+            end_row = start_row + len(entries) - 1
+            self.beginInsertRows(QModelIndex(), start_row, end_row)
+            self._state_manager.append_chunk(entries)
+            self.endInsertRows()
+            self._state_manager.on_external_row_inserted(start_row, len(entries))
 
     def _on_loader_progress(self, root: Path, current: int, total: int) -> None:
         if not self._album_root or root != self._album_root:
@@ -438,7 +493,7 @@ class AssetListModel(QAbstractListModel):
             return
 
         # Ensure any remaining items are committed before announcing completion.
-        self._accumulator.flush()
+        self._flush_pending_chunks()
 
         self.loadFinished.emit(root, success)
 
@@ -474,7 +529,7 @@ class AssetListModel(QAbstractListModel):
         self._facade.errorRaised.emit(message)
         self.loadFinished.emit(root, False)
 
-        self._pending_rows = []
+        self._pending_chunks_buffer = []
         self._pending_loader_root = None
 
         should_restart = self._state_manager.consume_pending_reload(self._album_root, root)
@@ -582,7 +637,7 @@ class AssetListModel(QAbstractListModel):
             logger.debug(
                 "AssetListModel: finishing temporary suppression for %s after non-aggregate move.",
                 updated_root,
-            )
+                )
             self._state_manager.set_virtual_reload_suppressed(False)
             if self._state_manager.rows:
                 self._reload_live_metadata()

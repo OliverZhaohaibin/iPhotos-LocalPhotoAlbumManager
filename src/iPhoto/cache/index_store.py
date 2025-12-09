@@ -87,6 +87,8 @@ class IndexStore:
             # Create indices for common sort/filter operations if needed.
             # 'dt' is used for sorting.
             conn.execute("CREATE INDEX IF NOT EXISTS idx_dt ON assets (dt)")
+            # Add specific index for descending sort on dt to optimize streaming query
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_dt_desc ON assets (dt DESC)")
             # 'gps' index might help if we have huge datasets, but IS NOT NULL scan is usually fast enough
             # unless we add partial index. For now, full table scan with filtering is better than loading all to Python.
 
