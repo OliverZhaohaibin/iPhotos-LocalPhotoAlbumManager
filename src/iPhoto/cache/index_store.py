@@ -15,7 +15,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, Optional, Any, List
+from typing import Dict, Iterable, Iterator, Optional, Any, List, Tuple
 
 from ..config import WORK_DIR_NAME
 
@@ -69,9 +69,21 @@ class IndexStore:
                     dur REAL,
                     original_rel_path TEXT,
                     original_album_id TEXT,
-                    original_album_subpath TEXT
+                    original_album_subpath TEXT,
+                    live_role INTEGER DEFAULT 0,
+                    live_partner_rel TEXT
                 )
             """)
+
+            # Check if columns exist and add them if not (migration)
+            cursor = conn.execute("PRAGMA table_info(assets)")
+            columns = {row[1] for row in cursor}
+
+            if "live_role" not in columns:
+                conn.execute("ALTER TABLE assets ADD COLUMN live_role INTEGER DEFAULT 0")
+            if "live_partner_rel" not in columns:
+                conn.execute("ALTER TABLE assets ADD COLUMN live_partner_rel TEXT")
+
             # Create indices for common sort/filter operations if needed.
             # 'dt' is used for sorting.
             conn.execute("CREATE INDEX IF NOT EXISTS idx_dt ON assets (dt)")
@@ -142,7 +154,8 @@ class IndexStore:
             "iso", "f_number", "exposure_time", "exposure_compensation", "focal_length",
             "w", "h", "gps", "content_id", "frame_rate", "codec",
             "still_image_time", "dur", "original_rel_path",
-            "original_album_id", "original_album_subpath"
+            "original_album_id", "original_album_subpath",
+            "live_role", "live_partner_rel"
         ]
         placeholders = ", ".join(["?"] * len(columns))
         query = f"INSERT OR REPLACE INTO assets ({', '.join(columns)}) VALUES ({placeholders})"
@@ -180,6 +193,8 @@ class IndexStore:
             row.get("original_rel_path"),
             row.get("original_album_id"),
             row.get("original_album_subpath"),
+            row.get("live_role", 0),
+            row.get("live_partner_rel"),
         ]
 
     def _db_row_to_dict(self, db_row: sqlite3.Row) -> Dict[str, Any]:
@@ -192,19 +207,29 @@ class IndexStore:
                 d["gps"] = None
         return d
 
-    def read_all(self, sort_by_date: bool = False) -> Iterator[Dict[str, Any]]:
+    def read_all(self, sort_by_date: bool = False, filter_hidden: bool = False) -> Iterator[Dict[str, Any]]:
         """Yield all rows from the index.
 
         :param sort_by_date: If True, order results by 'dt' descending (newest first).
+        :param filter_hidden: If True, exclude hidden assets (e.g. motion components).
         """
         conn = self._get_conn()
         should_close = (conn != self._conn)
 
         try:
             query = "SELECT * FROM assets"
+            where_clauses = []
+
+            if filter_hidden:
+                where_clauses.append("live_role = 0")
+
+            if where_clauses:
+                query += " WHERE " + " AND ".join(where_clauses)
+
             if sort_by_date:
                 # Ensure NULL dates appear last when sorting descending
-                query += " ORDER BY dt IS NULL, dt DESC"
+                # Deterministic sort order for stable streaming
+                query += " ORDER BY dt IS NULL, dt DESC, id DESC"
 
             # Set the row factory on the connection before creating the cursor
             conn.row_factory = sqlite3.Row
@@ -291,15 +316,63 @@ class IndexStore:
             if not is_nested:
                 conn.close()
 
-    def count(self) -> int:
+    def count(self, filter_hidden: bool = False) -> int:
         """Return the total number of assets in the index."""
         conn = self._get_conn()
         should_close = (conn != self._conn)
 
         try:
-            cursor = conn.execute("SELECT COUNT(*) FROM assets")
+            query = "SELECT COUNT(*) FROM assets"
+            if filter_hidden:
+                query += " WHERE live_role = 0"
+
+            cursor = conn.execute(query)
             result = cursor.fetchone()
             return result[0] if result else 0
         finally:
             if should_close:
+                conn.close()
+
+    def apply_live_role_updates(self, updates: List[Tuple[str, int, Optional[str]]]) -> None:
+        """Update live_role and live_partner_rel for a batch of assets.
+
+        This method first resets live_role and live_partner_rel for all assets
+        to ensure consistency (unpaired items revert to role 0), then applies
+        the specific updates.
+
+        :param updates: List of (rel, live_role, live_partner_rel) tuples.
+        """
+        if not updates:
+            # Just reset everything if no updates
+            conn = self._get_conn()
+            is_nested = (conn == self._conn)
+            try:
+                if is_nested:
+                    conn.execute("UPDATE assets SET live_role = 0, live_partner_rel = NULL")
+                else:
+                    with conn:
+                        conn.execute("UPDATE assets SET live_role = 0, live_partner_rel = NULL")
+            finally:
+                if not is_nested:
+                    conn.close()
+            return
+
+        conn = self._get_conn()
+        is_nested = (conn == self._conn)
+
+        try:
+            query = "UPDATE assets SET live_role = ?, live_partner_rel = ? WHERE rel = ?"
+            # We arrange params as (live_role, live_partner_rel, rel)
+            # Input is (rel, live_role, live_partner_rel)
+            params = [(role, partner, rel) for rel, role, partner in updates]
+
+            if is_nested:
+                conn.execute("UPDATE assets SET live_role = 0, live_partner_rel = NULL")
+                conn.executemany(query, params)
+            else:
+                with conn:
+                    conn.execute("UPDATE assets SET live_role = 0, live_partner_rel = NULL")
+                    conn.executemany(query, params)
+        finally:
+            if not is_nested:
                 conn.close()

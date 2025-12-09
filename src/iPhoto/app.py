@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from .cache.index_store import IndexStore
 from .cache.lock import FileLock
@@ -44,16 +44,27 @@ def open_album(root: Path, autoscan: bool = True) -> Album:
 def _ensure_links(root: Path, rows: List[dict]) -> None:
     work_dir = root / WORK_DIR_NAME
     links_path = work_dir / "links.json"
-    _, payload = _compute_links_payload(rows)
+    groups, payload = _compute_links_payload(rows)
+
+    # Even if payload matches, we must ensure the DB is synced with the live roles
+    # derived from the link structure.
+    # However, if the file exists and payload matches, it's highly likely DB is also synced
+    # unless this is a migration scenario. To be safe, we perform the sync.
+
     if links_path.exists():
         try:
             existing: Dict[str, object] = read_json(links_path)
         except ManifestInvalidError:
             existing = {}
         if existing == payload:
+            # Sync DB anyway to ensure migration/consistency
+            _sync_live_roles_to_db(root, groups)
             return
+
     LOGGER.info("Updating links.json for %s", root)
     _write_links(root, payload)
+    # _write_links writes the file, but we also need to update the DB
+    _sync_live_roles_to_db(root, groups)
 
 
 def _compute_links_payload(rows: List[dict]) -> tuple[List[LiveGroup], Dict[str, object]]:
@@ -70,6 +81,22 @@ def _write_links(root: Path, payload: Dict[str, object]) -> None:
     work_dir = root / WORK_DIR_NAME
     with FileLock(root, "links"):
         write_json(work_dir / "links.json", payload, backup_dir=work_dir / "manifest.bak")
+
+
+def _sync_live_roles_to_db(root: Path, groups: List[LiveGroup]) -> None:
+    """Propagate live photo roles from computed groups to the IndexStore."""
+    updates: List[Tuple[str, int, Optional[str]]] = []
+
+    for group in groups:
+        # Still image: Role 0 (Primary), Partner = Motion
+        if group.still:
+            updates.append((group.still, 0, group.motion))
+
+        # Motion component: Role 1 (Hidden), Partner = Still
+        if group.motion:
+            updates.append((group.motion, 1, group.still))
+
+    IndexStore(root).apply_live_role_updates(updates)
 
 
 def _normalise_rel_key(rel_value: object) -> Optional[str]:
@@ -255,4 +282,8 @@ def pair(root: Path) -> List[LiveGroup]:
     rows = list(IndexStore(root).read_all())
     groups, payload = _compute_links_payload(rows)
     _write_links(root, payload)
+
+    # Also sync to DB
+    _sync_live_roles_to_db(root, groups)
+
     return groups

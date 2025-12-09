@@ -20,8 +20,6 @@ from PySide6.QtGui import QPixmap
 from ..tasks.thumbnail_loader import ThumbnailLoader
 from ..tasks.asset_loader_worker import (
     build_asset_entry,
-    resolve_live_map,
-    get_motion_paths_to_hide,
     normalize_featured,
 )
 from .asset_cache_manager import AssetCacheManager
@@ -416,23 +414,10 @@ class AssetListModel(QAbstractListModel):
         featured = manifest.get("featured", []) or []
         featured_set = normalize_featured(featured)
 
-        live_map_snapshot = self._cache_manager.live_map_snapshot()
-        # Note: During a fresh scan, `chunk` contains new items that might form
-        # Live Photo pairs.  However, `live_map_snapshot` is based on the
-        # *existing* `links.json`.  We can't easily update the live map incrementally
-        # here without reimplementing the full pairing logic.
-        # User experience: Items that could form Live Photo pairs may temporarily
-        # appear unpaired in the UI during the scan. Once the scan completes and
-        # `linksUpdated` fires, the model will update and correctly pair these items.
-        # This is an acceptable trade-off to avoid complex incremental pairing logic.
-        # Use the existing map to at least resolve known pairs.
-        resolved_map = resolve_live_map(chunk, live_map_snapshot)
-        paths_to_hide = get_motion_paths_to_hide(resolved_map)
-
         entries: List[Dict[str, object]] = []
         for row in chunk:
             entry = build_asset_entry(
-                root, row, featured_set, resolved_map, paths_to_hide
+                root, row, featured_set
             )
             if entry is not None:
                 entries.append(entry)
@@ -788,7 +773,12 @@ class AssetListModel(QAbstractListModel):
         return is_descendant_path(updated_root, album_root)
 
     def _reload_live_metadata(self) -> None:
-        """Re-read ``links.json`` and update cached Live Photo roles."""
+        """Re-read ``links.json`` and update cached Live Photo roles.
+
+        Note: With the schema update, structural changes (hide/show) require
+        a full refresh via _refresh_rows_from_index. This method now serves
+        primarily to update metadata for items that remain visible.
+        """
 
         rows = self._state_manager.rows
         if not self._album_root or not rows:

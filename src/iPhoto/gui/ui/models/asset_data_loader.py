@@ -59,7 +59,7 @@ class AssetDataLoader(QObject):
 
         try:
             # We use row count from SQLite instead of file size.
-            count = IndexStore(root).count()
+            count = IndexStore(root).count(filter_hidden=True)
         except Exception:
             count = 0
 

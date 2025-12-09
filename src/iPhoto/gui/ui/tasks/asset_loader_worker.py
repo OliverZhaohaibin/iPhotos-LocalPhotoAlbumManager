@@ -10,7 +10,6 @@ from PySide6.QtCore import QObject, QRunnable, Signal
 
 from ....cache.index_store import IndexStore
 from ....config import WORK_DIR_NAME
-from ....core.pairing import pair_live
 from ....media_classifier import classify_media
 from ....utils.geocoding import resolve_location_name
 from ....utils.pathutils import ensure_work_dir
@@ -95,102 +94,39 @@ def _parse_timestamp(value: object) -> float:
         return float("-inf")
 
 
-def resolve_live_map(
-    index_rows: List[Dict[str, object]],
-    base_map: Dict[str, Dict[str, object]],
-) -> Dict[str, Dict[str, object]]:
-    mapping: Dict[str, Dict[str, object]] = dict(base_map)
-    missing: Set[str] = set()
-    for row in index_rows:
-        rel = str(row.get("rel"))
-        if not rel:
-            continue
-        is_image, _ = classify_media(row)
-        if not is_image:
-            continue
-        info = mapping.get(rel)
-        motion_ref = info.get("motion") if isinstance(info, dict) else None
-        if isinstance(motion_ref, str) and motion_ref:
-            continue
-        missing.add(rel)
-    if not missing:
-        return mapping
-
-    for group in pair_live(index_rows):
-        still = group.still
-        if still not in missing:
-            continue
-        motion = group.motion
-        record: Dict[str, object] = {
-            "id": group.id,
-            "still": still,
-            "motion": motion,
-            "confidence": group.confidence,
-        }
-        if group.content_id:
-            record["content_id"] = group.content_id
-        if group.still_image_time is not None:
-            record["still_image_time"] = group.still_image_time
-        mapping[still] = {**record, "role": "still"}
-        if motion:
-            mapping[motion] = {**record, "role": "motion"}
-    return mapping
-
-
-def get_motion_paths_to_hide(live_map: Dict[str, Dict[str, object]]) -> Set[str]:
-    motion_paths: Set[str] = set()
-    for info in live_map.values():
-        if not isinstance(info, dict):
-            continue
-        if info.get("role") != "motion":
-            continue
-        motion_rel = info.get("motion")
-        if isinstance(motion_rel, str) and motion_rel:
-            motion_paths.add(motion_rel)
-    return motion_paths
-
-
 def build_asset_entry(
     root: Path,
     row: Dict[str, object],
     featured: Set[str],
-    live_map: Dict[str, Dict[str, object]],
-    hidden_motion_paths: Set[str],
 ) -> Optional[Dict[str, object]]:
     rel = str(row.get("rel"))
-    if not rel or rel in hidden_motion_paths:
+    if not rel:
         return None
 
-    live_info = live_map.get(rel)
     abs_path = str((root / rel).resolve())
     is_image, is_video = classify_media(row)
     is_pano = _is_panorama_candidate(row, is_image)
 
+    live_partner_rel = row.get("live_partner_rel")
     live_motion: Optional[str] = None
     live_motion_abs: Optional[str] = None
     live_group_id: Optional[str] = None
 
-    if isinstance(live_info, dict) and live_info.get("role") == "still":
-        motion_rel = live_info.get("motion")
-        if isinstance(motion_rel, str) and motion_rel:
-            live_motion = motion_rel
-            live_motion_abs = str((root / motion_rel).resolve())
-        group_id = live_info.get("id")
-        if isinstance(group_id, str):
-            live_group_id = group_id
-    elif isinstance(live_info, dict) and isinstance(live_info.get("id"), str):
-        live_group_id = str(live_info["id"])
+    if isinstance(live_partner_rel, str) and live_partner_rel:
+        live_motion = live_partner_rel
+        live_motion_abs = str((root / live_partner_rel).resolve())
+        live_group_id = f"live_{hash((rel, live_partner_rel)) & 0xFFFFFF:x}"
 
     gps_raw = row.get("gps") if isinstance(row, dict) else None
     location_name = resolve_location_name(gps_raw if isinstance(gps_raw, dict) else None)
 
     # Resolve timestamp with legacy fallback safety
     ts_value = -1
-    if "ts" in row:
-        ts_value = int(row["ts"])
+    ts_raw = row.get("ts")
+    if ts_raw is not None:
+        ts_value = int(ts_raw)
     else:
         # Fallback for legacy rows: parse 'dt' on the fly.
-        # Must check for -inf to avoid OverflowError when casting to int.
         dt_parsed = _parse_timestamp(row.get("dt"))
         if dt_parsed != float("-inf"):
             ts_value = int(dt_parsed * 1_000_000)
@@ -232,11 +168,7 @@ def build_asset_entry(
         "content_id": row.get("content_id"),
         "frame_rate": row.get("frame_rate"),
         "codec": row.get("codec"),
-        # Include the original location for trashed assets so restore flows can
-        # display accurate targeting information and round-trip the metadata.
         "original_rel_path": row.get("original_rel_path"),
-        # Record the originating album identifier and the asset's relative path
-        # inside that album so restores remain resilient to folder renames.
         "original_album_id": row.get("original_album_id"),
         "original_album_subpath": row.get("original_album_subpath"),
     }
@@ -246,18 +178,17 @@ def build_asset_entry(
 def compute_asset_rows(
     root: Path,
     featured: Iterable[str],
-    live_map: Dict[str, Dict[str, object]],
+    live_map: Dict[str, Dict[str, object]], # Kept for compatibility but unused for pairing
 ) -> Tuple[List[Dict[str, object]], int]:
     ensure_work_dir(root, WORK_DIR_NAME)
-    # Use sort_by_date=True to leverage SQLite's sorting
-    index_rows = list(IndexStore(root).read_all(sort_by_date=True))
-    resolved_map = resolve_live_map(index_rows, live_map)
-    motion_paths = get_motion_paths_to_hide(resolved_map)
+
+    store = IndexStore(root)
+    index_rows = list(store.read_all(sort_by_date=True, filter_hidden=True))
     featured_set = normalize_featured(featured)
 
     entries: List[Dict[str, object]] = []
     for row in index_rows:
-        entry = build_asset_entry(root, row, featured_set, resolved_map, motion_paths)
+        entry = build_asset_entry(root, row, featured_set)
         if entry is not None:
             entries.append(entry)
     return entries, len(index_rows)
@@ -330,42 +261,63 @@ class AssetLoaderWorker(QRunnable):
     # ------------------------------------------------------------------
     def _build_payload_chunks(self) -> Iterable[List[Dict[str, object]]]:
         ensure_work_dir(self._root, WORK_DIR_NAME)
-        # Use sort_by_date=True to leverage SQLite's sorting capability.
-        # This replaces the client-side sorting:
-        # index_rows.sort(key=lambda row: row.get("dt") or "", reverse=True)
-        index_rows = list(IndexStore(self._root).read_all(sort_by_date=True))
+        store = IndexStore(self._root)
 
-        live_map = resolve_live_map(index_rows, self._live_map)
-        hidden_motion_paths = get_motion_paths_to_hide(live_map)
+        # 1. Get total count for scrollbar/progress
+        try:
+            total = store.count(filter_hidden=True)
+        except Exception:
+            total = 0
 
-        total = len(index_rows)
+        self._signals.progressUpdated.emit(self._root, 0, total)
+
         if total == 0:
-            self._signals.progressUpdated.emit(self._root, 0, 0)
             return
 
-        chunk_size = 200
+        # 2. Stream rows
+        generator = store.read_all(sort_by_date=True, filter_hidden=True)
+
         chunk: List[Dict[str, object]] = []
         last_reported = 0
-        for position, row in enumerate(index_rows, start=1):
+
+        # Priority: Emit first 20 items quickly
+        first_chunk_size = 20
+        normal_chunk_size = 200
+
+        for position, row in enumerate(generator, start=1):
             if self._is_cancelled:
                 return
-            should_emit = position == total or position - last_reported >= 50
+
             entry = build_asset_entry(
                 self._root,
                 row,
                 self._featured,
-                live_map,
-                hidden_motion_paths,
             )
+
             if entry is not None:
                 chunk.append(entry)
-            if should_emit:
-                last_reported = position
-                self._signals.progressUpdated.emit(self._root, position, total)
 
-            if chunk and (len(chunk) >= chunk_size or position == total):
+            # Determine emission
+            is_first_batch = position <= first_chunk_size
+            should_flush = False
+
+            if is_first_batch:
+                if len(chunk) >= first_chunk_size:
+                    should_flush = True
+            elif len(chunk) >= normal_chunk_size:
+                should_flush = True
+
+            if position == total: # Always flush at end
+                should_flush = True
+
+            if should_flush:
                 yield chunk
                 chunk = []
+
+            # Update progress periodically
+            if position == total or position - last_reported >= 50:
+                last_reported = position
+                self._signals.progressUpdated.emit(self._root, position, total)
 
         if chunk:
             yield chunk
