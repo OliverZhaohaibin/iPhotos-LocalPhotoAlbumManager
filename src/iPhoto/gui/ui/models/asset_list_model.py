@@ -749,11 +749,7 @@ class AssetListModel(QAbstractListModel):
             ]
             self.dataChanged.emit(model_index, model_index, affected_roles)
 
-            self._cache_manager.remove_thumbnail(rel_key)
-            self._cache_manager.remove_placeholder(rel_key)
-            abs_value = replacement.get("abs")
-            if abs_value:
-                self._cache_manager.remove_recently_removed(str(abs_value))
+            self.invalidate_thumbnail(rel_key)
 
         return diff.structure_changed or bool(diff.changed_items)
 
