@@ -127,12 +127,6 @@ class AssetDataAccumulator(QObject):
                 index = self._model.index(row_index, 0)
                 self._model.dataChanged.emit(index, index, affected_roles)
                 # Invalidate cache for updated rows to ensure fresh thumbnails
-                # Accessing cache manager via private attribute of model is fragile
-                # but we are effectively part of the model logic.
-                # Ideally, we should use a public method on model or receive cache_manager.
-                # But looking at AssetListModel, it has `invalidate_thumbnail` or internal `_cache_manager`.
-                # We can call `invalidate_thumbnail` if we have the rel.
-
                 # Retrieve the row to get the rel
                 row = self._state_manager.rows[row_index]
                 rel = row.get("rel")
