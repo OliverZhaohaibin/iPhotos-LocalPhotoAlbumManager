@@ -189,7 +189,8 @@ class IndexStore:
         try:
             query = "SELECT * FROM assets"
             if sort_by_date:
-                query += " ORDER BY dt DESC"
+                # Ensure NULL dates appear last when sorting descending
+                query += " ORDER BY dt IS NULL, dt DESC"
 
             # Use a cursor with a specific row factory to avoid modifying the connection
             cursor = conn.cursor()
