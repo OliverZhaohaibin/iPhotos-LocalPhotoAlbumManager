@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from OpenGL import GL as gl
 from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QPaintEvent, QPalette, QSurfaceFormat
+from PySide6.QtGui import QPaintEvent, QPalette, QSurfaceFormat, QColor
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QAbstractItemView, QListView
 
@@ -17,6 +17,7 @@ class GalleryViewport(QOpenGLWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._bg_color: QColor | None = None
 
         # Disable the alpha buffer to prevent transparency issues with the DWM
         # when using a frameless window configuration.
@@ -24,13 +25,22 @@ class GalleryViewport(QOpenGLWidget):
         gl_format.setAlphaBufferSize(0)
         self.setFormat(gl_format)
 
+    def set_background_color(self, color: QColor) -> None:
+        """Set the background color for the viewport."""
+        self._bg_color = color
+        self.update()
+
     def paintGL(self) -> None:
         """Clear the background to the theme's base color with full opacity."""
         self.clear_background()
 
     def clear_background(self) -> None:
         """Explicitly clear the viewport background."""
-        base_color = self.palette().color(QPalette.ColorRole.Base)
+        if self._bg_color:
+            base_color = self._bg_color
+        else:
+            base_color = self.palette().color(QPalette.ColorRole.Base)
+
         # Ensure we have a context before issuing GL commands
         self.makeCurrent()
         gl.glClearColor(base_color.redF(), base_color.greenF(), base_color.blueF(), 1.0)
@@ -129,6 +139,11 @@ class GalleryGridView(AssetGrid):
     def _apply_scrollbar_style(self) -> None:
         text_color = self.palette().color(QPalette.ColorRole.WindowText)
         base_color = self.palette().color(QPalette.ColorRole.Base)
+
+        # Propagate background color to the viewport
+        viewport = self.viewport()
+        if isinstance(viewport, GalleryViewport):
+            viewport.set_background_color(base_color)
 
         # We need to enforce the background color on the GalleryGridView (and its viewport)
         # because QOpenGLWidget in a translucent window context defaults to transparent.

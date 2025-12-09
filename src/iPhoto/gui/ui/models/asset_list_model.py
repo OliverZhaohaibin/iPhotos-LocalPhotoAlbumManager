@@ -204,7 +204,8 @@ class AssetListModel(QAbstractListModel):
         """Return ``True`` when optimistic move updates are awaiting results."""
 
         return self._state_manager.has_pending_move_placeholders()
-    def populate_from_cache(self, *, max_index_bytes: int = 512 * 1024) -> bool:
+
+    def populate_from_cache(self) -> bool:
         """Synchronously load cached index data when the file is small."""
 
         if not self._album_root:
@@ -227,7 +228,6 @@ class AssetListModel(QAbstractListModel):
             root,
             featured,
             self._cache_manager.live_map_snapshot(),
-            max_index_bytes=max_index_bytes,
         )
         if result is None:
             return False
