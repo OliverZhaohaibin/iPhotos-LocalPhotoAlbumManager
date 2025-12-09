@@ -301,11 +301,13 @@ def scan_album(
         # Drain queue to allow thread to unblock if it was stuck on put()
         # The thread checks _stop_event, but only on the next iteration or timeout.
         # Draining helps if it's blocked.
-        while discoverer.is_alive():
+        # Drain the queue with a timeout to avoid race conditions and potential deadlocks.
+        while True:
             try:
-                path_queue.get_nowait()
+                path_queue.get(timeout=0.1)
             except queue.Empty:
-                break
+                if not discoverer.is_alive():
+                    break
 
         discoverer.join(timeout=1.0)
         if discoverer.is_alive():
