@@ -1,6 +1,7 @@
 """Tests for pathutils."""
 
 import os
+import pytest
 from pathlib import Path
 from src.iPhoto.utils.pathutils import (
     _expand,
@@ -75,11 +76,19 @@ def test_is_descendant_path(tmp_path):
     assert not is_descendant_path(sibling, child)
 
 def test_normalise_rel_value():
-    """Verify normalise_rel_value conversion."""
+    """Verify normalise_rel_value conversion and type safety."""
     assert normalise_rel_value("foo/bar") == "foo/bar"
     assert normalise_rel_value(Path("foo/bar")) == "foo/bar"
     assert normalise_rel_value(None) is None
     assert normalise_rel_value("") is None
-    # Ensure forward slashes on Windows too (simulated by using Path objects which might be OS dependent, but as_posix forces it)
+
+    # Ensure forward slashes on Windows too
     p = Path("foo") / "bar"
     assert normalise_rel_value(p) == "foo/bar"
+
+    # Test invalid types raise TypeError
+    with pytest.raises(TypeError):
+        normalise_rel_value(123)
+
+    with pytest.raises(TypeError):
+        normalise_rel_value(["list"])

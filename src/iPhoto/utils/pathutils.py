@@ -94,12 +94,16 @@ def is_descendant_path(path: Path, candidate_root: Path) -> bool:
 
 
 def normalise_rel_value(value: object) -> Optional[str]:
-    """Return a POSIX-formatted relative path for *value* when possible."""
+    """Return a POSIX-formatted relative path for *value* when possible.
 
-    if isinstance(value, str) and value:
-        return Path(value).as_posix()
-    if isinstance(value, Path):
-        return value.as_posix()
-    if value:
+    Raises:
+        TypeError: If *value* is truthy but not a str or Path.
+    """
+
+    if not value:
+        return None
+
+    if isinstance(value, (str, Path)):
         return Path(str(value)).as_posix()
-    return None
+
+    raise TypeError(f"Expected str or Path, got {type(value).__name__}")
