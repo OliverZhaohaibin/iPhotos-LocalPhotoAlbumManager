@@ -144,12 +144,14 @@ class TestScanAlbumProgress:
             for _ in scan_album(temp_album_structure, ["*"], [], progress_callback=callback):
                 pass
 
-        # With 50 files and batch size 50, we expect:
-        # 1. Initial (0, 0)
-        # 2. Maybe (25, X) if throttled
-        # 3. Final (50, 50)
-        # It shouldn't be 51 updates.
-
-        assert len(updates) < 40  # Should be significantly less than 50
+        # With 50 files and throttling every 25 files (as in the implementation),
+        # we expect updates at 0, 25, and 50 (start, mid, and end), so at most 3 updates.
+        # If the throttling interval changes, update the expected_max_updates accordingly.
+        throttling_interval = 25
+        total_files = 50
+        expected_max_updates = (total_files // throttling_interval) + 2  # +1 for initial, +1 for final
+        assert len(updates) <= expected_max_updates, (
+            f"Expected at most {expected_max_updates} updates, got {len(updates)}"
+        )
         assert 0 in updates
         assert 50 in updates
