@@ -94,7 +94,7 @@ class FileDiscoverer(threading.Thread):
             try:
                 self._queue.put(None, timeout=0.5)
             except queue.Full:
-                pass
+                LOGGER.warning("Could not signal end of discovery: queue is full. Consumer may hang waiting for sentinel.")
 
 
 def gather_media_paths(
