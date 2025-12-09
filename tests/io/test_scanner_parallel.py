@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.iPhoto.io.scanner import FileDiscoverer, scan_album, _process_path_stream
+from src.iPhoto.io.scanner import FileDiscoverer, scan_album
 
 
 @pytest.fixture
