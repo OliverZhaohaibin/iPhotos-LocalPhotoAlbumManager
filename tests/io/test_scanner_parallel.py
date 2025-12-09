@@ -109,8 +109,12 @@ class TestScanAlbumProgress:
         def callback(processed, total):
             updates.append((processed, total))
 
-        # Mock get_metadata_batch to be fast and return empty
-        with patch("src.iPhoto.io.scanner.get_metadata_batch", return_value=[]):
+        # Create mock metadata payloads
+        def mock_metadata(paths):
+            return [{"SourceFile": str(p), "MIMEType": "image/jpeg"} for p in paths]
+
+        # Mock get_metadata_batch to return realistic data
+        with patch("src.iPhoto.io.scanner.get_metadata_batch", side_effect=mock_metadata):
             # Consume the generator
             for _ in scan_album(temp_album_structure, ["*"], [], progress_callback=callback):
                 pass
@@ -133,7 +137,11 @@ class TestScanAlbumProgress:
         def callback(processed, total):
             updates.append(processed)
 
-        with patch("src.iPhoto.io.scanner.get_metadata_batch", return_value=[]):
+        # Create mock metadata payloads
+        def mock_metadata(paths):
+            return [{"SourceFile": str(p), "MIMEType": "image/jpeg"} for p in paths]
+
+        with patch("src.iPhoto.io.scanner.get_metadata_batch", side_effect=mock_metadata):
             for _ in scan_album(temp_album_structure, ["*"], [], progress_callback=callback):
                 pass
 
