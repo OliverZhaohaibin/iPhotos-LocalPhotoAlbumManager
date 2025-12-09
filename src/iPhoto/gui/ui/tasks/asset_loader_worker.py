@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
@@ -15,7 +16,7 @@ from ....utils.geocoding import resolve_location_name
 from ....utils.pathutils import ensure_work_dir
 
 
-def _normalize_featured(featured: Iterable[str]) -> Set[str]:
+def normalize_featured(featured: Iterable[str]) -> Set[str]:
     return {str(entry) for entry in featured}
 
 
@@ -60,7 +61,41 @@ def _is_featured(rel: str, featured: Set[str]) -> bool:
     return live_ref in featured
 
 
-def _resolve_live_map(
+def _parse_timestamp(value: object) -> float:
+    """Return a sortable timestamp for ``value``.
+
+    ``index.jsonl`` typically stores capture times as ISO-8601 strings with a trailing
+    ``Z``, but this helper also accepts ISO-8601 strings without the trailing ``Z``.
+    The helper normalises the representation and falls back to
+    ``-inf`` for missing or unparsable values so assets without metadata sort
+    to the end of descending views.
+    """
+
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, datetime):
+        stamp = value
+    elif isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return float("-inf")
+        if normalized.endswith("Z"):
+            normalized = f"{normalized[:-1]}+00:00"
+        try:
+            stamp = datetime.fromisoformat(normalized)
+        except ValueError:
+            return float("-inf")
+    else:
+        return float("-inf")
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    try:
+        return stamp.timestamp()
+    except OSError:  # pragma: no cover - out-of-range timestamp on platform
+        return float("-inf")
+
+
+def resolve_live_map(
     index_rows: List[Dict[str, object]],
     base_map: Dict[str, Dict[str, object]],
 ) -> Dict[str, Dict[str, object]]:
@@ -102,7 +137,7 @@ def _resolve_live_map(
     return mapping
 
 
-def _motion_paths_to_hide(live_map: Dict[str, Dict[str, object]]) -> Set[str]:
+def get_motion_paths_to_hide(live_map: Dict[str, Dict[str, object]]) -> Set[str]:
     motion_paths: Set[str] = set()
     for info in live_map.values():
         if not isinstance(info, dict):
@@ -115,15 +150,15 @@ def _motion_paths_to_hide(live_map: Dict[str, Dict[str, object]]) -> Set[str]:
     return motion_paths
 
 
-def _build_entry(
+def build_asset_entry(
     root: Path,
     row: Dict[str, object],
     featured: Set[str],
     live_map: Dict[str, Dict[str, object]],
-    motion_paths_to_hide: Set[str],
+    hidden_motion_paths: Set[str],
 ) -> Optional[Dict[str, object]]:
     rel = str(row.get("rel"))
-    if not rel or rel in motion_paths_to_hide:
+    if not rel or rel in hidden_motion_paths:
         return None
 
     live_info = live_map.get(rel)
@@ -149,6 +184,17 @@ def _build_entry(
     gps_raw = row.get("gps") if isinstance(row, dict) else None
     location_name = resolve_location_name(gps_raw if isinstance(gps_raw, dict) else None)
 
+    # Resolve timestamp with legacy fallback safety
+    ts_value = -1
+    if "ts" in row:
+        ts_value = int(row["ts"])
+    else:
+        # Fallback for legacy rows: parse 'dt' on the fly.
+        # Must check for -inf to avoid OverflowError when casting to int.
+        dt_parsed = _parse_timestamp(row.get("dt"))
+        if dt_parsed != float("-inf"):
+            ts_value = int(dt_parsed * 1_000_000)
+
     entry: Dict[str, object] = {
         "rel": rel,
         "abs": abs_path,
@@ -164,6 +210,8 @@ def _build_entry(
         "live_motion_abs": live_motion_abs,
         "size": _determine_size(row, is_image),
         "dt": row.get("dt"),
+        "dt_sort": _parse_timestamp(row.get("dt")),
+        "ts": ts_value,
         "featured": _is_featured(rel, featured),
         "still_image_time": row.get("still_image_time"),
         "dur": row.get("dur"),
@@ -202,13 +250,13 @@ def compute_asset_rows(
 ) -> Tuple[List[Dict[str, object]], int]:
     ensure_work_dir(root, WORK_DIR_NAME)
     index_rows = list(IndexStore(root).read_all())
-    resolved_map = _resolve_live_map(index_rows, live_map)
-    motion_paths = _motion_paths_to_hide(resolved_map)
-    featured_set = _normalize_featured(featured)
+    resolved_map = resolve_live_map(index_rows, live_map)
+    motion_paths = get_motion_paths_to_hide(resolved_map)
+    featured_set = normalize_featured(featured)
 
     entries: List[Dict[str, object]] = []
     for row in index_rows:
-        entry = _build_entry(root, row, featured_set, resolved_map, motion_paths)
+        entry = build_asset_entry(root, row, featured_set, resolved_map, motion_paths)
         if entry is not None:
             entries.append(entry)
     return entries, len(index_rows)
@@ -239,7 +287,7 @@ class AssetLoaderWorker(QRunnable):
         super().__init__()
         self.setAutoDelete(False)
         self._root = root
-        self._featured: Set[str] = _normalize_featured(featured)
+        self._featured: Set[str] = normalize_featured(featured)
         self._signals = signals
         self._live_map = live_map
         self._is_cancelled = False
@@ -282,8 +330,14 @@ class AssetLoaderWorker(QRunnable):
     def _build_payload_chunks(self) -> Iterable[List[Dict[str, object]]]:
         ensure_work_dir(self._root, WORK_DIR_NAME)
         index_rows = list(IndexStore(self._root).read_all())
-        live_map = _resolve_live_map(index_rows, self._live_map)
-        motion_paths_to_hide = _motion_paths_to_hide(live_map)
+
+        # Pre-sort rows by date (descending) to match the UI order.
+        # This ensures "newest" items are sent in the first chunk, preventing
+        # the "append-then-jump" visual glitch.
+        index_rows.sort(key=lambda row: row.get("dt") or "", reverse=True)
+
+        live_map = resolve_live_map(index_rows, self._live_map)
+        hidden_motion_paths = get_motion_paths_to_hide(live_map)
 
         total = len(index_rows)
         if total == 0:
@@ -297,12 +351,12 @@ class AssetLoaderWorker(QRunnable):
             if self._is_cancelled:
                 return
             should_emit = position == total or position - last_reported >= 50
-            entry = _build_entry(
+            entry = build_asset_entry(
                 self._root,
                 row,
                 self._featured,
                 live_map,
-                motion_paths_to_hide,
+                hidden_motion_paths,
             )
             if entry is not None:
                 chunk.append(entry)
