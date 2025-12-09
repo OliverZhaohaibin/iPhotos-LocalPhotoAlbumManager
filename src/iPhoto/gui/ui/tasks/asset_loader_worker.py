@@ -312,7 +312,7 @@ class AssetLoaderWorker(QRunnable):
                 yield chunk
                 chunk = []
 
-                # Perform count AFTER yielding first chunk
+                # Perform count after yielding first chunk
                 if not total_calculated:
                     try:
                         total = store.count(filter_hidden=True)
