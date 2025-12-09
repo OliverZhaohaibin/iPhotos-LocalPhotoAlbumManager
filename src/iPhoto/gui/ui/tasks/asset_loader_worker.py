@@ -103,10 +103,7 @@ def build_asset_entry(
     if not rel:
         return None
 
-    # Performance optimization: use string concatenation instead of path.resolve()
-    # to avoid disk I/O. We assume root is absolute.
     abs_path = str(root / rel)
-
     is_image, is_video = classify_media(row)
     is_pano = _is_panorama_candidate(row, is_image)
 
@@ -315,7 +312,8 @@ class AssetLoaderWorker(QRunnable):
                         total = 0 # fallback
 
             # Update progress periodically
-            if total_calculated and (position == total or position - last_reported >= 50):
+            # Use >= total to robustly handle concurrent additions where position might exceed original total
+            if total_calculated and (position >= total or position - last_reported >= 50):
                 last_reported = position
                 self._signals.progressUpdated.emit(self._root, position, total)
 
