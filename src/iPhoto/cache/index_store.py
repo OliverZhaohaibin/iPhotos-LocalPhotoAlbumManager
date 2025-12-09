@@ -206,9 +206,9 @@ class IndexStore:
                 # Ensure NULL dates appear last when sorting descending
                 query += " ORDER BY dt IS NULL, dt DESC"
 
-            # Use a cursor with a specific row factory to avoid modifying the connection
+            # Set the row factory on the connection before creating the cursor
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.row_factory = sqlite3.Row
             cursor.execute(query)
             for row in cursor:
                 yield self._db_row_to_dict(row)
