@@ -31,7 +31,7 @@ def test_watcher_active_during_init_deleted_dir(tmp_path, qapp):
     assert str(root) in manager._watcher.directories()
 
     # We want to verify that when we call bind_path AGAIN,
-    # the watcher is still active when _initialize_deleted_dir is called.
+    # the watcher has been cleared before _initialize_deleted_dir is called.
 
     original_init = manager._initialize_deleted_dir
 
