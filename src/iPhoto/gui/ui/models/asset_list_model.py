@@ -716,7 +716,7 @@ class AssetListModel(QAbstractListModel):
             self._state_manager.clear_visible_rows()
 
         if not current_rows and not diff.is_reset:
-             # If we ended up empty after removals
+            # If we ended up empty after removals
             self._cache_manager.reset_caches_for_new_rows([])
 
         self._state_manager.rebuild_lookup()
