@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, Iterator, List, Optional
 
 from PySide6.QtCore import QObject, QRunnable, Signal
 
@@ -73,6 +73,8 @@ class ScannerWorker(QRunnable):
         """Perform the scan and emit progress as files are processed."""
 
         rows: List[dict] = []
+        scanner: Optional[Iterator[dict]] = None
+
         try:
             ensure_work_dir(self._root, WORK_DIR_NAME)
 
@@ -85,7 +87,8 @@ class ScannerWorker(QRunnable):
 
             chunk: List[dict] = []
 
-            # The new scan_album implementation handles parallel discovery and processing
+            # The new scan_album implementation handles parallel discovery and processing.
+            # We initialize the generator but execution (and thread starting) happens on iteration.
             scanner = scan_album(
                 self._root,
                 self._include,
@@ -95,9 +98,7 @@ class ScannerWorker(QRunnable):
 
             for row in scanner:
                 if self._is_cancelled:
-                    # Closing the generator will trigger cleanup of the background thread
-                    scanner.close()
-                    return
+                    break
 
                 rows.append(row)
                 chunk.append(row)
@@ -106,7 +107,7 @@ class ScannerWorker(QRunnable):
                     self._signals.chunkReady.emit(self._root, chunk)
                     chunk = []
 
-            if chunk:
+            if chunk and not self._is_cancelled:
                 self._signals.chunkReady.emit(self._root, chunk)
 
         except Exception as exc:  # pragma: no cover - best-effort error propagation
@@ -114,6 +115,10 @@ class ScannerWorker(QRunnable):
                 self._had_error = True
                 self._signals.error.emit(self._root, str(exc))
         finally:
+            # Ensure the scanner generator is closed to trigger its cleanup logic (stopping threads)
+            if scanner is not None:
+                scanner.close()
+
             if not self._is_cancelled and not self._had_error:
                 # Consumers should use `chunkReady` for progressive UI updates.
                 # The `finished` signal provides the complete dataset for
