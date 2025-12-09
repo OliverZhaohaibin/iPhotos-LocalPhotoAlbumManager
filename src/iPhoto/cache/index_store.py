@@ -72,7 +72,15 @@ class IndexStore:
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        """Batch multiple updates into a single transaction."""
+        """Batch multiple updates into a single transaction.
+
+        .. note::
+           Nested transactions are not supported via savepoints. If this context
+           manager is entered recursively (or while a connection is already active),
+           the inner block is effectively flattened into the outer transaction.
+           Operations in the inner block will only be committed when the outermost
+           transaction exits successfully.
+        """
         if self._conn:
             # Nested transaction (conceptually), just yield.
             yield
