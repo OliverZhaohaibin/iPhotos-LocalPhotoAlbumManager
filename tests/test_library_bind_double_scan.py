@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 from src.iPhoto.library.manager import LibraryManager
 
 @pytest.fixture(scope="module")
-def qapp():
+def qapp() -> QApplication:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance()
     if app is None:
