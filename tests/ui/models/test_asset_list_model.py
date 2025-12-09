@@ -9,7 +9,6 @@ from pathlib import Path
 # The `conftest.py` adds ROOT and SRC to path.
 
 from src.iPhoto.gui.ui.models.asset_list_model import AssetListModel
-from src.iPhoto.gui.facade import AppFacade
 
 class MockFacade(MagicMock):
     def __init__(self, *args, **kwargs):
