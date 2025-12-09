@@ -231,10 +231,11 @@ class IndexStore:
 
             if sort_by_date:
                 # Optimized sort for streaming:
-                # 1. 'dt DESC' puts newest items first. NULLs are naturally last in DESC order in SQLite.
-                # 2. 'id DESC' ensures deterministic order for items with same timestamp.
-                # Removing 'dt IS NULL' allows the query optimizer to use the composite index (dt DESC, id DESC).
-                query += " ORDER BY dt DESC, id DESC"
+                # 1. 'dt DESC' puts newest items first.
+                # 2. 'NULLS LAST' explicitly ensures items without dates appear at the end.
+                #    (Note: SQLite's default for DESC is already NULLS LAST, but being explicit avoids ambiguity)
+                # 3. 'id DESC' ensures deterministic order for items with same timestamp.
+                query += " ORDER BY dt DESC NULLS LAST, id DESC"
 
             # Set the row factory on the connection before creating the cursor
             conn.row_factory = sqlite3.Row
