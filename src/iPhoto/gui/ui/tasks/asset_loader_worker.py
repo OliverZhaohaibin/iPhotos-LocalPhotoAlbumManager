@@ -279,6 +279,7 @@ class AssetLoaderWorker(QRunnable):
         total = 0
         total_calculated = False
         first_batch_emitted = False
+        yielded_count = 0
 
         for position, row in enumerate(generator, start=1):
             if self._is_cancelled:
@@ -304,6 +305,7 @@ class AssetLoaderWorker(QRunnable):
                 should_flush = True
 
             if should_flush:
+                yielded_count += len(chunk)
                 yield chunk
                 chunk = []
 
@@ -322,9 +324,10 @@ class AssetLoaderWorker(QRunnable):
                 self._signals.progressUpdated.emit(self._root, position, total)
 
         if chunk:
+            yielded_count += len(chunk)
             yield chunk
 
         # Final progress update
         if not total_calculated: # If we never flushed (e.g. small album)
-             total = position
+             total = yielded_count
         self._signals.progressUpdated.emit(self._root, total, total)
