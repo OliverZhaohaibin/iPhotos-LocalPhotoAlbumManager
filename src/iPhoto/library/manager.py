@@ -134,7 +134,8 @@ class LibraryManager(QObject):
 
         for album_path in sorted(album_paths):
             try:
-                rows = IndexStore(album_path).read_all()
+                # Optimized query: only fetch rows that actually have GPS data.
+                rows = IndexStore(album_path).read_geotagged()
             except Exception:
                 continue
             for row in rows:

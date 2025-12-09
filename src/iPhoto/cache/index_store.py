@@ -23,9 +23,12 @@ class IndexStore:
 
     def _init_db(self) -> None:
         """Initialize the database schema."""
-        # Check if DB exists to avoid overhead? No, CREATE TABLE IF NOT EXISTS is fast.
         # Use a transient connection for initialization
         with sqlite3.connect(self.path) as conn:
+            # Enable Write-Ahead Logging for concurrency and performance
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS assets (
                     rel TEXT PRIMARY KEY,
@@ -58,6 +61,8 @@ class IndexStore:
             # Create indices for common sort/filter operations if needed.
             # 'dt' is used for sorting.
             conn.execute("CREATE INDEX IF NOT EXISTS idx_dt ON assets (dt)")
+            # 'gps' index might help if we have huge datasets, but IS NOT NULL scan is usually fast enough
+            # unless we add partial index. For now, full table scan with filtering is better than loading all to Python.
 
     def _get_conn(self) -> sqlite3.Connection:
         """Return the active connection or create a new one."""
@@ -179,6 +184,22 @@ class IndexStore:
             if sort_by_date:
                 query += " ORDER BY dt DESC"
 
+            cursor = conn.execute(query)
+            for row in cursor:
+                yield self._db_row_to_dict(row)
+        finally:
+            if should_close:
+                conn.close()
+
+    def read_geotagged(self) -> Iterator[Dict[str, Any]]:
+        """Yield only rows that contain GPS metadata."""
+        conn = self._get_conn()
+        should_close = (conn != self._conn)
+        conn.row_factory = sqlite3.Row
+
+        try:
+            # We filter for gps IS NOT NULL at the database level
+            query = "SELECT * FROM assets WHERE gps IS NOT NULL"
             cursor = conn.execute(query)
             for row in cursor:
                 yield self._db_row_to_dict(row)

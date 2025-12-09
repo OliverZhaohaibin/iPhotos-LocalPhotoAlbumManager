@@ -21,6 +21,20 @@ def test_init_creates_db(store: IndexStore, tmp_path: Path) -> None:
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='assets'")
         assert cursor.fetchone() is not None
 
+def test_wal_mode_enabled(store: IndexStore, tmp_path: Path) -> None:
+    # Check if journal_mode is WAL
+    # Using a new connection because IndexStore manages its own connections transiently
+    db_path = tmp_path / WORK_DIR_NAME / "index.db"
+
+    # We must invoke an operation on store to ensure _init_db runs and sets the mode
+    # (actually __init__ runs it, so it should be set)
+
+    # However, PRAGMA journal_mode is persistent for the database file in SQLite.
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute("PRAGMA journal_mode")
+        mode = cursor.fetchone()[0]
+        assert mode.upper() == "WAL"
+
 def test_write_and_read_rows(store: IndexStore) -> None:
     rows = [
         {"rel": "a.jpg", "id": "1", "dt": "2023-01-01T10:00:00Z", "bytes": 100},
@@ -50,6 +64,22 @@ def test_gps_serialization(store: IndexStore) -> None:
     read_rows = list(store.read_all())
     assert len(read_rows) == 1
     assert read_rows[0]["gps"] == gps_data
+
+def test_read_geotagged(store: IndexStore) -> None:
+    gps_data = {"lat": 51.5, "lon": -0.1}
+    rows = [
+        {"rel": "geo.jpg", "gps": gps_data},
+        {"rel": "plain.jpg", "gps": None},
+        {"rel": "geo2.jpg", "gps": {"lat": 0, "lon": 0}}
+    ]
+    store.write_rows(rows)
+
+    geotagged = list(store.read_geotagged())
+    assert len(geotagged) == 2
+    rels = {r["rel"] for r in geotagged}
+    assert "geo.jpg" in rels
+    assert "geo2.jpg" in rels
+    assert "plain.jpg" not in rels
 
 def test_upsert_row(store: IndexStore) -> None:
     rows = [{"rel": "a.jpg", "id": "1"}]
