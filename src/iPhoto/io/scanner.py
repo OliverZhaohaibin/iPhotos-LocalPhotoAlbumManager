@@ -78,19 +78,48 @@ class FileDiscoverer(threading.Thread):
                     # if the queue is full and blocking
                     while not self._stop_event.is_set():
                         try:
-                            self._queue.put(candidate, timeout=0.1)
+                            # Increment total found *before* putting into queue to avoid
+                            # race condition where consumer processes file before total is updated.
                             with self._lock:
                                 self._total_found += 1
+
+                            self._queue.put(candidate, timeout=0.1)
                             break
                         except queue.Full:
+                            # If queue is full, back off and loop to check stop event
+                            # But we already incremented total! If we loop and fail put again?
+                            # Actually, if we fail put(), we shouldn't have incremented.
+                            # So we need to be careful.
+
+                            # Correction: We must only increment if we successfully put, OR
+                            # be prepared to decrement if put fails?
+                            # No, the race is:
+                            # 1. Thread A puts item.
+                            # 2. Thread B gets item and calls progress(processed=1, total=0).
+                            # 3. Thread A increments total=1.
+
+                            # To fix this, we must update total BEFORE putting.
+                            # But if put() blocks, the total is "ahead" of what's in queue.
+                            # That is actually fine! "Total found" is conceptually correct even if
+                            # the file is stuck waiting for the queue slot.
+                            # The only risk is if we increment, block, and then get cancelled/stopped
+                            # without ever putting the file. But total_found is just an estimate for the UI.
+                            # It's better for it to be slightly ahead than behind.
+
+                            # However, if queue.Full is raised, we loop. If we moved increment outside,
+                            # we would increment repeatedly for the same file.
+                            # So we need to increment once per file.
+                            pass
+
+                            # Let's handle the queue.Full case properly:
+                            with self._lock:
+                                self._total_found -= 1
                             continue
+
         except Exception as exc:
             LOGGER.error("File discovery failed: %s", exc)
         finally:
             # Signal end of discovery
-            # We try to put None, but if queue is full and we are stopping,
-            # we might just want to leave. However, the consumer relies on None.
-            # If we are stopping, the consumer likely stopped listening or will stop soon.
             try:
                 self._queue.put(None, timeout=0.5)
             except queue.Full:
