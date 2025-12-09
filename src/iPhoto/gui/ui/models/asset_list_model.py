@@ -737,7 +737,17 @@ class AssetListModel(QAbstractListModel):
             current_rows[row_index] = replacement
 
             model_index = self.index(row_index, 0)
-            self.dataChanged.emit(model_index, model_index, [])
+            affected_roles = [
+                Roles.REL,
+                Roles.ABS,
+                Roles.SIZE,
+                Roles.DT,
+                Roles.IS_IMAGE,
+                Roles.IS_VIDEO,
+                Roles.IS_LIVE,
+                Qt.DecorationRole,
+            ]
+            self.dataChanged.emit(model_index, model_index, affected_roles)
 
             self._cache_manager.remove_thumbnail(rel_key)
             self._cache_manager.remove_placeholder(rel_key)
