@@ -94,7 +94,7 @@ class IndexStore:
             self._conn.close()
             self._conn = None
 
-    def write_rows(self, rows: Iterable[Dict[str, Any]], *, locked: bool = False) -> None:
+    def write_rows(self, rows: Iterable[Dict[str, Any]]) -> None:
         """Rewrite the entire index with *rows*."""
         conn = self._get_conn()
         is_nested = (conn == self._conn)
