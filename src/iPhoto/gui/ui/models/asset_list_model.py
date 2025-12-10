@@ -84,6 +84,7 @@ class AssetListModel(QAbstractListModel):
 
         self._pending_loader_root: Optional[Path] = None
         self._deferred_incremental_refresh: Optional[Path] = None
+        self._active_filter: Optional[str] = None
 
         self._facade.linksUpdated.connect(self.handle_links_updated)
         self._facade.assetUpdated.connect(self.handle_asset_updated)
@@ -326,6 +327,21 @@ class AssetListModel(QAbstractListModel):
         self.dataChanged.emit(model_index, model_index, [Roles.FEATURED])
 
     # ------------------------------------------------------------------
+    # Filtering
+    # ------------------------------------------------------------------
+    def set_filter_mode(self, mode: Optional[str]) -> None:
+        """Apply a new filter mode and trigger a reload if necessary."""
+        normalized = mode.casefold() if isinstance(mode, str) and mode else None
+        if normalized == self._active_filter:
+            return
+
+        self._active_filter = normalized
+        self.start_load()
+
+    def active_filter_mode(self) -> Optional[str]:
+        return self._active_filter
+
+    # ------------------------------------------------------------------
     # Data loading helpers
     # ------------------------------------------------------------------
     def start_load(self) -> None:
@@ -350,8 +366,12 @@ class AssetListModel(QAbstractListModel):
         # the incoming data belongs to the active view.
         self._pending_loader_root = self._album_root
 
+        filter_params = {}
+        if self._active_filter:
+            filter_params["filter_mode"] = self._active_filter
+
         try:
-            self._data_loader.start(self._album_root, featured)
+            self._data_loader.start(self._album_root, featured, filter_params=filter_params)
         except RuntimeError:
             self._state_manager.mark_reload_pending()
             self._pending_loader_root = None

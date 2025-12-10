@@ -223,6 +223,7 @@ class AssetLoaderWorker(QRunnable):
         root: Path,
         featured: Iterable[str],
         signals: AssetLoaderSignals,
+        filter_params: Optional[Dict[str, object]] = None,
     ) -> None:
         super().__init__()
         self.setAutoDelete(False)
@@ -230,6 +231,7 @@ class AssetLoaderWorker(QRunnable):
         self._featured: Set[str] = normalize_featured(featured)
         self._signals = signals
         self._is_cancelled = False
+        self._filter_params = filter_params
 
     @property
     def root(self) -> Path:
@@ -273,8 +275,11 @@ class AssetLoaderWorker(QRunnable):
         # Emit indeterminate progress initially
         self._signals.progressUpdated.emit(self._root, 0, 0)
 
-        # 2. Stream rows
-        generator = store.read_all(sort_by_date=True, filter_hidden=True)
+        # 2. Stream rows using lightweight geometry-first query
+        generator = store.read_geometry_only(
+            filter_params=self._filter_params,
+            sort_by_date=True
+        )
 
         chunk: List[Dict[str, object]] = []
         last_reported = 0
@@ -319,7 +324,7 @@ class AssetLoaderWorker(QRunnable):
                 # Perform count after yielding first chunk
                 if not total_calculated:
                     try:
-                        total = store.count(filter_hidden=True)
+                        total = store.count(filter_hidden=True, filter_params=self._filter_params)
                         total_calculated = True
                     except Exception as exc:
                         LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)

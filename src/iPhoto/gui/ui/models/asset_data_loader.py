@@ -108,6 +108,7 @@ class AssetDataLoader(QObject):
         self,
         root: Path,
         featured: List[Dict[str, object]],
+        filter_params: Optional[Dict[str, object]] = None,
     ) -> None:
         """Launch a background worker for *root*."""
         if self._worker is not None:
@@ -117,7 +118,7 @@ class AssetDataLoader(QObject):
         signals.finished.connect(self._handle_finished)
         signals.progressUpdated.connect(self._handle_progress)
         signals.error.connect(self._handle_error)
-        worker = AssetLoaderWorker(root, featured, signals)
+        worker = AssetLoaderWorker(root, featured, signals, filter_params=filter_params)
         self._worker = worker
         self._signals = signals
         self._pool.start(worker)

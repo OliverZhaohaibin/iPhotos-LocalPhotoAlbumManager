@@ -109,6 +109,8 @@ class IndexStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_year_month ON assets(year, month)")
             # Index for media type filtering (Photos/Videos)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_media_type ON assets(media_type)")
+            # Index for optimized timeline sorting
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_timeline_optimization ON assets (year DESC, month DESC, dt DESC)")
             # 'gps' index might help if we have huge datasets, but IS NOT NULL scan is usually fast enough
             # unless we add partial index. For now, full table scan with filtering is better than loading all to Python.
 
@@ -271,6 +273,85 @@ class IndexStore:
             if should_close:
                 conn.close()
 
+    def read_geometry_only(
+        self,
+        filter_params: Optional[Dict[str, Any]] = None,
+        sort_by_date: bool = True
+    ) -> Iterator[Dict[str, Any]]:
+        """Yield lightweight asset rows (geometry & core metadata) for fast grid layout.
+
+        Fetches only the columns strictly required for:
+        1. Calculating the grid layout (id, aspect_ratio).
+        2. Drawing section headers (year, month).
+        3. Identifying media type & badges (media_type, live_partner_rel, dur).
+        4. Sorting (dt, ts).
+
+        :param filter_params: Optional dictionary of SQL filter criteria.
+                              Supported keys: 'media_type' (int).
+        :param sort_by_date: If True, sort results by date descending.
+        """
+        conn = self._get_conn()
+        should_close = (conn != self._conn)
+
+        try:
+            # Columns needed for the lightweight "viewport-first" loading strategy
+            columns = [
+                "id",
+                "rel",
+                "aspect_ratio",
+                "media_type",
+                "live_partner_rel",
+                "dur",
+                "year",
+                "month",
+                "dt",
+                "ts",
+                "content_id", # needed for live photo pairing logic if needed
+                "bytes", # needed for panorama detection logic
+                "mime",  # needed for classifier
+                "w",     # needed for panorama detection logic
+                "h",     # needed for panorama detection logic
+                "original_rel_path", # needed for trash restore logic
+                "original_album_id",
+                "original_album_subpath"
+            ]
+            query = f"SELECT {', '.join(columns)} FROM assets"
+            where_clauses = ["live_role = 0"] # Always filter hidden assets in grid view
+            params = []
+
+            if filter_params:
+                if "media_type" in filter_params:
+                    where_clauses.append("media_type = ?")
+                    params.append(filter_params["media_type"])
+                if "filter_mode" in filter_params:
+                    mode = filter_params["filter_mode"]
+                    if mode == "videos":
+                        where_clauses.append("media_type = 1")
+                    elif mode == "live":
+                         where_clauses.append("live_partner_rel IS NOT NULL")
+                    # 'favorites' filter typically requires 'featured' column?
+                    # The current schema doesn't seem to have 'featured' column in DB directly,
+                    # it's usually in manifest.json.
+                    # If 'featured' is not in DB, we cannot filter it efficiently here yet.
+                    # We will handle featured separately or rely on manifest integration.
+
+            if where_clauses:
+                query += " WHERE " + " AND ".join(where_clauses)
+
+            if sort_by_date:
+                query += " ORDER BY year DESC, month DESC, dt DESC NULLS LAST, id DESC"
+
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            for row in cursor:
+                # We return a dict, but one that is much lighter than the full row
+                d = dict(row)
+                yield d
+        finally:
+            if should_close:
+                conn.close()
+
     def read_geotagged(self) -> Iterator[Dict[str, Any]]:
         """Yield only rows that contain GPS metadata."""
         conn = self._get_conn()
@@ -346,15 +427,30 @@ class IndexStore:
             if not is_nested:
                 conn.close()
 
-    def count(self, filter_hidden: bool = False) -> int:
+    def count(self, filter_hidden: bool = False, filter_params: Optional[Dict[str, Any]] = None) -> int:
         """Return the total number of assets in the index."""
         conn = self._get_conn()
         should_close = (conn != self._conn)
 
         try:
             query = "SELECT COUNT(*) FROM assets"
+            where_clauses = []
+
             if filter_hidden:
-                query += " WHERE live_role = 0"
+                where_clauses.append("live_role = 0")
+
+            if filter_params:
+                if "media_type" in filter_params:
+                    where_clauses.append(f"media_type = {filter_params['media_type']}")
+                if "filter_mode" in filter_params:
+                    mode = filter_params["filter_mode"]
+                    if mode == "videos":
+                        where_clauses.append("media_type = 1")
+                    elif mode == "live":
+                         where_clauses.append("live_partner_rel IS NOT NULL")
+
+            if where_clauses:
+                query += " WHERE " + " AND ".join(where_clauses)
 
             cursor = conn.execute(query)
             result = cursor.fetchone()
