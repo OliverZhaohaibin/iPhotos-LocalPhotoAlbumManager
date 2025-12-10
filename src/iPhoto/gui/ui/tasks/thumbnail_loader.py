@@ -53,7 +53,7 @@ def safe_unlink(path: Path) -> None:
 
 
 def generate_cache_path(album_root: Path, rel: str, size: QSize, stamp: int) -> Path:
-    digest = hashlib.sha1(rel.encode("utf-8")).hexdigest()
+    digest = hashlib.blake2b(rel.encode("utf-8"), digest_size=20).hexdigest()
     filename = f"{digest}_{stamp}_{size.width()}x{size.height()}.png"
     return album_root / WORK_DIR_NAME / "thumbs" / filename
 
