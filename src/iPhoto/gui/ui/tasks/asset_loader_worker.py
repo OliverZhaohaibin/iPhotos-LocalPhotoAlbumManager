@@ -192,21 +192,22 @@ def compute_asset_rows(
 ) -> Tuple[List[Dict[str, object]], int]:
     ensure_work_dir(root, WORK_DIR_NAME)
 
-    store = IndexStore(root)
-    index_rows = list(store.read_geometry_only(
-        filter_params=filter_params,
-        sort_by_date=True
-    ))
+    params = filter_params.copy() if filter_params else {}
     featured_set = normalize_featured(featured)
 
-    entries: List[Dict[str, object]] = []
-    filter_mode = filter_params.get("filter_mode") if filter_params else None
+    if params.get("filter_mode") == "favorites":
+        params["featured_rels"] = {str(f).split("#")[0] for f in featured_set}
 
+    store = IndexStore(root)
+    index_rows = list(store.read_geometry_only(
+        filter_params=params,
+        sort_by_date=True
+    ))
+    entries: List[Dict[str, object]] = []
+    # filter_mode is handled at DB level
     for row in index_rows:
         entry = build_asset_entry(root, row, featured_set)
         if entry is not None:
-            if filter_mode == "favorites" and not _is_featured(str(entry["rel"]), featured_set):
-                continue
             entries.append(entry)
     return entries, len(entries)
 
@@ -283,9 +284,14 @@ class AssetLoaderWorker(QRunnable):
         # Emit indeterminate progress initially
         self._signals.progressUpdated.emit(self._root, 0, 0)
 
+        # Prepare filter params with featured list if needed
+        params = self._filter_params.copy() if self._filter_params else {}
+        if params.get("filter_mode") == "favorites":
+            params["featured_rels"] = {str(f).split("#")[0] for f in self._featured}
+
         # 2. Stream rows using lightweight geometry-first query
         generator = store.read_geometry_only(
-            filter_params=self._filter_params,
+            filter_params=params,
             sort_by_date=True
         )
 
@@ -301,8 +307,7 @@ class AssetLoaderWorker(QRunnable):
         first_batch_emitted = False
         yielded_count = 0
 
-        filter_mode = self._filter_params.get("filter_mode") if self._filter_params else None
-
+        # filter_mode is already handled at DB level for favorites now
         for position, row in enumerate(generator, start=1):
             if self._is_cancelled:
                 return
@@ -314,8 +319,6 @@ class AssetLoaderWorker(QRunnable):
             )
 
             if entry is not None:
-                if filter_mode == "favorites" and not _is_featured(str(entry["rel"]), self._featured):
-                    continue
                 chunk.append(entry)
 
             # Determine emission
@@ -336,7 +339,7 @@ class AssetLoaderWorker(QRunnable):
                 # Perform count after yielding first chunk
                 if not total_calculated:
                     try:
-                        total = store.count(filter_hidden=True, filter_params=self._filter_params)
+                        total = store.count(filter_hidden=True, filter_params=params)
                         total_calculated = True
                     except Exception as exc:
                         LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)
