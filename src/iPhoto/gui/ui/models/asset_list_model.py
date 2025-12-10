@@ -553,8 +553,13 @@ class AssetListModel(QAbstractListModel):
         index = self._state_manager.row_lookup.get(rel)
         if index is None:
             return
+
+        # Increment version to force QML reload
+        row = self._state_manager.rows[index]
+        row["_thumb_version"] = row.get("_thumb_version", 0) + 1
+
         model_index = self.index(index, 0)
-        self.dataChanged.emit(model_index, model_index, [Qt.DecorationRole])
+        self.dataChanged.emit(model_index, model_index, [Qt.DecorationRole, Roles.THUMB_VERSION])
 
     @Slot(Path)
     def handle_asset_updated(self, path: Path) -> None:
