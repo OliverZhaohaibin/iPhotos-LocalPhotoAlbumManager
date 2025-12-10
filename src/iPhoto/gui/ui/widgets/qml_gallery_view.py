@@ -42,6 +42,10 @@ class QmlGalleryWidget(QQuickWidget):
         super().__init__(parent)
         self.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
 
+        # Ensure the widget is opaque to prevent transparency issues
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding
@@ -68,29 +72,32 @@ class QmlGalleryWidget(QQuickWidget):
              source_model = model.source_model()
 
         if isinstance(source_model, AssetListModel):
-            provider = ThumbnailImageProvider(source_model._cache_manager)
-            self.engine().addImageProvider("thumbnail", provider)
+            # Check if provider already exists to avoid duplicate registration warnings
+            if not self.engine().imageProvider("thumbnail"):
+                provider = ThumbnailImageProvider(source_model._cache_manager)
+                self.engine().addImageProvider("thumbnail", provider)
         else:
             logger.warning("QmlGalleryWidget: Could not resolve AssetListModel for ImageProvider")
 
         # Setup Context
         root_ctx = self.rootContext()
-        # DEBUG: Pass source_model directly to bypass potential Proxy Model issues in QML
-        root_ctx.setContextProperty("assetModel", source_model)
-        root_ctx.setContextProperty("selectionModel", None) # Placeholder
 
-        # DEBUG: Force visibility
-        self.setMinimumSize(400, 400)
-        self.setStyleSheet("background-color: red;")
+        # Use the actual proxy model to ensure sorting and filtering are applied
+        root_ctx.setContextProperty("assetModel", model)
+        root_ctx.setContextProperty("selectionModel", None) # Placeholder
 
         # Icon path
         icon_path = Path(__file__).parent.parent / "icon"
-        root_ctx.setContextProperty("iconPath", str(icon_path.resolve()).replace("\\", "/"))
+        icon_path_str = str(icon_path.resolve()).replace("\\", "/")
+        root_ctx.setContextProperty("iconPath", icon_path_str)
 
         # Load Source
         self.statusChanged.connect(self._on_status_changed)
         qml_path = Path(__file__).parent.parent / "qml" / "GalleryView.qml"
         self.setSource(QUrl.fromLocalFile(str(qml_path.resolve())))
+
+        # Apply Theme Color
+        self._apply_theme_color()
 
         # Connect Signals from Root Object
         self._connect_root_signals()
@@ -99,6 +106,14 @@ class QmlGalleryWidget(QQuickWidget):
         if status == QQuickWidget.Status.Error:
             for error in self.errors():
                 logger.error("QML Error: %s", error.toString())
+
+    def _apply_theme_color(self) -> None:
+        """Inject the current window background color into QML."""
+        root = self.rootObject()
+        if root:
+            # Get background color from the widget's palette (handled by ThemeManager)
+            color = self.palette().color(self.backgroundRole())
+            root.setProperty("backgroundColor", color.name())
 
     def _connect_root_signals(self) -> None:
         root_obj = self.rootObject()
@@ -111,13 +126,22 @@ class QmlGalleryWidget(QQuickWidget):
                 root_obj.visibleRowsChanged.connect(self.visibleRowsChanged)
 
                 # Sync selection mode state
-                # Check if property exists before calling
                 if root_obj.metaObject().indexOfMethod("setSelectionMode(bool)") != -1:
                     root_obj.setSelectionMode(False)
+
+                # Apply theme again in case root wasn't ready earlier
+                self._apply_theme_color()
+
             except Exception as e:
                 logger.error("Failed to connect QML signals: %s", e)
         else:
             logger.warning("QML Root Object is None. Status: %s", self.status())
+
+    def changeEvent(self, event):
+        """Handle theme changes (PaletteChange)."""
+        if event.type() == event.Type.PaletteChange:
+            self._apply_theme_color()
+        super().changeEvent(event)
 
     def selectionModel(self) -> QItemSelectionModel:
         """Return the selection model for controller compatibility."""

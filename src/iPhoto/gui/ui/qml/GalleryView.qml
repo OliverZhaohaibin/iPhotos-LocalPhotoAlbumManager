@@ -11,8 +11,13 @@ Rectangle {
     property int cellGap: 2
     property int safetyMargin: 10
     property bool selectionModeActive: false
+    property string backgroundColor: "#2b2b2b"
+
+    // Bind root color to backgroundColor property
+    onBackgroundColorChanged: root.color = backgroundColor
 
     Component.onCompleted: {
+        root.color = backgroundColor
         console.log("GalleryView Loaded. AssetModel:", assetModel)
         console.log("SelectionModel:", selectionModel)
         console.log("IconPath:", iconPath)
@@ -150,7 +155,7 @@ Rectangle {
 
                     // Checkmark
                     Image {
-                         source: "file:///" + root.iconPath + "/checkmark.circle.svg"
+                         source: "file:///" + iconPath + "/checkmark.circle.svg"
                          width: 30
                          height: 30
                          anchors.right: parent.right
@@ -164,7 +169,7 @@ Rectangle {
                     anchors.fill: parent
 
                     Image {
-                        source: "file:///" + root.iconPath + "/livephoto.svg"
+                        source: "file:///" + iconPath + "/livephoto.svg"
                         width: 18
                         height: 18
                         anchors.left: parent.left
@@ -174,7 +179,7 @@ Rectangle {
                     }
 
                     Image {
-                        source: "file:///" + root.iconPath + "/suit.heart.fill.svg"
+                        source: "file:///" + iconPath + "/suit.heart.fill.svg"
                         width: 16
                         height: 16
                         anchors.left: parent.left
