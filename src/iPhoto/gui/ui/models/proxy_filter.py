@@ -75,15 +75,27 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         """
 
         normalized_role = int(role)
-        if (
-            self._default_sort_role == normalized_role
-            and self._default_sort_order == order
-        ):
-            self._reapply_default_sort()
-            return
+
+        # 1. Check if the configuration is actually changing
+        config_changed = (
+            self._default_sort_role != normalized_role
+            or self._default_sort_order != order
+        )
+
+        # 2. Update internal storage
         self._default_sort_role = normalized_role
         self._default_sort_order = order
-        self._reapply_default_sort()
+
+        # 3. Optimization: Only re-sort if the config changed OR
+        #    if the current active sort state differs from the target.
+        #    This prevents O(N log N) sorting when switching between views
+        #    that share the same sort order (e.g., All Photos -> Videos).
+        if (
+            config_changed
+            or self.sortRole() != normalized_role
+            or self.sortOrder() != order
+        ):
+            self._reapply_default_sort()
 
     def apply_default_sort(self) -> None:
         """Reapply the stored default sort order to the current dataset."""
