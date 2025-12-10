@@ -298,6 +298,50 @@ def test_open_static_collection_refresh_skips_gallery(
     assert len(facade.open_requests) == 1
 
 
+def test_switch_static_collection_uses_optimized_path(
+    tmp_path: Path, qapp: QApplication
+) -> None:
+    """Switching between static collections on same root must skip album reload."""
+
+    facade = _StubFacade()
+    context = _StubContext(tmp_path)
+    context.facade = facade
+    asset_model = _StubAssetModel()
+    sidebar = _StubSidebar()
+    status_bar = QStatusBar()
+    dialog = _StubDialog()
+    view_controller = _SpyViewController()
+
+    controller = NavigationController(
+        context,
+        facade,
+        asset_model,
+        sidebar,
+        status_bar,
+        dialog,  # type: ignore[arg-type]
+        view_controller,
+        QMainWindow(),
+    )
+
+    tmp_path.mkdir(exist_ok=True)
+
+    # 1. Initial Load: "All Photos"
+    # This must trigger open_album as no album is currently open
+    controller.open_all_photos()
+    assert len(facade.open_requests) == 1
+    assert controller.static_selection() == "All Photos"
+    assert asset_model.filter_mode is None
+
+    # 2. Optimized Switch: "Videos"
+    # This should reuse the existing root and skip open_album
+    controller.open_static_node("Videos")
+
+    # Assertions
+    assert len(facade.open_requests) == 1  # Still 1, meaning no new load
+    assert controller.static_selection() == "Videos"
+    assert asset_model.filter_mode == "videos"
+
+
 def test_open_album_from_dashboard_force_navigation(
     tmp_path: Path, qapp: QApplication
 ) -> None:
