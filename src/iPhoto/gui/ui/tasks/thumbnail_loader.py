@@ -471,6 +471,16 @@ class ThumbnailLoader(QObject):
     _validation_success = Signal(object)
 
     class Priority(IntEnum):
+        """
+        Priority levels for thumbnail loading jobs.
+
+        These values indicate the relative importance of a thumbnail request.
+        - LOW: Background or prefetch requests that are not immediately needed.
+        - NORMAL: Standard requests for thumbnails.
+        - VISIBLE: Requests for thumbnails that are currently visible in the UI and should be prioritized.
+
+        Note: The priority parameter is accepted in the request method, but is not currently used in the implementation.
+        """
         LOW = -1
         NORMAL = 0
         VISIBLE = 1
