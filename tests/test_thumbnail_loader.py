@@ -62,7 +62,7 @@ def test_thumbnail_loader_cache_naming(tmp_path: Path, qapp: QApplication) -> No
     files = list(thumbs_dir.iterdir())
     assert len(files) == 1
     filename = files[0].name
-    digest = hashlib.sha1("IMG_0001.JPG".encode("utf-8")).hexdigest()
+    digest = hashlib.blake2b("IMG_0001.JPG".encode("utf-8"), digest_size=20).hexdigest()
     assert filename.startswith(f"{digest}_")
     assert filename.endswith("_512x512.png")
 
@@ -123,6 +123,46 @@ def test_thumbnail_loader_sidecar_invalidation(tmp_path: Path, qapp: QApplicatio
     assert new_cache_file != original_cache_file
 
 
+def test_thumbnail_loader_cache_validation(tmp_path: Path, qapp: QApplication) -> None:
+    """Test that _report_valid is called when cached thumbnail is still current."""
+    image_path = tmp_path / "IMG_VALID.JPG"
+    _create_image(image_path)
+    loader = ThumbnailLoader()
+    loader.reset_for_album(tmp_path)
+
+    # Initial request - generates thumbnail and caches it
+    ready_spy = QSignalSpy(loader.ready)
+    cache_written_spy = QSignalSpy(loader.cache_written)
+    validation_spy = QSignalSpy(loader._validation_success)
+
+    loader.request("IMG_VALID.JPG", image_path, QSize(512, 512), is_image=True)
+    deadline = time.monotonic() + 4.0
+    while time.monotonic() < deadline and ready_spy.count() < 1:
+        qapp.processEvents()
+        time.sleep(0.05)
+
+    assert ready_spy.count() >= 1
+    assert cache_written_spy.count() >= 1
+
+    # Second request - file hasn't changed, cache should be valid
+    # Should emit _validation_success and NOT emit cache_written
+    cache_written_spy = QSignalSpy(loader.cache_written)
+    validation_spy = QSignalSpy(loader._validation_success)
+
+    # Request should return cached pixmap immediately
+    cached_pixmap = loader.request("IMG_VALID.JPG", image_path, QSize(512, 512), is_image=True)
+    assert cached_pixmap is not None, "Cached pixmap should be returned immediately"
+
+    # Wait for validation signal to be emitted from background job
+    deadline = time.monotonic() + 4.0
+    while time.monotonic() < deadline and validation_spy.count() < 1:
+        qapp.processEvents()
+        time.sleep(0.05)
+
+    # Validation success should be emitted when cache is still valid
+    assert validation_spy.count() >= 1
+    # Cache should NOT be written again since it's still valid
+    assert cache_written_spy.count() == 0
 def test_safe_unlink_successful_deletion(tmp_path: Path) -> None:
     """Test that safe_unlink successfully deletes a file when it exists."""
     test_file = tmp_path / "test_file.txt"
