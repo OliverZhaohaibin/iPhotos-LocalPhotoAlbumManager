@@ -13,7 +13,6 @@ from PySide6.QtWidgets import QApplication
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from iPhoto.gui.ui.models.proxy_filter import AssetFilterProxyModel
-from iPhoto.gui.ui.models.roles import Roles
 
 class MockSourceModel(QAbstractListModel):
     def __init__(self, count=100):
