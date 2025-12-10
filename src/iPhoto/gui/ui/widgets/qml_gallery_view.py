@@ -75,8 +75,13 @@ class QmlGalleryWidget(QQuickWidget):
 
         # Setup Context
         root_ctx = self.rootContext()
-        root_ctx.setContextProperty("assetModel", model)
+        # DEBUG: Pass source_model directly to bypass potential Proxy Model issues in QML
+        root_ctx.setContextProperty("assetModel", source_model)
         root_ctx.setContextProperty("selectionModel", None) # Placeholder
+
+        # DEBUG: Force visibility
+        self.setMinimumSize(400, 400)
+        self.setStyleSheet("background-color: red;")
 
         # Icon path
         icon_path = Path(__file__).parent.parent / "icon"
