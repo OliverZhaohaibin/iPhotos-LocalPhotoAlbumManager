@@ -61,7 +61,7 @@ def test_thumbnail_loader_cache_naming(tmp_path: Path, qapp: QApplication) -> No
     files = list(thumbs_dir.iterdir())
     assert len(files) == 1
     filename = files[0].name
-    digest = hashlib.sha1("IMG_0001.JPG".encode("utf-8")).hexdigest()
+    digest = hashlib.blake2b("IMG_0001.JPG".encode("utf-8"), digest_size=20).hexdigest()
     assert filename.startswith(f"{digest}_")
     assert filename.endswith("_512x512.png")
 
@@ -120,3 +120,46 @@ def test_thumbnail_loader_sidecar_invalidation(tmp_path: Path, qapp: QApplicatio
     new_cache_file = files[0].name
 
     assert new_cache_file != original_cache_file
+
+
+def test_thumbnail_loader_cache_validation(tmp_path: Path, qapp: QApplication) -> None:
+    """Test that _report_valid is called when cached thumbnail is still current."""
+    image_path = tmp_path / "IMG_VALID.JPG"
+    _create_image(image_path)
+    loader = ThumbnailLoader()
+    loader.reset_for_album(tmp_path)
+
+    # Initial request - generates thumbnail and caches it
+    ready_spy = QSignalSpy(loader.ready)
+    cache_written_spy = QSignalSpy(loader.cache_written)
+    validation_spy = QSignalSpy(loader._validation_success)
+    
+    loader.request("IMG_VALID.JPG", image_path, QSize(512, 512), is_image=True)
+    deadline = time.monotonic() + 4.0
+    while time.monotonic() < deadline and ready_spy.count() < 1:
+        qapp.processEvents()
+        time.sleep(0.05)
+    
+    assert ready_spy.count() >= 1
+    assert cache_written_spy.count() >= 1
+    initial_validation_count = validation_spy.count()
+
+    # Second request - file hasn't changed, cache should be valid
+    # Should emit _validation_success and NOT emit cache_written
+    ready_spy = QSignalSpy(loader.ready)
+    cache_written_spy = QSignalSpy(loader.cache_written)
+    validation_spy = QSignalSpy(loader._validation_success)
+    
+    loader.request("IMG_VALID.JPG", image_path, QSize(512, 512), is_image=True)
+    deadline = time.monotonic() + 4.0
+    # Wait for validation signal, but we might not get a ready signal since cache is valid
+    while time.monotonic() < deadline and validation_spy.count() < 1:
+        qapp.processEvents()
+        time.sleep(0.05)
+    
+    # Validation success should be emitted when cache is still valid
+    assert validation_spy.count() >= 1
+    # Cache should NOT be written again since it's still valid
+    assert cache_written_spy.count() == 0
+    # Ready signal may or may not be emitted depending on implementation
+    # but the key is that validation succeeded without re-rendering
