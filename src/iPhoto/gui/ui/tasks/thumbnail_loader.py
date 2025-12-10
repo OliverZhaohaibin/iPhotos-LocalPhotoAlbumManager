@@ -118,6 +118,7 @@ class ThumbnailJob(QRunnable):
                 except OSError:
                     pass
         except OSError:
+            # Ignore errors when checking for sidecar existence or stat; sidecar may not exist or be inaccessible.
             pass
 
         actual_stamp = int(stamp_ns)
