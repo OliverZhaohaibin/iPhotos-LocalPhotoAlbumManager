@@ -357,6 +357,11 @@ class ThumbnailJob(QRunnable):
         return result_img
 
     def _seek_targets(self) -> list[Optional[float]]:
+        """
+        Return a list of seek offsets (in seconds) for video thumbnails, applying guard rails
+        to avoid seeking too close to the start or end of the video. For non-video files,
+        returns a list containing a single None value.
+        """
         if not self._is_video:
             return [None]
 
