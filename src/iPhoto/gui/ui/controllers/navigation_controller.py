@@ -335,6 +335,7 @@ class NavigationController:
             if self._facade.current_album:
                 self._facade.current_album.manifest["title"] = title
             self._main_window.setWindowTitle(title)
+            self._sidebar.select_static_node(title)
         else:
             # --- STANDARD PATH (Context Switch) ---
             # We are switching to a different library.
