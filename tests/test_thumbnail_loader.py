@@ -145,13 +145,15 @@ def test_thumbnail_loader_cache_validation(tmp_path: Path, qapp: QApplication) -
 
     # Second request - file hasn't changed, cache should be valid
     # Should emit _validation_success and NOT emit cache_written
-    ready_spy = QSignalSpy(loader.ready)
     cache_written_spy = QSignalSpy(loader.cache_written)
     validation_spy = QSignalSpy(loader._validation_success)
 
-    loader.request("IMG_VALID.JPG", image_path, QSize(512, 512), is_image=True)
+    # Request should return cached pixmap immediately
+    cached_pixmap = loader.request("IMG_VALID.JPG", image_path, QSize(512, 512), is_image=True)
+    assert cached_pixmap is not None, "Cached pixmap should be returned immediately"
+
+    # Wait for validation signal to be emitted from background job
     deadline = time.monotonic() + 4.0
-    # Wait for validation signal; ready signal will NOT be emitted since cache is valid
     while time.monotonic() < deadline and validation_spy.count() < 1:
         qapp.processEvents()
         time.sleep(0.05)
@@ -160,4 +162,3 @@ def test_thumbnail_loader_cache_validation(tmp_path: Path, qapp: QApplication) -
     assert validation_spy.count() >= 1
     # Cache should NOT be written again since it's still valid
     assert cache_written_spy.count() == 0
-    # Ready signal is NOT emitted when job returns early via _report_valid
