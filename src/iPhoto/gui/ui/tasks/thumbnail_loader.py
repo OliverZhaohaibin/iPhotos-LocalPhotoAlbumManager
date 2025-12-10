@@ -116,6 +116,7 @@ class ThumbnailJob(QRunnable):
                         sidecar_ns = int(sidecar_stat.st_mtime * 1_000_000_000)
                     stamp_ns = max(stamp_ns, sidecar_ns)
                 except OSError:
+                    # Ignore errors reading sidecar file; treat as if sidecar is missing or inaccessible.
                     pass
         except OSError:
             # Ignore errors when checking for sidecar existence or stat; sidecar may not exist or be inaccessible.
