@@ -200,11 +200,15 @@ def compute_asset_rows(
     featured_set = normalize_featured(featured)
 
     entries: List[Dict[str, object]] = []
+    filter_mode = filter_params.get("filter_mode") if filter_params else None
+
     for row in index_rows:
         entry = build_asset_entry(root, row, featured_set)
         if entry is not None:
+            if filter_mode == "favorites" and not _is_featured(str(entry["rel"]), featured_set):
+                continue
             entries.append(entry)
-    return entries, len(index_rows)
+    return entries, len(entries)
 
 
 class AssetLoaderSignals(QObject):
@@ -297,6 +301,8 @@ class AssetLoaderWorker(QRunnable):
         first_batch_emitted = False
         yielded_count = 0
 
+        filter_mode = self._filter_params.get("filter_mode") if self._filter_params else None
+
         for position, row in enumerate(generator, start=1):
             if self._is_cancelled:
                 return
@@ -308,6 +314,8 @@ class AssetLoaderWorker(QRunnable):
             )
 
             if entry is not None:
+                if filter_mode == "favorites" and not _is_featured(str(entry["rel"]), self._featured):
+                    continue
                 chunk.append(entry)
 
             # Determine emission
