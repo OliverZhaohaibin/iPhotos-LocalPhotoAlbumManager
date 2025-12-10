@@ -192,7 +192,6 @@ class ThumbnailJob(QRunnable):
                 key = loader._make_key(self._rel, self._size, 0)
                 loader._delivered.emit(key, None, self._rel)
             except RuntimeError:  # pragma: no cover - race with QObject deletion
-                # pragma: no cover - race with QObject deletion
                 pass
 
     def _report_valid(self, stamp: int) -> None:
