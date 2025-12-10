@@ -259,6 +259,17 @@ class ThumbnailJob(QRunnable):
         return self._composite_canvas(image)
 
     def _apply_geometry_and_crop(self, image: QImage, adjustments: Dict[str, float]) -> Optional[QImage]:
+        """
+        Apply geometric transformations (rotation, perspective, straighten) and crop to the image
+        to replicate the OpenGL viewer's visual result on the CPU.
+
+        Args:
+            image (QImage): The input image to transform.
+            adjustments (Dict[str, float]): Dictionary of geometric adjustment parameters.
+
+        Returns:
+            Optional[QImage]: The transformed and cropped image, or None if the operation fails.
+        """
         rotate_steps = int(adjustments.get("Crop_Rotate90", 0))
         flip_h = bool(adjustments.get("Crop_FlipH", False))
         straighten = float(adjustments.get("Crop_Straighten", 0.0))
