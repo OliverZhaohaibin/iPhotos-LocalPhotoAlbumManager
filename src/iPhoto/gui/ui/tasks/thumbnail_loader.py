@@ -74,16 +74,33 @@ class ThumbnailJob(QRunnable):
             if mem.percent > 80.0:
                  time.sleep(0.5)
 
-        image = self._render_media()
+        image: Optional[QImage] = None
+        loaded_from_cache = False
+
+        if self._cache_path.exists():
+            image = QImage(str(self._cache_path))
+            if not image.isNull():
+                loaded_from_cache = True
+            else:
+                ThumbnailLoader._safe_unlink(self._cache_path)
+                image = None
+
+        if image is None:
+            image = self._render_media()
+
         success = False
         if image is not None:
-            success = self._write_cache(image)
+            if not loaded_from_cache:
+                success = self._write_cache(image)
+            else:
+                # Cache hit, so it's already written.
+                success = True
 
         loader = getattr(self, "_loader", None)
         if loader is None:
             return
 
-        if success:
+        if success and not loaded_from_cache:
             try:
                 loader.cache_written.emit(self._cache_path)
             except AttributeError:  # pragma: no cover - dummy loader in tests
@@ -472,15 +489,6 @@ class ThumbnailLoader(QObject):
         if key in self._failures:
             return None
         cache_path = self._cache_path(rel, size, stamp)
-        if cache_path.exists():
-            pixmap = QPixmap(str(cache_path))
-            if not pixmap.isNull():
-                # Print the cached thumbnail path to help debugging the
-                # Location view while reusing disk-stored thumbnails.
-                # print(f"[ThumbnailLoader] Cached thumbnail hit: {cache_path}")
-                self._memory[key] = pixmap
-                return pixmap
-            self._safe_unlink(cache_path)
 
         if key in self._pending_keys:
             # Already pending. Since we use LIFO and want to prioritize this request,
