@@ -50,6 +50,12 @@ def safe_unlink(path: Path) -> None:
         pass
 
 
+def generate_cache_path(album_root: Path, rel: str, size: QSize, stamp: int) -> Path:
+    digest = hashlib.sha1(rel.encode("utf-8")).hexdigest()
+    filename = f"{digest}_{stamp}_{size.width()}x{size.height()}.png"
+    return album_root / WORK_DIR_NAME / "thumbs" / filename
+
+
 class ThumbnailJob(QRunnable):
     """Background task that renders a thumbnail ``QImage``."""
 
@@ -119,11 +125,11 @@ class ThumbnailJob(QRunnable):
                 return
             else:
                 # Stale cache detected. Remove old file.
-                old_path = self._generate_cache_path(self._known_stamp)
+                old_path = generate_cache_path(self._album_root, self._rel, self._size, self._known_stamp)
                 safe_unlink(old_path)
 
         # 3. Calculate Cache Path
-        cache_path = self._generate_cache_path(actual_stamp)
+        cache_path = generate_cache_path(self._album_root, self._rel, self._size, actual_stamp)
 
         image: Optional[QImage] = None
         loaded_from_cache = False
@@ -188,11 +194,6 @@ class ThumbnailJob(QRunnable):
                 pass
             except AttributeError:
                 pass
-
-    def _generate_cache_path(self, stamp: int) -> Path:
-        digest = hashlib.sha1(self._rel.encode("utf-8")).hexdigest()
-        filename = f"{digest}_{stamp}_{self._size.width()}x{self._size.height()}.png"
-        return self._album_root / WORK_DIR_NAME / "thumbs" / filename
 
     def _render_media(self) -> Optional[QImage]:  # pragma: no cover - worker helper
         if self._is_video:
@@ -603,9 +604,7 @@ class ThumbnailLoader(QObject):
                 del pixmap
                 _, _, width, height = k
                 size = QSize(width, height)
-                digest = hashlib.sha1(rel.encode("utf-8")).hexdigest()
-                filename = f"{digest}_{stamp}_{width}x{height}.png"
-                path = self._album_root / WORK_DIR_NAME / "thumbs" / filename
+                path = generate_cache_path(self._album_root, rel, size, stamp)
                 safe_unlink(path)
 
         self._pending_keys = {k for k in self._pending_keys if k[1] != rel}
