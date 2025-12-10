@@ -139,7 +139,6 @@ class ThumbnailJob(QRunnable):
         image: Optional[QImage] = None
         loaded_from_cache = False
 
-        cache_exists = False
         try:
             cache_exists = cache_path.exists()
         except OSError:
