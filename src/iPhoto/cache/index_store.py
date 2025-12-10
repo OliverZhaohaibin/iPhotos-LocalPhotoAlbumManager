@@ -273,6 +273,26 @@ class IndexStore:
             if should_close:
                 conn.close()
 
+    def _build_filter_clauses(self, filter_params: Optional[Dict[str, Any]]) -> Tuple[List[str], List[Any]]:
+        """Helper to build WHERE clauses and parameters from filter params."""
+        where_clauses: List[str] = []
+        params: List[Any] = []
+
+        if filter_params:
+            if "media_type" in filter_params:
+                where_clauses.append("media_type = ?")
+                params.append(filter_params["media_type"])
+            if "filter_mode" in filter_params:
+                mode = filter_params["filter_mode"]
+                if mode == "videos":
+                    where_clauses.append("media_type = 1")
+                elif mode == "live":
+                    where_clauses.append("live_partner_rel IS NOT NULL")
+                # 'favorites' filter is handled in Python post-processing (AssetLoaderWorker)
+                # because 'featured' status is not currently indexed in the DB.
+
+        return where_clauses, params
+
     def read_geometry_only(
         self,
         filter_params: Optional[Dict[str, Any]] = None,
@@ -316,24 +336,12 @@ class IndexStore:
                 "original_album_subpath"
             ]
             query = f"SELECT {', '.join(columns)} FROM assets"
-            where_clauses = ["live_role = 0"] # Always filter hidden assets in grid view
-            params = []
 
-            if filter_params:
-                if "media_type" in filter_params:
-                    where_clauses.append("media_type = ?")
-                    params.append(filter_params["media_type"])
-                if "filter_mode" in filter_params:
-                    mode = filter_params["filter_mode"]
-                    if mode == "videos":
-                        where_clauses.append("media_type = 1")
-                    elif mode == "live":
-                         where_clauses.append("live_partner_rel IS NOT NULL")
-                    # 'favorites' filter typically requires 'featured' column?
-                    # The current schema doesn't seem to have 'featured' column in DB directly,
-                    # it's usually in manifest.json.
-                    # If 'featured' is not in DB, we cannot filter it efficiently here yet.
-                    # We will handle featured separately or rely on manifest integration.
+            # Always filter hidden assets (live photo components) in grid view
+            base_where = ["live_role = 0"]
+
+            filter_where, params = self._build_filter_clauses(filter_params)
+            where_clauses = base_where + filter_where
 
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
@@ -434,25 +442,18 @@ class IndexStore:
 
         try:
             query = "SELECT COUNT(*) FROM assets"
-            where_clauses = []
 
+            base_where = []
             if filter_hidden:
-                where_clauses.append("live_role = 0")
+                base_where.append("live_role = 0")
 
-            if filter_params:
-                if "media_type" in filter_params:
-                    where_clauses.append(f"media_type = {filter_params['media_type']}")
-                if "filter_mode" in filter_params:
-                    mode = filter_params["filter_mode"]
-                    if mode == "videos":
-                        where_clauses.append("media_type = 1")
-                    elif mode == "live":
-                         where_clauses.append("live_partner_rel IS NOT NULL")
+            filter_where, params = self._build_filter_clauses(filter_params)
+            where_clauses = base_where + filter_where
 
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
 
-            cursor = conn.execute(query)
+            cursor = conn.execute(query, params)
             result = cursor.fetchone()
             return result[0] if result else 0
         finally:
