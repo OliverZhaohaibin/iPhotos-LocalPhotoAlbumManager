@@ -340,7 +340,7 @@ class NavigationController:
             self._sidebar.select_static_node(title)
         else:
             # --- STANDARD PATH (Context Switch) ---
-            # We are switching to a different library.
+            # We are switching from a different physical album root or loading the library for the first time.
             # 1. Destroy the old model FIRST.
             # This prevents wasting CPU cycles filtering the old dataset.
             album = self._facade.open_album(target_root)
