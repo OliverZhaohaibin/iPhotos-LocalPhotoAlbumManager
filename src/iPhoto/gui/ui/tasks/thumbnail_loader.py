@@ -206,6 +206,7 @@ class ThumbnailJob(QRunnable):
                 pass
             except AttributeError:
                 # The loader may have been deleted or not fully initialized; safe to ignore.
+                # The loader may have been deleted or not fully initialized; safe to ignore.
                 pass
 
     def _render_media(self) -> Optional[QImage]:  # pragma: no cover - worker helper
