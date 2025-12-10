@@ -74,7 +74,11 @@ class IndexStore:
                     original_album_id TEXT,
                     original_album_subpath TEXT,
                     live_role INTEGER DEFAULT 0,
-                    live_partner_rel TEXT
+                    live_partner_rel TEXT,
+                    aspect_ratio REAL,
+                    year INTEGER,
+                    month INTEGER,
+                    media_type INTEGER
                 )
             """)
 
@@ -86,6 +90,14 @@ class IndexStore:
                 conn.execute("ALTER TABLE assets ADD COLUMN live_role INTEGER DEFAULT 0")
             if "live_partner_rel" not in columns:
                 conn.execute("ALTER TABLE assets ADD COLUMN live_partner_rel TEXT")
+            if "aspect_ratio" not in columns:
+                conn.execute("ALTER TABLE assets ADD COLUMN aspect_ratio REAL")
+            if "year" not in columns:
+                conn.execute("ALTER TABLE assets ADD COLUMN year INTEGER")
+            if "month" not in columns:
+                conn.execute("ALTER TABLE assets ADD COLUMN month INTEGER")
+            if "media_type" not in columns:
+                conn.execute("ALTER TABLE assets ADD COLUMN media_type INTEGER")
 
             # Create indices for common sort/filter operations if needed.
             # 'dt' is used for sorting.
@@ -93,6 +105,10 @@ class IndexStore:
             # Add specific index for descending sort on dt to optimize streaming query
             # We use a composite index on dt and id to match the ORDER BY clause for optimal streaming.
             conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_dt_id_desc ON assets (dt DESC, id DESC)")
+            # Index for timeline grouping (Year/Month headers)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_year_month ON assets(year, month)")
+            # Index for media type filtering (Photos/Videos)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_media_type ON assets(media_type)")
             # 'gps' index might help if we have huge datasets, but IS NOT NULL scan is usually fast enough
             # unless we add partial index. For now, full table scan with filtering is better than loading all to Python.
 
@@ -161,7 +177,8 @@ class IndexStore:
             "w", "h", "gps", "content_id", "frame_rate", "codec",
             "still_image_time", "dur", "original_rel_path",
             "original_album_id", "original_album_subpath",
-            "live_role", "live_partner_rel"
+            "live_role", "live_partner_rel",
+            "aspect_ratio", "year", "month", "media_type"
         ]
         placeholders = ", ".join(["?"] * len(columns))
         query = f"INSERT OR REPLACE INTO assets ({', '.join(columns)}) VALUES ({placeholders})"
@@ -201,6 +218,10 @@ class IndexStore:
             row.get("original_album_subpath"),
             row.get("live_role", 0),
             row.get("live_partner_rel"),
+            row.get("aspect_ratio"),
+            row.get("year"),
+            row.get("month"),
+            row.get("media_type"),
         ]
 
     def _db_row_to_dict(self, db_row: sqlite3.Row) -> Dict[str, Any]:
