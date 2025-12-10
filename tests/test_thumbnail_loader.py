@@ -155,7 +155,7 @@ def test_thumbnail_loader_cache_validation(tmp_path: Path, qapp: QApplication) -
     while time.monotonic() < deadline and validation_spy.count() < 1:
         qapp.processEvents()
         time.sleep(0.05)
-    
+
     # Validation success should be emitted when cache is still valid
     assert validation_spy.count() >= 1
     # Cache should NOT be written again since it's still valid
