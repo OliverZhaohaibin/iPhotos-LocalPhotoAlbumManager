@@ -54,7 +54,6 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         # Restore state.
         self._bypass_sort_optimization = False
         # if was_dynamic:
-        #    self.setDynamicSortFilter(True)
 
     def filter_mode(self) -> Optional[str]:
         return self._filter_mode
