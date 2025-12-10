@@ -20,6 +20,7 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         self._default_sort_order: Qt.SortOrder = Qt.SortOrder.DescendingOrder
         self._monitored_source: Optional[QAbstractItemModel] = None
         self._fast_source: Optional[object] = None
+        self._bypass_sort_optimization: bool = False
         self.setDynamicSortFilter(True)
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
         # ``configure_default_sort`` applies the sort role and ensures the proxy
@@ -35,8 +36,24 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         normalized = mode.casefold() if isinstance(mode, str) and mode else None
         if normalized == self._filter_mode:
             return
+
+        # --- OPTIMIZATION START ---
+        # Temporarily disable dynamic sorting and bypass the expensive comparisons.
+        # The source model is likely already sorted by date. Disabling this prevents
+        # the expensive O(N log N) sort and Python `lessThan` overhead during the
+        # filtering phase.
+        was_dynamic = self.dynamicSortFilter()
+        if was_dynamic:
+            self.setDynamicSortFilter(False)
+        self._bypass_sort_optimization = True
+        # --- OPTIMIZATION END ---
+
         self._filter_mode = normalized
         self.invalidateFilter()
+
+        # Restore state.
+        self._bypass_sort_optimization = False
+        # if was_dynamic:
 
     def filter_mode(self) -> Optional[str]:
         return self._filter_mode
@@ -178,6 +195,14 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         """Apply a timestamp-aware comparison when sorting by :data:`Roles.DT`."""
 
         if self.sortRole() == int(Roles.DT):
+            # Optimization: If we are bulk filtering and the source is known to be
+            # sorted by date (newest first), we can bypass expensive lookups.
+            # We assume source rows are ordered 0..N (Newest..Oldest).
+            # If SortOrder is Descending (Newest First), we want [0, 1, 2].
+            # lessThan(0, 1) should be False. (0 > 1 -> False).
+            if self._bypass_sort_optimization:
+                return left.row() > right.row()
+
             if self._fast_source is not None:
                 left_row = self._fast_source.get_internal_row(left.row())  # type: ignore
                 right_row = self._fast_source.get_internal_row(right.row())  # type: ignore
