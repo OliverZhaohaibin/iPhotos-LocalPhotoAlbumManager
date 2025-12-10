@@ -94,8 +94,9 @@ Rectangle {
             var cols = Math.max(1, Math.floor(availableWidth / (root.minCellWidth + root.cellGap)))
             var size = Math.floor((viewportWidth - root.safetyMargin) / cols)
 
-            cellWidth = size
-            cellHeight = size
+            // Ensure we never have invalid cell sizes
+            cellWidth = Math.max(50, size)
+            cellHeight = Math.max(50, size)
         }
 
         // Drag Select Logic

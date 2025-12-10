@@ -71,13 +71,15 @@ class QmlGalleryWidget(QQuickWidget):
         if isinstance(model, AssetModel):
              source_model = model.source_model()
 
-        if isinstance(source_model, AssetListModel):
+        # Use duck typing to find the cache manager, as strict isinstance checks can fail
+        # with proxies or during reloads.
+        if hasattr(source_model, "_cache_manager"):
             # Check if provider already exists to avoid duplicate registration warnings
             if not self.engine().imageProvider("thumbnail"):
                 provider = ThumbnailImageProvider(source_model._cache_manager)
                 self.engine().addImageProvider("thumbnail", provider)
         else:
-            logger.warning("QmlGalleryWidget: Could not resolve AssetListModel for ImageProvider")
+            logger.warning("QmlGalleryWidget: Could not resolve AssetListModel (or compatible) for ImageProvider")
 
         # Setup Context
         root_ctx = self.rootContext()
