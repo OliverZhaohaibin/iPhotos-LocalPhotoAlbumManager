@@ -289,8 +289,11 @@ class IndexStore:
 
         if filter_params:
             if "media_type" in filter_params:
+                media_type = filter_params["media_type"]
+                if not isinstance(media_type, int):
+                    raise ValueError(f"Invalid media_type: {media_type} (expected int)")
                 where_clauses.append("media_type = ?")
-                params.append(filter_params["media_type"])
+                params.append(media_type)
 
             if "filter_mode" in filter_params:
                 mode = filter_params["filter_mode"]
