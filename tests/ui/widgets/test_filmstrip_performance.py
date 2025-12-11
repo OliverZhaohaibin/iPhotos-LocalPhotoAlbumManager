@@ -1,5 +1,5 @@
 import pytest
-from PySide6.QtCore import QAbstractListModel, Qt, QModelIndex, QSize
+from PySide6.QtCore import QAbstractListModel, Qt, QModelIndex
 from PySide6.QtWidgets import QApplication
 from src.iPhoto.gui.ui.widgets.filmstrip_view import FilmstripView
 from src.iPhoto.gui.ui.models.roles import Roles
