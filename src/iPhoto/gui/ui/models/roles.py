@@ -8,6 +8,16 @@ from typing import Dict
 from PySide6.QtCore import Qt
 
 
+class FilterModes:
+    """Standardized filter mode strings."""
+
+    ALL = "all"
+    IMAGES = "images"
+    VIDEOS = "videos"
+    LIVE = "live"
+    FAVORITES = "favorites"
+
+
 class Roles(IntEnum):
     """Custom roles exposed to QML or widgets."""
 

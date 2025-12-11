@@ -27,7 +27,7 @@ from .asset_data_loader import AssetDataLoader
 from .asset_state_manager import AssetListStateManager
 from .asset_row_adapter import AssetRowAdapter
 from .list_diff_calculator import ListDiffCalculator
-from .roles import Roles, role_names
+from .roles import Roles, FilterModes, role_names
 from ....utils.pathutils import (
     normalise_for_compare,
     is_descendant_path,
@@ -339,6 +339,11 @@ class AssetListModel(QAbstractListModel):
         implications, especially for large datasets, as the entire model is reset and reloaded.
         """
         normalized = mode.casefold() if isinstance(mode, str) and mode else None
+
+        # Alias "featured" to "favorites" for internal consistency
+        if normalized == "featured":
+            normalized = FilterModes.FAVORITES
+
         if normalized == self._active_filter:
             return
 
@@ -465,11 +470,11 @@ class AssetListModel(QAbstractListModel):
             )
             if entry is not None:
                 # Apply active filter constraints to prevent pollution during rescans
-                if self._active_filter == "videos" and not entry.get("is_video"):
+                if self._active_filter == FilterModes.VIDEOS and not entry.get("is_video"):
                     continue
-                if self._active_filter == "live" and not entry.get("is_live"):
+                if self._active_filter == FilterModes.LIVE and not entry.get("is_live"):
                     continue
-                if self._active_filter == "favorites" and not entry.get("featured"):
+                if self._active_filter == FilterModes.FAVORITES and not entry.get("featured"):
                     continue
 
                 entries.append(entry)
