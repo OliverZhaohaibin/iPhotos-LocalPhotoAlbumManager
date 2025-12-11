@@ -286,8 +286,7 @@ class AssetLoaderWorker(QRunnable):
         params = copy.deepcopy(self._filter_params) if self._filter_params else {}
 
         # 2. Stream rows using lightweight geometry-first query
-        # We use a transaction context to keep the connection open, allowing the
-        # temporary favorites table to persist between the read query and the count query.
+        # Use a transaction context to keep the connection open for both the read and count queries.
         with store.transaction():
             generator = store.read_geometry_only(
                 filter_params=params,
