@@ -61,6 +61,16 @@ def extract_frame_with_pyav(
     This method decodes directly to memory, avoiding process overhead.
     Returns a PIL Image on success, or ``None`` if PyAV is unavailable or
     decoding fails.
+
+    Parameters
+    ----------
+    at : Optional[float], optional
+        Timestamp in seconds at which to extract the frame. If not specified,
+        the first frame is used.
+    scale : Optional[tuple[int, int]], optional
+        Optional tuple of (max_width, max_height) specifying the maximum
+        dimensions for the output image. The aspect ratio is preserved and
+        the image is resized to fit within the given box if necessary.
     """
     if av is None:
         return None
