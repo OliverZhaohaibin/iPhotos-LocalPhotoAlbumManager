@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
@@ -87,11 +86,12 @@ def _extract_with_ffmpeg(
     scale: Optional[tuple[int, int]],
     format: str,
 ) -> bytes:
-    suffix = ".png" if format == "png" else ".jpg"
     codec = "png" if format == "png" else "mjpeg"
 
     command: list[str] = [
         "ffmpeg",
+        "-hwaccel",
+        "auto",
         "-hide_banner",
         "-loglevel",
         _FFMPEG_LOG_LEVEL,
@@ -133,20 +133,15 @@ def _extract_with_ffmpeg(
     if format == "jpeg":
         command += ["-q:v", "2"]
 
-    fd, tmp_name = tempfile.mkstemp(suffix=suffix)
-    tmp_path = Path(tmp_name)
-    try:
-        os.close(fd)
-        command.append(str(tmp_path))
-        process = _run_command(command)
-        if process.returncode != 0 or not tmp_path.exists() or tmp_path.stat().st_size == 0:
-            stderr = process.stderr.decode("utf-8", "ignore").strip()
-            raise ExternalToolError(
-                f"ffmpeg failed to extract frame from {source}: {stderr or 'unknown error'}"
-            )
-        return tmp_path.read_bytes()
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    command.append("pipe:1")
+    process = _run_command(command)
+
+    if process.returncode != 0 or not process.stdout:
+        stderr = process.stderr.decode("utf-8", "ignore").strip()
+        raise ExternalToolError(
+            f"ffmpeg failed to extract frame from {source}: {stderr or 'unknown error'}"
+        )
+    return process.stdout
 
 
 def _extract_with_opencv(
