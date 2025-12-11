@@ -189,7 +189,7 @@ class IndexStore:
             "still_image_time", "dur", "original_rel_path",
             "original_album_id", "original_album_subpath",
             "live_role", "live_partner_rel",
-            "aspect_ratio", "year", "month", "media_type"
+            "aspect_ratio", "year", "month", "media_type", "is_favorite"
         ]
         placeholders = ", ".join(["?"] * len(columns))
         query = f"INSERT OR REPLACE INTO assets ({', '.join(columns)}) VALUES ({placeholders})"
@@ -233,6 +233,7 @@ class IndexStore:
             row.get("year"),
             row.get("month"),
             row.get("media_type"),
+            row.get("is_favorite", 0),
         ]
 
     def _db_row_to_dict(self, db_row: sqlite3.Row) -> Dict[str, Any]:
@@ -401,7 +402,8 @@ class IndexStore:
                 "h",     # needed for panorama detection logic
                 "original_rel_path", # needed for trash restore logic
                 "original_album_id",
-                "original_album_subpath"
+                "original_album_subpath",
+                "is_favorite"
             ]
             query = f"SELECT {', '.join(columns)} FROM assets"
 
