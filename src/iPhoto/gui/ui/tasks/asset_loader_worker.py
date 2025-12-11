@@ -290,72 +290,75 @@ class AssetLoaderWorker(QRunnable):
             params["featured_rels"] = {str(f).split("#")[0] for f in self._featured}
 
         # 2. Stream rows using lightweight geometry-first query
-        generator = store.read_geometry_only(
-            filter_params=params,
-            sort_by_date=True
-        )
-
-        chunk: List[Dict[str, object]] = []
-        last_reported = 0
-
-        # Priority: Emit first 20 items quickly
-        first_chunk_size = 20
-        normal_chunk_size = 200
-
-        total = 0
-        total_calculated = False
-        first_batch_emitted = False
-        yielded_count = 0
-
-        # filter_mode is already handled at DB level for favorites now
-        for position, row in enumerate(generator, start=1):
-            if self._is_cancelled:
-                return
-
-            entry = build_asset_entry(
-                self._root,
-                row,
-                self._featured,
+        # We use a transaction context to keep the connection open, allowing the
+        # temporary favorites table to persist between the read query and the count query.
+        with store.transaction():
+            generator = store.read_geometry_only(
+                filter_params=params,
+                sort_by_date=True
             )
 
-            if entry is not None:
-                chunk.append(entry)
+            chunk: List[Dict[str, object]] = []
+            last_reported = 0
 
-            # Determine emission
-            should_flush = False
+            # Priority: Emit first 20 items quickly
+            first_chunk_size = 20
+            normal_chunk_size = 200
 
-            if not first_batch_emitted:
-                if len(chunk) >= first_chunk_size:
+            total = 0
+            total_calculated = False
+            first_batch_emitted = False
+            yielded_count = 0
+
+            # filter_mode is already handled at DB level for favorites now
+            for position, row in enumerate(generator, start=1):
+                if self._is_cancelled:
+                    return
+
+                entry = build_asset_entry(
+                    self._root,
+                    row,
+                    self._featured,
+                )
+
+                if entry is not None:
+                    chunk.append(entry)
+
+                # Determine emission
+                should_flush = False
+
+                if not first_batch_emitted:
+                    if len(chunk) >= first_chunk_size:
+                        should_flush = True
+                        first_batch_emitted = True
+                elif len(chunk) >= normal_chunk_size:
                     should_flush = True
-                    first_batch_emitted = True
-            elif len(chunk) >= normal_chunk_size:
-                should_flush = True
 
-            if should_flush:
+                if should_flush:
+                    yielded_count += len(chunk)
+                    yield chunk
+                    chunk = []
+
+                    # Perform count after yielding first chunk
+                    if not total_calculated:
+                        try:
+                            total = store.count(filter_hidden=True, filter_params=params)
+                            total_calculated = True
+                        except Exception as exc:
+                            LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)
+                            total = 0  # fallback
+
+                # Update progress periodically
+                # Use >= total to robustly handle concurrent additions where position might exceed original total
+                if total_calculated and (position >= total or position - last_reported >= 50):
+                    last_reported = position
+                    self._signals.progressUpdated.emit(self._root, position, total)
+
+            if chunk:
                 yielded_count += len(chunk)
                 yield chunk
-                chunk = []
 
-                # Perform count after yielding first chunk
-                if not total_calculated:
-                    try:
-                        total = store.count(filter_hidden=True, filter_params=params)
-                        total_calculated = True
-                    except Exception as exc:
-                        LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)
-                        total = 0  # fallback
-
-            # Update progress periodically
-            # Use >= total to robustly handle concurrent additions where position might exceed original total
-            if total_calculated and (position >= total or position - last_reported >= 50):
-                last_reported = position
-                self._signals.progressUpdated.emit(self._root, position, total)
-
-        if chunk:
-            yielded_count += len(chunk)
-            yield chunk
-
-        # Final progress update
-        if not total_calculated:  # If we never flushed (e.g. small album)
-             total = yielded_count
-        self._signals.progressUpdated.emit(self._root, total, total)
+            # Final progress update
+            if not total_calculated:  # If we never flushed (e.g. small album)
+                 total = yielded_count
+            self._signals.progressUpdated.emit(self._root, total, total)

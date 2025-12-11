@@ -33,6 +33,7 @@ class IndexStore:
         self.path = album_root / WORK_DIR_NAME / "index.db"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: Optional[sqlite3.Connection] = None
+        self._featured_hash: Optional[int] = None
         self._init_db()
 
     def _init_db(self) -> None:
@@ -294,6 +295,13 @@ class IndexStore:
 
     def _ensure_temp_favorites(self, conn: sqlite3.Connection, featured_rels: Iterable[str]) -> None:
         """Populate a temporary table with featured asset relationships."""
+
+        # Optimization: If we are in a persistent transaction (self._conn == conn) and the data hasn't changed,
+        # we can skip the recreation.
+        current_hash = hash(tuple(sorted(list(featured_rels)))) if featured_rels else 0
+        if self._conn and self._conn == conn and self._featured_hash == current_hash:
+            return
+
         conn.execute("CREATE TEMP TABLE IF NOT EXISTS temp_favorites (rel TEXT PRIMARY KEY)")
         conn.execute("DELETE FROM temp_favorites")
         if featured_rels:
@@ -301,6 +309,9 @@ class IndexStore:
             # in modern sqlite for moderate sizes.
             data = [(r,) for r in featured_rels]
             conn.executemany("INSERT OR IGNORE INTO temp_favorites (rel) VALUES (?)", data)
+
+        if self._conn and self._conn == conn:
+            self._featured_hash = current_hash
 
     def read_geometry_only(
         self,
