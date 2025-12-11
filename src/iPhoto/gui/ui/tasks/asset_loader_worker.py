@@ -258,7 +258,7 @@ class AssetLoaderWorker(QRunnable):
         filter_params: Optional[Dict[str, object]] = None,
     ) -> None:
         super().__init__()
-        self.setAutoDelete(False)
+        self.setAutoDelete(True)
         self._root = root
         self._featured: Set[str] = normalize_featured(featured)
         self._signals = signals
