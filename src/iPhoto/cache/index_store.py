@@ -342,14 +342,12 @@ class IndexStore:
                 c.executemany("INSERT OR IGNORE INTO temp_sync_favs (rel) VALUES (?)", [(r,) for r in featured_list])
 
             # 2. Clear old favorites (only touch rows that are currently favorite)
-            # Note: We clear ALL favorites that are NOT in the new list?
-            # Or just clear all favorites and re-set?
-            # Clearing all favorites (WHERE is_favorite != 0) is fast if index exists.
-            c.execute("UPDATE assets SET is_favorite = 0 WHERE is_favorite != 0")
+            # We only clear favorites that are NOT in the new list to minimize writes
+            c.execute("UPDATE assets SET is_favorite = 0 WHERE is_favorite != 0 AND rel NOT IN (SELECT rel FROM temp_sync_favs)")
 
-            # 3. Set new favorites (only touch rows that need to be favorite)
+            # 3. Set new favorites (only touch rows that need to be favorite and aren't already)
             # This naturally handles invalid paths (they won't match any asset rel)
-            c.execute("UPDATE assets SET is_favorite = 1 WHERE rel IN (SELECT rel FROM temp_sync_favs)")
+            c.execute("UPDATE assets SET is_favorite = 1 WHERE is_favorite != 1 AND rel IN (SELECT rel FROM temp_sync_favs)")
 
             c.execute("DROP TABLE temp_sync_favs")
 
