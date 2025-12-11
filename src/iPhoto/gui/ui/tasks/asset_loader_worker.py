@@ -330,7 +330,6 @@ class AssetLoaderWorker(QRunnable):
             first_batch_emitted = False
             yielded_count = 0
 
-            # filter_mode is already handled at DB level for favorites now
             for position, row in enumerate(generator, start=1):
                 if self._is_cancelled:
                     return
