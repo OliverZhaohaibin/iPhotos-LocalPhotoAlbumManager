@@ -56,6 +56,23 @@ class SpacerProxyModel(QAbstractProxyModel):
     # QAbstractProxyModel overrides
     # ------------------------------------------------------------------
     def setSourceModel(self, source_model) -> None:  # type: ignore[override]
+        if source_model is self:
+            raise ValueError(
+                "Circular reference detected: SpacerProxyModel cannot be its own source."
+            )
+
+        # Detect indirect cycles if the source is another proxy that points back to us.
+        # This isn't exhaustive (doesn't walk the full chain) but catches the most
+        # common mistake of `proxy.setSourceModel(proxy_that_wraps_proxy)`.
+        candidate = source_model
+        while hasattr(candidate, "sourceModel"):
+            candidate = candidate.sourceModel()
+            if candidate is self:
+                raise ValueError(
+                    "Circular reference detected: "
+                    "SpacerProxyModel source chain leads back to self."
+                )
+
         previous = self.sourceModel()
         if previous is not None:
             try:
