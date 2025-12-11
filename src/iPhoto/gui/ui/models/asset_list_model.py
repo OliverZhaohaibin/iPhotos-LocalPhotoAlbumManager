@@ -369,6 +369,12 @@ class AssetListModel(QAbstractListModel):
         self._is_first_chunk = True
         self._is_flushing = False
 
+        # Clear the model immediately to provide visual feedback of the transition
+        # and ensure no stale data remains if the new query returns empty results.
+        self.beginResetModel()
+        self._state_manager.clear_rows()
+        self.endResetModel()
+
         self._cache_manager.clear_recently_removed()
 
         manifest = self._facade.current_album.manifest if self._facade.current_album else {}
