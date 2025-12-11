@@ -322,42 +322,30 @@ class IndexStore:
 
     def sync_favorites(self, featured_rels: Iterable[str]) -> None:
         """Synchronise the DB 'is_favorite' column with the provided list of featured paths."""
+        # Convert to list to ensure we can iterate multiple times if needed (e.g. len check + loop)
+        featured_list = list(featured_rels)
+
         conn = self._get_conn()
         is_nested = (conn == self._conn)
         try:
-            # We must normalize the list to handle any potential mismatches
-            # Note: featured_rels typically contains raw strings from manifest.
-            # We assume they match DB 'rel' keys.
-
-            # Prepare bulk update
-            # 1. Reset all to 0
-            # 2. Set specific to 1
-
-            # Since we can't easily do "UPDATE ... WHERE rel IN big_list" without limits,
-            # we can use a temp table logic JUST for this sync operation, or executemany.
-            # Given we are replacing the temp table logic for *reading*, using it for *writing/syncing* is fine.
-            # Or simpler:
-            # UPDATE assets SET is_favorite = CASE WHEN rel IN (...) THEN 1 ELSE 0 END
-            # limits apply.
-
             # Safe approach:
             # 1. Update all to 0.
             # 2. Update set to 1 using executemany.
 
             if is_nested:
                 conn.execute("UPDATE assets SET is_favorite = 0")
-                if featured_rels:
+                if featured_list:
                     conn.executemany(
                         "UPDATE assets SET is_favorite = 1 WHERE rel = ?",
-                        [(r,) for r in featured_rels]
+                        [(r,) for r in featured_list]
                     )
             else:
                 with conn:
                     conn.execute("UPDATE assets SET is_favorite = 0")
-                    if featured_rels:
+                    if featured_list:
                         conn.executemany(
                             "UPDATE assets SET is_favorite = 1 WHERE rel = ?",
-                            [(r,) for r in featured_rels]
+                            [(r,) for r in featured_list]
                         )
         finally:
             if not is_nested:
