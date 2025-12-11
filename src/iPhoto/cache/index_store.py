@@ -506,7 +506,25 @@ class IndexStore:
                 conn.close()
 
     def count(self, filter_hidden: bool = False, filter_params: Optional[Dict[str, Any]] = None) -> int:
-        """Return the total number of assets in the index."""
+        """
+        Return the total number of assets in the index, optionally filtered by criteria.
+
+        Parameters
+        ----------
+        filter_hidden : bool, optional
+            If True, exclude assets with ``live_role != 0`` (i.e., hidden assets).
+        filter_params : dict, optional
+            Dictionary of filter criteria to apply. Supported keys include:
+                - 'filter_mode': Filter by asset mode (e.g., 'photo', 'video').
+                - 'media_type': Filter by media type (e.g., 'image', 'movie').
+                - Additional keys may be supported as defined in `_build_filter_clauses`.
+            These filters restrict the count to assets matching the specified criteria.
+
+        Returns
+        -------
+        int
+            The number of assets in the index matching the given filters.
+        """
         conn = self._get_conn()
         should_close = (conn != self._conn)
 
