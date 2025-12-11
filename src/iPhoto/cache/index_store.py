@@ -397,12 +397,12 @@ class IndexStore:
                 "month",
                 "dt",
                 "ts",
-                "content_id", # needed for live photo pairing logic if needed
-                "bytes", # needed for panorama detection logic
+                "content_id",  # needed for live photo pairing logic if needed
+                "bytes",  # needed for panorama detection logic
                 "mime",  # needed for classifier
-                "w",     # needed for panorama detection logic
-                "h",     # needed for panorama detection logic
-                "original_rel_path", # needed for trash restore logic
+                "w",  # needed for panorama detection logic
+                "h",  # needed for panorama detection logic
+                "original_rel_path",  # needed for trash restore logic
                 "original_album_id",
                 "original_album_subpath",
                 "is_favorite"
