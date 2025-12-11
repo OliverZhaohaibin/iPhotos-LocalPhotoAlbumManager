@@ -111,7 +111,24 @@ class AssetDataLoader(QObject):
         featured: List[Dict[str, object]],
         filter_params: Optional[Dict[str, object]] = None,
     ) -> None:
-        """Launch a background worker for *root*."""
+        """
+        Launch a background worker for *root*.
+
+        Parameters
+        ----------
+        root : Path
+            The album root directory to load assets from.
+        featured : List[Dict[str, object]]
+            List of featured asset metadata dictionaries.
+        filter_params : Optional[Dict[str, object]]
+            Optional dictionary of filter parameters to restrict the assets loaded.
+            Supported keys may include:
+                - "rating": int or list of int, filter by asset rating
+                - "tags": list of str, filter by asset tags
+                - "date_range": tuple of (start_date, end_date), filter by date
+                - "search": str, full-text search query
+            The exact supported keys depend on the implementation of AssetLoaderWorker.
+        """
         if self._worker is not None:
             raise RuntimeError("Loader already running")
         signals = AssetLoaderSignals()
