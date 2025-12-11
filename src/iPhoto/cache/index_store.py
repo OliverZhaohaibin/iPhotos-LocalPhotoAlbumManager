@@ -116,6 +116,8 @@ class IndexStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_dt_id_desc ON assets (dt DESC, id DESC)")
             # Index for timeline grouping (Year/Month headers)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_year_month ON assets(year, month)")
+            # Note: Timeline sorting (year DESC, month DESC, dt DESC) is effectively covered by
+            # idx_assets_dt_id_desc since year/month are derived from dt.
             # Index for media type filtering (Photos/Videos)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_media_type ON assets(media_type)")
             # 'gps' index might help if we have huge datasets, but IS NOT NULL scan is usually fast enough
