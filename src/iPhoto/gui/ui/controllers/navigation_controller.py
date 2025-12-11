@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover - executed in script mode
 from ...facade import AppFacade
 from ....errors import AlbumOperationError
 from ..models.asset_model import AssetModel
+from ..models.roles import FilterModes
 from ..widgets.album_sidebar import AlbumSidebar
 from .dialog_controller import DialogController
 from .view_controller import ViewController
@@ -223,9 +224,11 @@ class NavigationController:
 
     def open_static_node(self, title: str) -> None:
         mapping = {
-            "videos": "videos",
-            "live photos": "live",
-            "favorites": "favorites",
+            "videos": FilterModes.VIDEOS,
+            "live photos": FilterModes.LIVE,
+            "favorites": FilterModes.FAVORITES,
+            "favorite": FilterModes.FAVORITES,
+            "featured": FilterModes.FAVORITES,
         }
         key = title.casefold()
         mode = mapping.get(key, None)

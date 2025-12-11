@@ -474,7 +474,13 @@ class AssetListModel(QAbstractListModel):
                     continue
                 if self._active_filter == FilterModes.LIVE and not entry.get("is_live"):
                     continue
-                if self._active_filter == FilterModes.FAVORITES and not entry.get("featured"):
+                if (
+                    (
+                        self._active_filter == FilterModes.FAVORITES
+                        or self._active_filter == "featured"
+                    )
+                    and not entry.get("featured")
+                ):
                     continue
 
                 entries.append(entry)
