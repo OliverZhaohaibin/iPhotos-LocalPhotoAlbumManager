@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import xxhash
 from datetime import datetime, timezone
+import copy
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
@@ -192,7 +193,7 @@ def compute_asset_rows(
 ) -> Tuple[List[Dict[str, object]], int]:
     ensure_work_dir(root, WORK_DIR_NAME)
 
-    params = filter_params.copy() if filter_params else {}
+    params = copy.deepcopy(filter_params) if filter_params else {}
     featured_set = normalize_featured(featured)
 
     store = IndexStore(root)
@@ -282,7 +283,7 @@ class AssetLoaderWorker(QRunnable):
         self._signals.progressUpdated.emit(self._root, 0, 0)
 
         # Prepare filter params with featured list if needed
-        params = self._filter_params.copy() if self._filter_params else {}
+        params = copy.deepcopy(self._filter_params) if self._filter_params else {}
 
         # 2. Stream rows using lightweight geometry-first query
         # We use a transaction context to keep the connection open, allowing the
