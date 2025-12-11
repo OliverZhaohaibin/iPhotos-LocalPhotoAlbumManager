@@ -341,7 +341,7 @@ class AssetListModel(QAbstractListModel):
         normalized = mode.casefold() if isinstance(mode, str) and mode else None
 
         # Alias "featured" to "favorites" for internal consistency
-        if normalized == "featured":
+        if normalized in ("featured", "favorite"):
             normalized = FilterModes.FAVORITES
 
         if normalized == self._active_filter:
@@ -477,7 +477,7 @@ class AssetListModel(QAbstractListModel):
                 if (
                     (
                         self._active_filter == FilterModes.FAVORITES
-                        or self._active_filter == "featured"
+                        or self._active_filter in ("featured", "favorite")
                     )
                     and not entry.get("featured")
                 ):
