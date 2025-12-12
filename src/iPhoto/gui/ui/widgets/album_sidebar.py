@@ -468,11 +468,13 @@ class AlbumSidebar(QWidget):
         # Blocking signals ensures this method only updates the visual state without
         # triggering further navigation logic.
         selection_model = self._tree.selectionModel()
-        selection_model.blockSignals(True)
+        if selection_model is not None:
+            selection_model.blockSignals(True)
         try:
             self._tree.setCurrentIndex(index)
         finally:
-            selection_model.blockSignals(False)
+            if selection_model is not None:
+                selection_model.blockSignals(False)
 
         self._tree.scrollTo(index)
 
@@ -494,11 +496,13 @@ class AlbumSidebar(QWidget):
         # Block signals for static nodes as well to prevent similar feedback loops
         # when programmatically restoring state (e.g. at startup or after resets).
         selection_model = self._tree.selectionModel()
-        selection_model.blockSignals(True)
+        if selection_model is not None:
+            selection_model.blockSignals(True)
         try:
             self._tree.setCurrentIndex(index)
         finally:
-            selection_model.blockSignals(False)
+            if selection_model is not None:
+                selection_model.blockSignals(False)
 
         self._tree.scrollTo(index)
 
