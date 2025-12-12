@@ -340,38 +340,38 @@ class IndexStore:
         is_nested = (conn == self._conn)
 
         def _perform_sync(c: sqlite3.Connection) -> None:
-            # Fetch currently marked favorites from the DB to calculate the diff.
-            current_favs = [row[0] for row in c.execute("SELECT rel FROM assets WHERE is_favorite != 0")]
-            current_favs_normalized = {unicodedata.normalize("NFC", r) for r in current_favs}
+            # 1. Fetch all rels from the DB to build a normalized-to-original mapping.
+            #    This ensures we always update the exact key present in the database,
+            #    even if the database contains paths with different Unicode normalization.
+            cursor = c.execute("SELECT rel FROM assets")
+            all_rels_map = {unicodedata.normalize("NFC", row[0]): row[0] for row in cursor}
 
-            # Determine which rows actually need updates
+            # 2. Fetch currently marked favorites from the DB to calculate the diff.
+            current_favs_normalized = {
+                unicodedata.normalize("NFC", row[0])
+                for row in c.execute("SELECT rel FROM assets WHERE is_favorite != 0")
+            }
+
+            # 3. Determine which rows actually need updates
             # Items in DB (normalized) but not in input list -> Remove
             to_remove_normalized = current_favs_normalized - featured_normalized_set
 
             # Items in input list but not in DB (normalized) -> Add
             to_add_normalized = featured_normalized_set - current_favs_normalized
 
-            # Build normalization mapping only for rels that need updates
-            # For removals, we need the original DB rels for those to_remove_normalized
-            to_remove_original = []
+            # 4. Apply updates only where necessary
             if to_remove_normalized:
-                for r in current_favs:
-                    n = unicodedata.normalize("NFC", r)
-                    if n in to_remove_normalized:
-                        to_remove_original.append(r)
-
-            # For additions, use the original input rels from the input_normalized_map.
-            # Since to_add_normalized is derived from featured_normalized_set,
-            # all items are guaranteed to exist in input_normalized_map.
-            to_add_original = []
-            if to_add_normalized:
-                to_add_original = [input_normalized_map[n] for n in to_add_normalized]
-
-            # Apply updates only where necessary
-            if to_remove_original:
+                # Use the ORIGINAL keys from the DB to ensure the UPDATE succeeds
+                to_remove_original = [all_rels_map[n] for n in to_remove_normalized if n in all_rels_map]
                 c.executemany("UPDATE assets SET is_favorite = 0 WHERE rel = ?", [(r,) for r in to_remove_original])
 
-            if to_add_original:
+            if to_add_normalized:
+                # Use the ORIGINAL keys from the DB to ensure the UPDATE succeeds
+                # Fall back to input keys if the normalized key is not found in DB
+                to_add_original = [
+                    all_rels_map.get(n, input_normalized_map[n]) 
+                    for n in to_add_normalized
+                ]
                 c.executemany("UPDATE assets SET is_favorite = 1 WHERE rel = ?", [(r,) for r in to_add_original])
 
         try:
