@@ -23,10 +23,6 @@ class AssetModel(AssetFilterProxyModel):
         super().__init__()
         self._list_model = facade.asset_list_model
         self.setSourceModel(self._list_model)
-        # Ensure the main proxy always defaults to chronological ordering so the
-        # aggregated collections (All Photos, Videos, Live Photos, Favorites)
-        # surface the newest captures first even after background reloads.
-        self.ensure_chronological_order()
 
     def setSourceModel(self, source_model: AssetListModel) -> None:  # type: ignore[override]
         """Update the source model reference when switching contexts."""
