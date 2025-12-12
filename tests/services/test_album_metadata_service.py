@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Callable, Optional
-
 import os
+from collections.abc import Callable
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip(
@@ -42,7 +42,7 @@ class DummyAlbum:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.manifest: dict[str, list[str]] = {"featured": []}
-        self.cover: Optional[str] = None
+        self.cover: str | None = None
         self.saved = 0
 
     def set_cover(self, rel: str) -> None:
@@ -71,8 +71,8 @@ class DummyAlbum:
 def _build_service(
     *,
     asset_model,
-    current_album: Callable[[], Optional[DummyAlbum]],
-    library_manager_getter: Callable[[], Optional[object]],
+    current_album: Callable[[], DummyAlbum | None],
+    library_manager_getter: Callable[[], object | None],
     refresh,
 ) -> AlbumMetadataService:
     """Create a service instance with timer scheduling patched for tests."""
@@ -349,7 +349,7 @@ def test_ensure_featured_entries_updates_album(
     album_root.mkdir(parents=True)
     imported = [album_root / "a.jpg", album_root / "b.jpg", library_root / "skip.txt"]
 
-    current_album: Optional[DummyAlbum] = None
+    current_album: DummyAlbum | None = None
     dummy_album = DummyAlbum(album_root)
 
     monkeypatch.setattr(
