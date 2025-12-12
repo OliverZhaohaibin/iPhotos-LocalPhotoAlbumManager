@@ -28,6 +28,13 @@ class AssetModel(AssetFilterProxyModel):
         # surface the newest captures first even after background reloads.
         self.ensure_chronological_order()
 
+    def setSourceModel(self, source_model: AssetListModel) -> None:  # type: ignore[override]
+        """Update the source model reference when switching contexts."""
+        super().setSourceModel(source_model)
+        self._list_model = source_model
+        # Re-apply the default sort to ensure consistency across model switches
+        self.ensure_chronological_order()
+
     # ------------------------------------------------------------------
     # Convenience accessors
     # ------------------------------------------------------------------

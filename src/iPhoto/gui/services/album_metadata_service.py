@@ -24,14 +24,14 @@ class AlbumMetadataService(QObject):
     def __init__(
         self,
         *,
-        asset_list_model: "AssetListModel",
+        asset_list_model_provider: Callable[[], "AssetListModel"],
         current_album_getter: Callable[[], Optional[Album]],
         library_manager_getter: Callable[[], Optional["LibraryManager"]],
         refresh_view: Callable[[Path], None],
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
-        self._asset_list_model = asset_list_model
+        self._asset_list_model_provider = asset_list_model_provider
         self._current_album_getter = current_album_getter
         self._library_manager_getter = library_manager_getter
         self._refresh_view = refresh_view
@@ -98,7 +98,7 @@ class AlbumMetadataService(QObject):
             # Any transient inconsistency (e.g. DB update failure) is self-corrected
             # by sync_favorites() on the next album load.
             IndexStore(album.root).set_favorite_status(ref, desired_state)
-            self._asset_list_model.update_featured_status(ref, desired_state)
+            self._asset_list_model_provider().update_featured_status(ref, desired_state)
             return desired_state
 
         # Persistence failed. Roll back to the previous manifest state so the
