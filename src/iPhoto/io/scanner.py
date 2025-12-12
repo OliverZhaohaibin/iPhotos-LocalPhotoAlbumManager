@@ -359,4 +359,48 @@ def _build_row(
         except (ValueError, TypeError):
             pass
 
+    # Calculate year and month from dt
+    if "dt" in base_row and isinstance(base_row["dt"], str):
+        try:
+            # base_row['dt'] is ISO format, e.g. "2023-10-27T10:00:00Z"
+            # We can parse the string directly or use the previously parsed object if we had one,
+            # but relying on the string is safer as it covers both metadata fallback and stat fallback.
+            dt_str = base_row["dt"].replace("Z", "+00:00")
+            dt_obj = datetime.fromisoformat(dt_str)
+            base_row["year"] = dt_obj.year
+            base_row["month"] = dt_obj.month
+        except (ValueError, TypeError):
+            base_row["year"] = None
+            base_row["month"] = None
+    else:
+        base_row["year"] = None
+        base_row["month"] = None
+
+    # Calculate aspect ratio
+    w = base_row.get("w")
+    h = base_row.get("h")
+    if isinstance(w, (int, float)) and isinstance(h, (int, float)) and h > 0:
+        base_row["aspect_ratio"] = float(w) / float(h)
+    else:
+        base_row["aspect_ratio"] = None
+
+    # Determine media type flag
+    # 0 = Image, 1 = Video
+    if suffix in _VIDEO_EXTENSIONS:
+        base_row["media_type"] = 1
+    elif suffix in _IMAGE_EXTENSIONS:
+        base_row["media_type"] = 0
+    else:
+        # Fallback based on MIME if extension is ambiguous (though we filter by extension earlier)
+        mime = base_row.get("mime")
+        if isinstance(mime, str):
+            if mime.startswith("video/"):
+                base_row["media_type"] = 1
+            elif mime.startswith("image/"):
+                base_row["media_type"] = 0
+            else:
+                base_row["media_type"] = None
+        else:
+            base_row["media_type"] = None
+
     return base_row

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Callable, Optional, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from ...cache.index_store import IndexStore
+from ...config import ALBUM_MANIFEST_NAMES
 from ...errors import IPhotoError
 from ...models.album import Album
+from ...utils.pathutils import is_descendant_path
 
 if TYPE_CHECKING:
     from ...library.manager import LibraryManager
@@ -23,14 +27,14 @@ class AlbumMetadataService(QObject):
     def __init__(
         self,
         *,
-        asset_list_model: "AssetListModel",
-        current_album_getter: Callable[[], Optional[Album]],
-        library_manager_getter: Callable[[], Optional["LibraryManager"]],
+        asset_list_model_provider: Callable[[], AssetListModel],
+        current_album_getter: Callable[[], Album | None],
+        library_manager_getter: Callable[[], LibraryManager | None],
         refresh_view: Callable[[Path], None],
-        parent: Optional[QObject] = None,
+        parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
-        self._asset_list_model = asset_list_model
+        self._asset_list_model_provider = asset_list_model_provider
         self._current_album_getter = current_album_getter
         self._library_manager_getter = library_manager_getter
         self._refresh_view = refresh_view
@@ -56,57 +60,112 @@ class AlbumMetadataService(QObject):
         was_featured = ref in featured
         desired_state = not was_featured
 
-        library_root: Optional[Path] = None
-        root_album: Optional[Album] = None
-        root_ref: Optional[str] = None
+        library_root: Path | None = None
 
         manager = self._library_manager_getter()
         if manager is not None:
             library_root = manager.root()
 
-        if library_root is not None and library_root != album.root:
-            try:
-                absolute_asset = (album.root / ref).resolve()
-                root_relative = absolute_asset.relative_to(library_root.resolve())
-            except (OSError, ValueError):
-                root_ref = None
-            else:
-                root_ref = root_relative.as_posix()
+        target_album: Album | None = None
+        target_ref: str | None = None
+
+        if library_root is not None:
+            if library_root != album.root:
+                # Case 1: Toggling in a sub-album. Need to update the Library Root as well.
                 try:
-                    root_album = Album.open(library_root)
-                except IPhotoError as exc:
+                    absolute_asset = (album.root / ref).resolve()
+                    root_relative = absolute_asset.relative_to(library_root.resolve())
+                except (OSError, ValueError):
+                    pass
+                else:
+                    target_ref = root_relative.as_posix()
+                    try:
+                        target_album = Album.open(library_root)
+                    except IPhotoError as exc:
+                        self.errorRaised.emit(str(exc))
+                        target_album = None
+            else:
+                # Case 2: Toggling in the Library Root. Need to update the physical sub-album.
+                try:
+                    absolute_asset = (album.root / ref).resolve()
+                    # Instead of assuming the immediate parent is the album, search for the real root.
+                    physical_root = self._find_containing_physical_album(
+                        library_root, absolute_asset
+                    )
+
+                    if physical_root:
+                        # Calculate the correct relative path from the actual physical root
+                        # e.g., converts absolute path to "SubFolder/Photo.jpg"
+                        target_ref = absolute_asset.relative_to(physical_root).as_posix()
+
+                        try:
+                            target_album = Album.open(physical_root)
+                        except IPhotoError as exc:
+                            self.errorRaised.emit(str(exc))
+                            target_album = None
+                    else:
+                        # No physical album found (e.g., file is directly in Library Root or is an orphan).
+                        # Skip synchronization.
+                        target_album = None
+
+                except (OSError, ValueError) as exc:
                     self.errorRaised.emit(str(exc))
-                    root_album = None
 
         if desired_state:
             album.add_featured(ref)
-            if root_album is not None and root_ref is not None:
-                root_album.add_featured(root_ref)
+            if target_album is not None and target_ref is not None:
+                target_album.add_featured(target_ref)
         else:
             album.remove_featured(ref)
-            if root_album is not None and root_ref is not None:
-                root_album.remove_featured(root_ref)
+            if target_album is not None and target_ref is not None:
+                target_album.remove_featured(target_ref)
 
         current_saved = self._save_manifest(album, reload_view=False)
-        root_saved = True
-        if root_album is not None and root_ref is not None:
-            root_saved = self._save_manifest(root_album, reload_view=False)
+        target_saved = True
+        if target_album is not None and target_ref is not None:
+            target_saved = self._save_manifest(target_album, reload_view=False)
 
-        if current_saved and root_saved:
-            self._asset_list_model.update_featured_status(ref, desired_state)
+        if current_saved and target_saved:
+            # Update DB index after successful manifest save.
+            # Any transient inconsistency (e.g. DB update failure) is self-corrected
+            # by sync_favorites() on the next album load.
+            IndexStore(album.root).set_favorite_status(ref, desired_state)
+            if target_album is not None and target_ref is not None:
+                IndexStore(target_album.root).set_favorite_status(target_ref, desired_state)
+            self._asset_list_model_provider().update_featured_status(ref, desired_state)
             return desired_state
 
         # Persistence failed. Roll back to the previous manifest state so the
         # in-memory representation stays consistent with the on-disk version.
         if desired_state:
             album.remove_featured(ref)
-            if root_album is not None and root_ref is not None:
-                root_album.remove_featured(root_ref)
+            if target_album is not None and target_ref is not None:
+                target_album.remove_featured(target_ref)
         else:
             album.add_featured(ref)
-            if root_album is not None and root_ref is not None:
-                root_album.add_featured(root_ref)
+            if target_album is not None and target_ref is not None:
+                target_album.add_featured(target_ref)
         return was_featured
+
+    def _find_containing_physical_album(self, library_root: Path, asset_path: Path) -> Path | None:
+        """Traverse upwards from the asset path to find the nearest physical album root."""
+        candidate = asset_path.parent
+
+        # Safety check: Ensure we stay strictly within the library root
+        while candidate != library_root and is_descendant_path(candidate, library_root):
+            # Check if any known manifest file exists in the current candidate directory
+            for name in ALBUM_MANIFEST_NAMES:
+                if (candidate / name).exists():
+                    return candidate
+
+            # Stop if we hit the filesystem root to prevent infinite loops
+            if candidate.parent == candidate:
+                break
+
+            # Move up one level
+            candidate = candidate.parent
+
+        return None
 
     def ensure_featured_entries(
         self,
@@ -139,7 +198,7 @@ class AlbumMetadataService(QObject):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _resolve_album_for_root(self, root: Path) -> Optional[Album]:
+    def _resolve_album_for_root(self, root: Path) -> Album | None:
         """Return an :class:`Album` instance representing *root*."""
 
         current = self._current_album_getter()
