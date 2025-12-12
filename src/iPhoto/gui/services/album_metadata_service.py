@@ -151,8 +151,8 @@ class AlbumMetadataService(QObject):
         """Traverse upwards from the asset path to find the nearest physical album root."""
         candidate = asset_path.parent
 
-        # Safety check: Ensure we stay strictly within the library root
-        while candidate != library_root and is_descendant_path(candidate, library_root):
+        # Traverse upwards until we reach library_root, stopping before crossing it
+        while is_descendant_path(candidate, library_root) and candidate != library_root:
             # Check if any known manifest file exists in the current candidate directory
             for name in ALBUM_MANIFEST_NAMES:
                 if (candidate / name).exists():
