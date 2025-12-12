@@ -369,7 +369,7 @@ class IndexStore:
                 # Use the ORIGINAL keys from the DB to ensure the UPDATE succeeds
                 # Fall back to input keys if the normalized key is not found in DB
                 to_add_original = [
-                    all_rels_map.get(n, input_normalized_map[n]) 
+                    all_rels_map.get(n, input_normalized_map[n])
                     for n in to_add_normalized
                 ]
                 c.executemany("UPDATE assets SET is_favorite = 1 WHERE rel = ?", [(r,) for r in to_add_original])
