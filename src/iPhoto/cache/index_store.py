@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Optional, Any, List, Tuple
@@ -327,33 +328,47 @@ class IndexStore:
 
     def sync_favorites(self, featured_rels: Iterable[str]) -> None:
         """Synchronise the DB 'is_favorite' column with the provided list of featured paths."""
-        # Use a set for O(1) lookups and easy set operations
-        featured_set = set(featured_rels)
+        # Normalize input paths to ensure consistent comparison (NFC)
+        # We assume the DB uses consistent normalization or we rely on normalization for matching.
+        featured_set = {unicodedata.normalize("NFC", r) for r in featured_rels}
 
         conn = self._get_conn()
         is_nested = (conn == self._conn)
 
         def _perform_sync(c: sqlite3.Connection) -> None:
             # 1. Fetch currently marked favorites from the DB to calculate the diff.
-            #    This avoids using a TEMP TABLE, preventing potential crashes related
-            #    to temporary file handling with non-ASCII paths on Windows.
+            #    We store a map of normalized_rel -> original_rel to ensure we update
+            #    the exact key present in the database even if casing/normalization differs slightly.
             cursor = c.execute("SELECT rel FROM assets WHERE is_favorite != 0")
-            current_favs = {row[0] for row in cursor}
+            current_favs_map = {unicodedata.normalize("NFC", row[0]): row[0] for row in cursor}
+            current_favs_normalized = set(current_favs_map.keys())
 
             # 2. Determine which rows actually need updates
-            to_remove = current_favs - featured_set
-            to_add = featured_set - current_favs
+            # Items in DB (normalized) but not in input list -> Remove
+            to_remove_normalized = current_favs_normalized - featured_set
+
+            # Items in input list but not in DB (normalized) -> Add
+            # Note: For adding, we have to use the keys from the input list (or try to find them).
+            # Since we don't have a map for non-favorites, we use the raw input strings.
+            # This works best if the input list matches the filesystem/DB convention.
+            to_add_normalized = featured_set - current_favs_normalized
 
             # 3. Apply updates only where necessary
-            if to_remove:
-                # Batch update to un-favorite items no longer in the list
-                c.executemany("UPDATE assets SET is_favorite = 0 WHERE rel = ?", [(r,) for r in to_remove])
+            if to_remove_normalized:
+                # Use the ORIGINAL keys from the DB to ensure the UPDATE succeeds
+                to_remove_original = [current_favs_map[n] for n in to_remove_normalized]
+                c.executemany("UPDATE assets SET is_favorite = 0 WHERE rel = ?", [(r,) for r in to_remove_original])
 
-            if to_add:
-                # Batch update to favorite new items
-                # If a path in to_add doesn't exist in 'assets' (e.g. deleted file),
-                # this UPDATE will simply do nothing for that row, which is safe.
-                c.executemany("UPDATE assets SET is_favorite = 1 WHERE rel = ?", [(r,) for r in to_add])
+            if to_add_normalized:
+                # We can only guess the key here based on the input.
+                # If we wanted to be 100% robust we would need to fetch ALL keys from DB, but that's too slow.
+                # Instead, we just use the input keys that matched the normalized set difference.
+                # To do this correctly, we need the original input strings that produced the normalized keys.
+                # Let's rebuild that map.
+                input_map = {unicodedata.normalize("NFC", r): r for r in featured_rels}
+                to_add_original = [input_map[n] for n in to_add_normalized]
+
+                c.executemany("UPDATE assets SET is_favorite = 1 WHERE rel = ?", [(r,) for r in to_add_original])
 
         try:
             if is_nested:
