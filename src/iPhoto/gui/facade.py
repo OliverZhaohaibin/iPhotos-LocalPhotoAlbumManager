@@ -647,10 +647,20 @@ class AppFacade(QObject):
         self._current_album = refreshed
         refreshed_root = refreshed.root
 
-        # Dual-model aware refresh: ensure we are targeting the correct model for this root.
-        # However, _refresh_view is typically called for the current album.
-        # If we refreshed the active model, proceed.
-        self._active_model.prepare_for_album(refreshed_root)
+        # Determine the correct model for the refreshed root using the same logic as open_album.
+        target_model = self._album_list_model
+        library_root = self._library_manager.root() if self._library_manager else None
+
+        if library_root and self._paths_equal(refreshed_root, library_root):
+            target_model = self._library_list_model
+
+        # Force a preparation of the target model since we are refreshing from a manifest change.
+        target_model.prepare_for_album(refreshed_root)
+
+        # Switch context if the refreshed album requires a different model.
+        if target_model is not self._active_model:
+            self._active_model = target_model
+            self.activeModelChanged.emit(target_model)
 
         self.albumOpened.emit(refreshed_root)
         force_reload = self._library_update_service.consume_forced_reload(refreshed_root)
