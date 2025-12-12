@@ -38,6 +38,7 @@ class AppFacade(QObject):
     loadStarted = Signal(Path)
     loadProgress = Signal(Path, int, int)
     loadFinished = Signal(Path, bool)
+    activeModelChanged = Signal(object)  # Emits AssetListModel
 
     def __init__(self) -> None:
         super().__init__()
@@ -68,12 +69,22 @@ class AppFacade(QObject):
 
         from .ui.models.asset_list_model import AssetListModel
 
-        self._asset_list_model = AssetListModel(self)
-        self._asset_list_model.loadProgress.connect(self._on_model_load_progress)
-        self._asset_list_model.loadFinished.connect(self._on_model_load_finished)
+        self._library_list_model = AssetListModel(self)
+        self._album_list_model = AssetListModel(self)
+        # Initialize active model to the library model. This ensures consumers
+        # encountering the app in a "Library" state (e.g. at startup) receive
+        # the correct persistent model context rather than a transient album one.
+        # Although the app might launch without a bound library, defaulting to
+        # the library context avoids exposing an arbitrary transient model and
+        # aligns with the "All Photos" default view.
+        self._active_model: AssetListModel = self._library_list_model
+
+        for model in (self._library_list_model, self._album_list_model):
+            model.loadProgress.connect(self._on_model_load_progress)
+            model.loadFinished.connect(self._on_model_load_finished)
 
         self._metadata_service = AlbumMetadataService(
-            asset_list_model=self._asset_list_model,
+            asset_list_model_provider=lambda: self._active_model,
             current_album_getter=lambda: self._current_album,
             library_manager_getter=self._get_library_manager,
             refresh_view=self._refresh_view,
@@ -108,7 +119,7 @@ class AppFacade(QObject):
 
         self._move_service = AssetMoveService(
             task_manager=self._task_manager,
-            asset_list_model=self._asset_list_model,
+            asset_list_model_provider=lambda: self._active_model,
             current_album_getter=lambda: self._current_album,
             library_manager_getter=self._get_library_manager,
             parent=self,
@@ -129,9 +140,9 @@ class AppFacade(QObject):
 
     @property
     def asset_list_model(self) -> "AssetListModel":
-        """Return the list model that backs the asset views."""
+        """Return the active list model that backs the asset views."""
 
-        return self._asset_list_model
+        return self._active_model
 
     @property
     def import_service(self) -> AssetImportService:
@@ -166,9 +177,49 @@ class AppFacade(QObject):
             self.errorRaised.emit(str(exc))
             return None
 
+        # Dual-Model Switching Strategy:
+        # Determine whether to use the persistent library model or the transient album model.
+        target_model = self._album_list_model
+        library_root = self._library_manager.root() if self._library_manager else None
+
+        # If the requested root matches the library root, assume we are viewing the
+        # aggregated "All Photos" collection (or similar library-wide view).
+        if library_root and self._paths_equal(root, library_root):
+            target_model = self._library_list_model
+
         self._current_album = album
         album_root = album.root
-        self._asset_list_model.prepare_for_album(album_root)
+
+        # Optimization: If using the persistent library model and it already has data,
+        # skip the reset/prepare step to keep the switch instant.
+        should_prepare = True
+        if target_model is self._library_list_model:
+            # We assume a non-zero row count means the model is populated.
+            # Ideally we would check if it's populated for *this specific root*,
+            # but the library model is dedicated to the library root.
+            #
+            # Note: This check is thread-safe because `AppFacade`, `AssetListModel`,
+            # and `open_album` all run on the main UI thread. Background updates
+            # are marshaled to the main thread via signals before modifying the model.
+            existing_root = target_model.album_root()
+            if (
+                target_model.rowCount() > 0
+                and existing_root is not None
+                and self._paths_equal(existing_root, album_root)
+                and getattr(target_model, "is_valid", lambda: False)()
+            ):
+                should_prepare = False
+
+        if should_prepare:
+            target_model.prepare_for_album(album_root)
+
+        # If switching models, notify listeners (e.g. DataManager to update the proxy).
+        # We emit this AFTER preparing the target model so that the proxy receives
+        # a model that is already reset (or ready), avoiding a brief flash of stale data.
+        if target_model is not self._active_model:
+            self._active_model = target_model
+            self.activeModelChanged.emit(target_model)
+
         self.albumOpened.emit(album_root)
 
         # Check if the index is empty (likely because it's a new or cleaned album)
@@ -187,11 +238,15 @@ class AppFacade(QObject):
             self.rescan_current_async()
 
         force_reload = self._library_update_service.consume_forced_reload(album_root)
-        self._restart_asset_load(
-            album_root,
-            announce_index=True,
-            force_reload=force_reload,
-        )
+
+        # If we skipped preparation (cached library model), we also skip the load restart
+        # unless a force reload was requested.
+        if should_prepare or force_reload:
+            self._restart_asset_load(
+                album_root,
+                announce_index=True,
+                force_reload=force_reload,
+            )
         return album
 
     def rescan_current(self) -> List[dict]:
@@ -592,7 +647,22 @@ class AppFacade(QObject):
 
         self._current_album = refreshed
         refreshed_root = refreshed.root
-        self._asset_list_model.prepare_for_album(refreshed_root)
+
+        # Determine the correct model for the refreshed root using the same logic as open_album.
+        target_model = self._album_list_model
+        library_root = self._library_manager.root() if self._library_manager else None
+
+        if library_root and self._paths_equal(refreshed_root, library_root):
+            target_model = self._library_list_model
+
+        # Force a preparation of the target model since we are refreshing from a manifest change.
+        target_model.prepare_for_album(refreshed_root)
+
+        # Switch context if the refreshed album requires a different model.
+        if target_model is not self._active_model:
+            self._active_model = target_model
+            self.activeModelChanged.emit(target_model)
+
         self.albumOpened.emit(refreshed_root)
         force_reload = self._library_update_service.consume_forced_reload(refreshed_root)
         self._restart_asset_load(refreshed_root, force_reload=force_reload)
@@ -640,9 +710,9 @@ class AppFacade(QObject):
         if announce_index:
             self._pending_index_announcements.add(root)
         self.loadStarted.emit(root)
-        if not force_reload and self._asset_list_model.populate_from_cache():
+        if not force_reload and self._active_model.populate_from_cache():
             return
-        self._asset_list_model.start_load()
+        self._active_model.start_load()
 
     def _on_model_load_progress(self, root: Path, current: int, total: int) -> None:
         self.loadProgress.emit(root, current, total)
@@ -728,11 +798,31 @@ class AppFacade(QObject):
     ) -> None:
         """Trigger an asset reload in response to library update notifications."""
 
-        self._restart_asset_load(
-            root,
-            announce_index=announce_index,
-            force_reload=force_reload,
-        )
+        # Dual-model awareness:
+        # If the reload request targets a root that matches one of our models,
+        # we might need to reload that specific model even if it's inactive.
+        # But _restart_asset_load currently uses _active_model.
+        # To support background updates properly, we should check which model covers the root.
+
+        # Gather all models that are managing this root.
+        # This handles the case where the library root is also the currently open active album.
+        target_models: Set[AssetListModel] = set()
+
+        if self._library_manager and self._paths_equal(root, self._library_manager.root()):
+            target_models.add(self._library_list_model)
+
+        if self._current_album and self._paths_equal(root, self._current_album.root):
+            target_models.add(self._active_model)
+
+        if target_models:
+            if announce_index:
+                self._pending_index_announcements.add(root)
+            self.loadStarted.emit(root)
+
+        for model in target_models:
+            if not force_reload and model.populate_from_cache():
+                continue
+            model.start_load()
 
 
 __all__ = ["AppFacade"]
