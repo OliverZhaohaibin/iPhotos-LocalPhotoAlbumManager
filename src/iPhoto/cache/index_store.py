@@ -327,29 +327,33 @@ class IndexStore:
 
     def sync_favorites(self, featured_rels: Iterable[str]) -> None:
         """Synchronise the DB 'is_favorite' column with the provided list of featured paths."""
-        # Convert to list to ensure we can iterate multiple times if needed
-        featured_list = list(featured_rels)
+        # Use a set for O(1) lookups and easy set operations
+        featured_set = set(featured_rels)
 
         conn = self._get_conn()
         is_nested = (conn == self._conn)
 
         def _perform_sync(c: sqlite3.Connection) -> None:
-            # Optimization: Use a temp table to avoid full-table updates.
-            # 1. Populate temp table
-            c.execute("CREATE TEMP TABLE IF NOT EXISTS temp_sync_favs (rel TEXT PRIMARY KEY)")
-            c.execute("DELETE FROM temp_sync_favs")
-            if featured_list:
-                c.executemany("INSERT OR IGNORE INTO temp_sync_favs (rel) VALUES (?)", [(r,) for r in featured_list])
+            # 1. Fetch currently marked favorites from the DB to calculate the diff.
+            #    This avoids using a TEMP TABLE, preventing potential crashes related
+            #    to temporary file handling with non-ASCII paths on Windows.
+            cursor = c.execute("SELECT rel FROM assets WHERE is_favorite = 1")
+            current_favs = {row[0] for row in cursor}
 
-            # 2. Clear old favorites (only touch rows that are currently favorite)
-            # We only clear favorites that are NOT in the new list to minimize writes
-            c.execute("UPDATE assets SET is_favorite = 0 WHERE is_favorite != 0 AND rel NOT IN (SELECT rel FROM temp_sync_favs)")
+            # 2. Determine which rows actually need updates
+            to_remove = current_favs - featured_set
+            to_add = featured_set - current_favs
 
-            # 3. Set new favorites (only touch rows that need to be favorite and aren't already)
-            # This naturally handles invalid paths (they won't match any asset rel)
-            c.execute("UPDATE assets SET is_favorite = 1 WHERE is_favorite != 1 AND rel IN (SELECT rel FROM temp_sync_favs)")
+            # 3. Apply updates only where necessary
+            if to_remove:
+                # Batch update to un-favorite items no longer in the list
+                c.executemany("UPDATE assets SET is_favorite = 0 WHERE rel = ?", [(r,) for r in to_remove])
 
-            c.execute("DROP TABLE temp_sync_favs")
+            if to_add:
+                # Batch update to favorite new items
+                # If a path in to_add doesn't exist in 'assets' (e.g. deleted file),
+                # this UPDATE will simply do nothing for that row, which is safe.
+                c.executemany("UPDATE assets SET is_favorite = 1 WHERE rel = ?", [(r,) for r in to_add])
 
         try:
             if is_nested:
