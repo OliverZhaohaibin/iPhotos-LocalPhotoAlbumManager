@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from ....utils.pathutils import ensure_work_dir
 from ....cache.index_store import IndexStore
 from ....config import WORK_DIR_NAME
+from ....media_classifier import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 from ....models.album import Album
 from ..tasks.thumbnail_loader import ThumbnailJob
 from .flow_layout import FlowLayout
@@ -291,6 +292,26 @@ class AlbumDataWorker(QRunnable):
             candidate = self.node.path / first_rel
             if candidate.exists():
                 cover_path = candidate
+
+        # Fallback: Perform a final filesystem scan if the index yielded no cover
+        # but the folder might not be empty (e.g. index not yet built).
+        if cover_path is None:
+            try:
+                for entry in self.node.path.iterdir():
+                    if not entry.is_file():
+                        continue
+                    if entry.name.startswith("."):
+                        continue
+                    suffix = entry.suffix.lower()
+                    if suffix in IMAGE_EXTENSIONS or suffix in VIDEO_EXTENSIONS:
+                        cover_path = entry
+                        # We found a file, but the index count was 0.
+                        # We update the count to at least 1 to reflect presence.
+                        if count == 0:
+                            count = 1
+                        break
+            except OSError:
+                pass
 
         self.signals.albumReady.emit(self.node, count, cover_path, self.node.path, self.generation)
 

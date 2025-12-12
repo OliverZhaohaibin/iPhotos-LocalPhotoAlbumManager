@@ -188,6 +188,54 @@ def test_scan_finished_triggers_full_refresh_for_root(qtbot, mock_library):
         assert isinstance(worker, AlbumDataWorker)
         assert worker.node.path == album.path
 
+def test_album_data_worker_fallback_scan(qapp):
+    """Test that AlbumDataWorker falls back to filesystem scan if index is empty."""
+    album_path = Path("/path/to/album")
+    node = MagicMock()
+    # Mock node.path as a MagicMock that behaves like a path but has mockable methods
+    mock_path = MagicMock(spec=Path)
+    node.path = mock_path
+    signals = MagicMock()
+    generation = 1
+
+    # Mock file entry
+    file_entry = MagicMock()
+    file_entry.is_file.return_value = True
+    file_entry.name = "image.jpg"
+    file_entry.suffix = ".jpg"
+    file_entry.path = album_path / "image.jpg" # This path is usually entry itself if Path object
+    # In iterdir(), entries are Path objects.
+    # So we should make file_entry behave like a Path.
+    # But for mocking simplicity, let's just make it return itself when accessed?
+    # Actually, AlbumDataWorker uses: entry.is_file(), entry.name, entry.suffix
+    # And sets cover_path = entry.
+    # So we need entry to be returnable as path.
+
+    # Let's mock node.path.iterdir()
+    node.path.iterdir.return_value = [file_entry]
+
+    with patch("src.iPhoto.gui.ui.widgets.albums_dashboard.IndexStore") as MockIndexStore, \
+         patch("src.iPhoto.gui.ui.widgets.albums_dashboard.Album") as MockAlbum:
+
+        # Empty index
+        store = MockIndexStore.return_value
+        store.read_all.return_value = []
+
+        # No manifest cover
+        album_obj = MockAlbum.open.return_value
+        album_obj.manifest.get.return_value = None
+
+        worker = AlbumDataWorker(node, signals, generation)
+        worker.run()
+
+        # Verify result
+        assert signals.albumReady.emit.call_count == 1
+        args = signals.albumReady.emit.call_args[0]
+        # args: node, count, cover_path, root, generation
+
+        assert args[1] == 1 # count should be bumped to 1
+        assert args[2] == file_entry # cover_path should be the file found
+
 def test_index_updated_triggers_refresh(qtbot, mock_library):
     """Test that on_index_updated triggers a data refresh for the specific album."""
     album_path = Path("/path/to/album")
