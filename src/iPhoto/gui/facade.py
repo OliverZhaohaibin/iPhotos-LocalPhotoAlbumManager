@@ -206,6 +206,7 @@ class AppFacade(QObject):
                 target_model.rowCount() > 0
                 and existing_root is not None
                 and self._paths_equal(existing_root, album_root)
+                and getattr(target_model, "is_valid", lambda: False)()
             ):
                 should_prepare = False
 
