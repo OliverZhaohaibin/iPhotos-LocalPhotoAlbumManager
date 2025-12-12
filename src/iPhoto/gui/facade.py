@@ -189,8 +189,12 @@ class AppFacade(QObject):
         should_prepare = True
         if target_model is self._library_list_model:
             # We assume a non-zero row count means the model is populated.
-            # Ideally we would check if it's populated for *this specific root*,
+            # ideally we would check if it's populated for *this specific root*,
             # but the library model is dedicated to the library root.
+            #
+            # Note: This check is thread-safe because `AppFacade`, `AssetListModel`,
+            # and `open_album` all run on the main UI thread. Background updates
+            # are marshaled to the main thread via signals before modifying the model.
             existing_root = target_model.album_root()
             if (
                 target_model.rowCount() > 0
