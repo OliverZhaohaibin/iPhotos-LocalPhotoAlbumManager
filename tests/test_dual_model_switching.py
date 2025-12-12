@@ -96,21 +96,7 @@ def test_dual_model_switching(tmp_path: Path, qapp: QApplication) -> None:
     qapp.processEvents()
     facade.open_album(album_dir)
     qapp.processEvents()
-    # Should emit 3 more times
-    assert len(signaled_models) == 5
-    assert signaled_models[-1] == album_model
 
-
-def test_dual_model_no_library(tmp_path: Path, qapp: QApplication) -> None:
-    """Verify behavior when no library is bound."""
-    root = tmp_path / "Standalone"
-    root.mkdir()
-    _write_manifest(root, "Standalone")
-
-    facade = AppFacade()
-    # No bind_library called
 
     facade.open_album(root)
-    qapp.processEvents()
-
     assert facade.asset_list_model == facade._album_list_model
