@@ -340,18 +340,18 @@ class IndexStore:
         is_nested = (conn == self._conn)
 
         def _perform_sync(c: sqlite3.Connection) -> None:
-            # 1. Fetch currently marked favorites from the DB to calculate the diff.
+            # Fetch currently marked favorites from the DB to calculate the diff.
             current_favs = [row[0] for row in c.execute("SELECT rel FROM assets WHERE is_favorite != 0")]
             current_favs_normalized = {unicodedata.normalize("NFC", r) for r in current_favs}
 
-            # 2. Determine which rows actually need updates
+            # Determine which rows actually need updates
             # Items in DB (normalized) but not in input list -> Remove
             to_remove_normalized = current_favs_normalized - featured_normalized_set
 
             # Items in input list but not in DB (normalized) -> Add
             to_add_normalized = featured_normalized_set - current_favs_normalized
 
-            # 3. Build normalization mapping only for rels that need updates
+            # Build normalization mapping only for rels that need updates
             # For removals, we need the original DB rels for those to_remove_normalized
             to_remove_original = []
             if to_remove_normalized:
@@ -360,13 +360,14 @@ class IndexStore:
                     if n in to_remove_normalized:
                         to_remove_original.append(r)
 
-            # For additions, try to update using the input rels directly.
-            # If the input rel is not present in the DB, the update will have no effect.
+            # For additions, use the original input rels from the input_normalized_map.
+            # Since to_add_normalized is derived from featured_normalized_set,
+            # all items are guaranteed to exist in input_normalized_map.
             to_add_original = []
             if to_add_normalized:
                 to_add_original = [input_normalized_map[n] for n in to_add_normalized]
 
-            # 4. Apply updates only where necessary
+            # Apply updates only where necessary
             if to_remove_original:
                 c.executemany("UPDATE assets SET is_favorite = 0 WHERE rel = ?", [(r,) for r in to_remove_original])
 
