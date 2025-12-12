@@ -196,7 +196,12 @@ class AppFacade(QObject):
             # We assume a non-zero row count means the model is populated.
             # Ideally we would check if it's populated for *this specific root*,
             # but the library model is dedicated to the library root.
-            if target_model.rowCount() > 0 and self._paths_equal(target_model.album_root() or Path(""), album_root):
+            existing_root = target_model.album_root()
+            if (
+                target_model.rowCount() > 0
+                and existing_root is not None
+                and self._paths_equal(existing_root, album_root)
+            ):
                 should_prepare = False
 
         if should_prepare:
