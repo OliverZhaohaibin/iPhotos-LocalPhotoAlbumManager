@@ -92,26 +92,27 @@ class AlbumMetadataService(QObject):
                     # but is a direct child of it, or simply use the parent if it's a sub-album.
                     parent = absolute_asset.parent
                     if parent != library_root and parent.is_relative_to(library_root):
-                        # Simple assumption: The parent folder is the album.
-                        # This covers the 90% case where albums are direct subfolders.
-                        # For deeply nested structures, this updates the immediate container.
+                        # This handles the common case where albums are immediate child directories of the library root.
+                        # For nested album structures, this updates the most immediate containing album directory.
                         physical_root = parent
                         physical_ref = absolute_asset.name
 
                         target_ref = physical_ref
                         try:
                             target_album = Album.open(physical_root)
-                        except IPhotoError:
-                            # If it's not a valid album (no manifest yet), we might be
-                            # implicitly creating one, or we should skip.
+                        except IPhotoError as exc:
                             # Album.open creates a default manifest if missing, which is acceptable behavior here.
+                            # If opening still fails, emit the error and skip.
+                            self.errorRaised.emit(str(exc))
                             target_album = None
-                            # Try to open it only if it exists
-                            if physical_root.exists() and physical_root.is_dir():
-                                try:
-                                    target_album = Album.open(physical_root)
-                                except IPhotoError as exc:
-                                    self.errorRaised.emit(str(exc))
+                    elif parent == library_root:
+                        # Asset is directly in the library root; propagate to the root album itself.
+                        target_ref = absolute_asset.name
+                        try:
+                            target_album = Album.open(library_root)
+                        except IPhotoError as exc:
+                            self.errorRaised.emit(str(exc))
+                            target_album = None
                 except (OSError, ValueError):
                     pass
 
