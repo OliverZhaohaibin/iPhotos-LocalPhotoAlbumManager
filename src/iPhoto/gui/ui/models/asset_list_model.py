@@ -758,6 +758,7 @@ class AssetListModel(QAbstractListModel):
                 self._incremental_signals.error.disconnect(self._on_incremental_error)
                 self._incremental_signals.deleteLater()
                 self._incremental_signals = None
+            # Reset worker inside lock to prevent race
             self._incremental_worker = None
 
     def _apply_incremental_results(self, root: Path, fresh_rows: List[Dict[str, object]]) -> None:
