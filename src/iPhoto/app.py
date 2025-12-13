@@ -217,7 +217,23 @@ def rescan(root: Path, progress_callback: Optional[Callable[[int, int], None]] =
     exclude = album.manifest.get("filters", {}).get("exclude", DEFAULT_EXCLUDE)
     from .io.scanner import scan_album
 
-    rows = list(scan_album(root, include, exclude, progress_callback=progress_callback))
+    # Load existing index for incremental scanning
+    existing_index = {}
+    try:
+        for row in store.read_all():
+            rel_key = _normalise_rel_key(row.get("rel"))
+            if rel_key:
+                existing_index[rel_key] = row
+    except IndexCorruptedError:
+        pass
+
+    rows = list(scan_album(
+        root,
+        include,
+        exclude,
+        existing_index=existing_index,
+        progress_callback=progress_callback
+    ))
     if is_recently_deleted and preserved_restore_rows:
         for new_row in rows:
             rel_value = new_row.get("rel")
