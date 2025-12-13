@@ -88,6 +88,87 @@ def test_generate_cache_path_different_sizes(tmp_path: Path) -> None:
     assert "256x256.png" in result_256.name
 
 
+def test_thumbnail_loader_fixed_size(tmp_path: Path, qapp: QApplication) -> None:
+    """Test that ThumbnailLoader enforces 512x512 regardless of requested size."""
+    image_path = tmp_path / "IMG_FIXED.JPG"
+    _create_image(image_path)
+    loader = ThumbnailLoader()
+    loader.reset_for_album(tmp_path)
+
+    spy = QSignalSpy(loader.ready)
+    # Request a small size
+    loader.request("IMG_FIXED.JPG", image_path, QSize(100, 100), is_image=True)
+
+    deadline = time.monotonic() + 4.0
+    while time.monotonic() < deadline and spy.count() < 1:
+        qapp.processEvents()
+        time.sleep(0.05)
+    assert spy.count() >= 1
+
+    thumbs_dir = tmp_path / WORK_DIR_NAME / "thumbs"
+    files = list(thumbs_dir.iterdir())
+    assert len(files) == 1
+
+    # The file generated should imply 512x512 in its name
+    assert "512x512.png" in files[0].name
+    assert "100x100" not in files[0].name
+
+
+def test_thumbnail_loader_lru_eviction(tmp_path: Path, qapp: QApplication) -> None:
+    """Test that the LRU cache evicts old items when limit is reached."""
+    loader = ThumbnailLoader()
+    loader.reset_for_album(tmp_path)
+
+    # Lower the limit for testing
+    loader._max_memory_items = 2
+
+    # Helper to create and load images
+    def load_image(name: str):
+        path = tmp_path / name
+        _create_image(path)
+        spy = QSignalSpy(loader.ready)
+        loader.request(name, path, QSize(512, 512), is_image=True)
+        deadline = time.monotonic() + 4.0
+        while time.monotonic() < deadline and spy.count() < 1:
+            qapp.processEvents()
+            time.sleep(0.05)
+        return spy.count() >= 1
+
+    # Load 3 images
+    assert load_image("IMG_1.JPG")
+    assert load_image("IMG_2.JPG")
+    assert load_image("IMG_3.JPG")
+
+    # Wait for processing to potentially stabilize
+    qapp.processEvents()
+
+    # Check memory cache size
+    assert len(loader._memory) == 2
+
+    # Verify contents of cache: IMG_1 should be evicted (FIFO/LRU), IMG_2 and IMG_3 should remain
+    # Keys structure: (album_root_str, rel, width, height)
+    keys = list(loader._memory.keys())
+    rels = [k[1] for k in keys]
+
+    assert "IMG_1.JPG" not in rels
+    assert "IMG_2.JPG" in rels
+    assert "IMG_3.JPG" in rels
+
+    # Access IMG_2 again to make it most recently used
+    loader.request("IMG_2.JPG", tmp_path / "IMG_2.JPG", QSize(512, 512), is_image=True)
+
+    # Load a 4th image
+    assert load_image("IMG_4.JPG")
+
+    # Now IMG_3 should be evicted (least recently used), IMG_2 and IMG_4 remain
+    keys = list(loader._memory.keys())
+    rels = [k[1] for k in keys]
+
+    assert "IMG_3.JPG" not in rels
+    assert "IMG_2.JPG" in rels
+    assert "IMG_4.JPG" in rels
+
+
 def test_generate_cache_path_different_stamps(tmp_path: Path) -> None:
     """Test that different timestamps produce different cache paths."""
     album_root = tmp_path / "album"

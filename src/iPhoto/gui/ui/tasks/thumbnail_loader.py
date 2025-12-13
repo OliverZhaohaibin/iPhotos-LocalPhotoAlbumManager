@@ -504,7 +504,8 @@ class ThumbnailLoader(QObject):
         self._album_root: Optional[Path] = None
         self._album_root_str: Optional[str] = None
 
-        self._memory: Dict[Tuple[str, str, int, int], Tuple[int, QPixmap]] = {}
+        self._memory: OrderedDict[Tuple[str, str, int, int], Tuple[int, QPixmap]] = OrderedDict()
+        self._max_memory_items = 500
 
         self._pending_deque: deque[Tuple[Tuple[str, str, int, int], ThumbnailJob]] = deque()
         self._pending_keys: Set[Tuple[str, str, int, int]] = set()
@@ -551,7 +552,8 @@ class ThumbnailLoader(QObject):
         if self._album_root is None or self._album_root_str is None:
             return None
 
-        base_key = self._base_key(rel, size)
+        fixed_size = QSize(512, 512)
+        base_key = self._base_key(rel, fixed_size)
 
         if base_key in self._missing:
             return None
@@ -563,6 +565,7 @@ class ThumbnailLoader(QObject):
         retval: Optional[QPixmap] = None
 
         if cached_entry:
+            self._memory.move_to_end(base_key)
             known_stamp, retval = cached_entry
 
         if base_key in self._pending_keys:
@@ -575,7 +578,7 @@ class ThumbnailLoader(QObject):
             self,
             rel,
             path,
-            size,
+            fixed_size,
             known_stamp,
             self._album_root,
             is_image=is_image,
@@ -642,6 +645,10 @@ class ThumbnailLoader(QObject):
             return
 
         self._memory[base_key] = (stamp, pixmap)
+        self._memory.move_to_end(base_key)
+
+        while len(self._memory) > self._max_memory_items:
+            self._memory.popitem(last=False)
 
         if self._album_root is not None:
             self.ready.emit(self._album_root, rel, pixmap)
