@@ -398,7 +398,7 @@ class AssetListStateManager:
             # Update abs lookup
             original_abs = row_data.get("abs")
             if original_abs and str(original_abs) in self._abs_lookup:
-                 if self._abs_lookup[str(original_abs)] == row_index:
+                if self._abs_lookup[str(original_abs)] == row_index:
                      self._abs_lookup.pop(str(original_abs), None)
             self._abs_lookup[str(guessed_abs)] = row_index
 
