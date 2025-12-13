@@ -146,11 +146,7 @@ def build_asset_entry(
                         rel, location_name, exc_info=True
                     )
     else:
-        # If location is present, we might still want gps for other purposes if needed,
-        # but the original logic extracted it mainly for resolution.
-        # If we need gps for the entry dict anyway, we should extract it.
-        # Looking below: "gps": gps_raw is in the entry.
-        # So we must extract gps_raw regardless of location presence if we want it in the model.
+        # Always extract gps_raw so it can be included in the entry dictionary.
         gps_raw = row.get("gps") if isinstance(row, dict) else None
 
     # Resolve timestamp with legacy fallback safety
