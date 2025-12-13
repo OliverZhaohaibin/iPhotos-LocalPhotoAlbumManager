@@ -7,6 +7,7 @@ Rectangle {
 
     // Signals to communicate with Python controller
     signal itemClicked(int index, int modifiers)
+    signal currentIndexChanged(int index)
     signal showContextMenu(int index, int globalX, int globalY)
     signal visibleRowsChanged(int first, int last)
     signal filesDropped(var urls)
@@ -49,6 +50,7 @@ Rectangle {
 
         onContentYChanged: updateVisibleRows()
         onHeightChanged: updateVisibleRows()
+        onCurrentIndexChanged: root.currentIndexChanged(currentIndex)
 
         // Initial check after layout
         Component.onCompleted: updateVisibleRows()
