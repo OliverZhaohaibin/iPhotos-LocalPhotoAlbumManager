@@ -132,6 +132,8 @@ class GalleryQuickWidget(QQuickWidget):
 
     # Signals compatible with AssetGrid
     clicked = Signal(QModelIndex)
+    # Alias for compatibility with existing controllers that expect itemClicked
+    itemClicked = clicked
     doubleClicked = Signal(QModelIndex)
     visibleRowsChanged = Signal(int, int)
     customContextMenuRequested = Signal(QPoint)
