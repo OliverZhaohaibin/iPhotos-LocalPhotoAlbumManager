@@ -752,7 +752,9 @@ class AssetListModel(QAbstractListModel):
                         # Use string concatenation for performance instead of Path objects
                         # Ensure forward slashes for consistency
                         child_rel_str = str(child_rel).replace("\\", "/")
-                        adjusted_rel = f"{prefix_str}/{child_rel_str}"
+                        # Use PurePosixPath to join paths reliably, avoiding leading slashes
+                        from pathlib import PurePosixPath
+                        adjusted_rel = PurePosixPath(prefix_str, child_rel_str).as_posix()
                         normalized_key = normalise_rel_value(adjusted_rel)
 
                         if normalized_key in fresh_lookup:
