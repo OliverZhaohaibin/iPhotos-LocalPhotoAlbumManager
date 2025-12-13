@@ -83,7 +83,8 @@ class IndexStore:
                     year INTEGER,
                     month INTEGER,
                     media_type INTEGER,
-                    is_favorite INTEGER DEFAULT 0
+                    is_favorite INTEGER DEFAULT 0,
+                    location TEXT
                 )
             """)
 
@@ -105,6 +106,8 @@ class IndexStore:
                 conn.execute("ALTER TABLE assets ADD COLUMN media_type INTEGER")
             if "is_favorite" not in columns:
                 conn.execute("ALTER TABLE assets ADD COLUMN is_favorite INTEGER DEFAULT 0")
+            if "location" not in columns:
+                conn.execute("ALTER TABLE assets ADD COLUMN location TEXT")
 
             # Create indices for common sort/filter operations if needed.
             # 'dt' is used for sorting.
@@ -189,7 +192,8 @@ class IndexStore:
             "still_image_time", "dur", "original_rel_path",
             "original_album_id", "original_album_subpath",
             "live_role", "live_partner_rel",
-            "aspect_ratio", "year", "month", "media_type", "is_favorite"
+            "aspect_ratio", "year", "month", "media_type", "is_favorite",
+            "location"
         ]
         placeholders = ", ".join(["?"] * len(columns))
         query = f"INSERT OR REPLACE INTO assets ({', '.join(columns)}) VALUES ({placeholders})"
@@ -234,6 +238,7 @@ class IndexStore:
             row.get("month"),
             row.get("media_type"),
             row.get("is_favorite", 0),
+            row.get("location"),
         ]
 
     def _db_row_to_dict(self, db_row: sqlite3.Row) -> Dict[str, Any]:
@@ -396,6 +401,7 @@ class IndexStore:
         2. Drawing section headers (year, month).
         3. Identifying media type & badges (media_type, live_partner_rel, dur).
         4. Sorting (dt, ts).
+        5. Location display (location) and fallback resolution (gps).
 
         :param filter_params: Optional dictionary of SQL filter criteria.
                               Supported keys:
@@ -427,7 +433,9 @@ class IndexStore:
                 "original_rel_path",  # needed for trash restore logic
                 "original_album_id",
                 "original_album_subpath",
-                "is_favorite"
+                "is_favorite",
+                "location",
+                "gps"
             ]
             query = f"SELECT {', '.join(columns)} FROM assets"
 
@@ -449,6 +457,12 @@ class IndexStore:
             for row in cursor:
                 # We return a dict, but one that is much lighter than the full row
                 d = dict(row)
+                # Parse GPS if present (stored as JSON string)
+                if d.get("gps"):
+                    try:
+                        d["gps"] = json.loads(d["gps"])
+                    except (json.JSONDecodeError, TypeError):
+                        d["gps"] = None
                 yield d
         finally:
             if should_close:
@@ -525,6 +539,20 @@ class IndexStore:
             else:
                 with conn:
                     self._insert_rows(conn, rows)
+        finally:
+            if not is_nested:
+                conn.close()
+
+    def update_location(self, rel: str, location: str) -> None:
+        """Update the location string for a single asset."""
+        conn = self._get_conn()
+        is_nested = (conn == self._conn)
+        try:
+            if is_nested:
+                conn.execute("UPDATE assets SET location = ? WHERE rel = ?", (location, rel))
+            else:
+                with conn:
+                    conn.execute("UPDATE assets SET location = ? WHERE rel = ?", (location, rel))
         finally:
             if not is_nested:
                 conn.close()

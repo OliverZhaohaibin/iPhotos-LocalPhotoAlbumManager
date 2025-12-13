@@ -104,6 +104,7 @@ def build_asset_entry(
     root: Path,
     row: Dict[str, object],
     featured: Set[str],
+    store: Optional[IndexStore] = None,
 ) -> Optional[Dict[str, object]]:
     rel = str(row.get("rel"))
     if not rel:
@@ -128,8 +129,25 @@ def build_asset_entry(
         combined_key = f"{rel}|{live_partner_rel}".encode("utf-8")
         live_group_id = f"live_{xxhash.xxh64(combined_key).hexdigest()}"
 
-    gps_raw = row.get("gps") if isinstance(row, dict) else None
-    location_name = resolve_location_name(gps_raw if isinstance(gps_raw, dict) else None)
+    # Use cached location if available, otherwise resolve and optionally cache it
+    location_name = row.get("location")
+    gps_raw = None
+    if not location_name:
+        gps_raw = row.get("gps") if isinstance(row, dict) else None
+        if gps_raw:
+            location_name = resolve_location_name(gps_raw)
+            if location_name and store:
+                try:
+                    store.update_location(rel, location_name)
+                except Exception:
+                    # Log write failures during read operations to aid debugging, but do not crash
+                    LOGGER.warning(
+                        "Failed to update location cache for asset '%s': %s",
+                        rel, location_name, exc_info=True
+                    )
+    else:
+        # Always extract gps_raw so it can be included in the entry dictionary.
+        gps_raw = row.get("gps") if isinstance(row, dict) else None
 
     # Resolve timestamp with legacy fallback safety
     ts_value = -1
@@ -229,7 +247,7 @@ def compute_asset_rows(
     # Filtering for videos, live photos, and favorites is now performed at the database query level
     # via filter_params in store.read_geometry_only, so no post-processing is needed here.
     for row in index_rows:
-        entry = build_asset_entry(root, row, featured_set)
+        entry = build_asset_entry(root, row, featured_set, store)
         if entry is not None:
             entries.append(entry)
     return entries, len(entries)
@@ -338,6 +356,7 @@ class AssetLoaderWorker(QRunnable):
                     self._root,
                     row,
                     self._featured,
+                    store,
                 )
 
                 if entry is not None:

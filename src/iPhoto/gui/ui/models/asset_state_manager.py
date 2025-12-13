@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from PySide6.QtCore import QModelIndex
+
+logger = logging.getLogger(__name__)
 
 if False:  # pragma: no cover - circular import guard
     from .asset_list_model import AssetListModel
@@ -22,6 +25,7 @@ class AssetListStateManager:
         self._cache = cache_manager
         self._rows: List[Dict[str, object]] = []
         self._row_lookup: Dict[str, int] = {}
+        self._abs_lookup: Dict[str, int] = {}
         self._visible_rows: Set[int] = set()
         self._pending_virtual_moves: Dict[str, Tuple[int, str, bool]] = {}
         self._pending_row_removals: List[Tuple[int, Dict[str, object]]] = []
@@ -66,30 +70,64 @@ class AssetListStateManager:
         """Replace the internal dataset with *rows* and rebuild lookups."""
 
         self._rows = rows
-        self._row_lookup = {row["rel"]: index for index, row in enumerate(rows)}
+        self.rebuild_lookup()
 
     def clear_rows(self) -> None:
         """Remove all cached rows and transient move metadata."""
 
         self._rows = []
         self._row_lookup = {}
+        self._abs_lookup = {}
         self._visible_rows.clear()
         self._pending_virtual_moves.clear()
         self._pending_row_removals.clear()
 
     def rebuild_lookup(self) -> None:
-        """Recompute the ``rel`` → index mapping after in-place row changes."""
+        """Recompute the ``rel`` → index and ``abs`` → index mapping after in-place row changes."""
 
-        refreshed: Dict[str, int] = {}
+        refreshed_rel: Dict[str, int] = {}
+        refreshed_abs: Dict[str, int] = {}
+
         for index, row in enumerate(self._rows):
+            # Update REL lookup
             rel_value = row.get("rel")
             if isinstance(rel_value, str) and rel_value:
-                refreshed[Path(rel_value).as_posix()] = index
+                refreshed_rel[Path(rel_value).as_posix()] = index
             elif isinstance(rel_value, Path):
-                refreshed[rel_value.as_posix()] = index
+                refreshed_rel[rel_value.as_posix()] = index
             elif rel_value:
-                refreshed[Path(str(rel_value)).as_posix()] = index
-        self._row_lookup = refreshed
+                refreshed_rel[Path(str(rel_value)).as_posix()] = index
+
+            # Update ABS lookup
+            abs_value = row.get("abs")
+            if abs_value:
+                key = str(abs_value)
+                if key not in refreshed_abs:
+                    refreshed_abs[key] = index
+                else:
+                    logger.warning(
+                        "Duplicate absolute path detected in rebuild_lookup: %s (indices %s, %s)",
+                        key, refreshed_abs[key], index
+                    )
+
+        self._row_lookup = refreshed_rel
+        self._abs_lookup = refreshed_abs
+
+    def get_index_by_abs(self, abs_path: str) -> Optional[int]:
+        """
+        Return the row index for the given absolute path, if found.
+
+        Parameters
+        ----------
+        abs_path : str
+            The absolute path of the asset to look up.
+
+        Returns
+        -------
+        Optional[int]
+            The row index corresponding to the given absolute path, or None if not found.
+        """
+        return self._abs_lookup.get(abs_path)
 
     @staticmethod
     def normalise_key(value: Optional[str]) -> Optional[str]:
@@ -148,14 +186,39 @@ class AssetListStateManager:
         start_row = len(self._rows)
         self._rows.extend(chunk)
         for offset, row_data in enumerate(chunk):
-            self._row_lookup[row_data["rel"]] = start_row + offset
+            idx = start_row + offset
+            self._row_lookup[row_data["rel"]] = idx
+            abs_val = row_data.get("abs")
+            if abs_val:
+                key = str(abs_val)
+                if key not in self._abs_lookup:
+                    self._abs_lookup[key] = idx
+                else:
+                    logger.warning(
+                        "Duplicate absolute path detected in append_chunk: %s (existing index %s, new index %s)",
+                        key, self._abs_lookup[key], idx
+                    )
         return start_row, start_row + len(chunk) - 1
 
     def update_row_at_index(self, index: int, row_data: Dict[str, object]) -> None:
         """Update the row data at the specified index."""
 
         if 0 <= index < len(self._rows):
+            # Clean up old lookups if they changed
+            old_row = self._rows[index]
+            old_abs = old_row.get("abs")
+            new_abs = row_data.get("abs")
+
+            if old_abs != new_abs and old_abs:
+                # Remove old mapping only if it points to this index
+                if self._abs_lookup.get(str(old_abs)) == index:
+                    self._abs_lookup.pop(str(old_abs), None)
+
             self._rows[index] = row_data
+
+            # Update new lookup
+            if new_abs:
+                self._abs_lookup[str(new_abs)] = index
 
     def active_rel_keys(self) -> Set[str]:
         """Return the current set of ``rel`` keys."""
@@ -242,12 +305,15 @@ class AssetListStateManager:
             self._rows.pop(row)
             self._model.endRemoveRows()
             self._row_lookup.pop(rel_key, None)
+            if abs_key and self._abs_lookup.get(abs_key) == row:
+                self._abs_lookup.pop(abs_key, None)
+
             self._cache.remove_thumbnail(rel_key)
             self._cache.remove_placeholder(rel_key)
             if abs_key:
                 self._cache.stash_recently_removed(abs_key, row_data)
 
-        self._row_lookup = {row["rel"]: index for index, row in enumerate(self._rows)}
+        self.rebuild_lookup()
         self._cache.clear_placeholders()
         self._visible_rows.clear()
 
@@ -298,7 +364,7 @@ class AssetListStateManager:
                 if abs_key:
                     self._cache.stash_recently_removed(abs_key, row_snapshot)
 
-            self._row_lookup = {row["rel"]: index for index, row in enumerate(self._rows)}
+            self.rebuild_lookup()
             self._cache.clear_placeholders()
             self._visible_rows.clear()
             self._suppress_virtual_reload = True
@@ -328,6 +394,14 @@ class AssetListStateManager:
 
             self._row_lookup.pop(original_rel, None)
             self._row_lookup[guessed_rel] = row_index
+
+            # Update abs lookup
+            original_abs = row_data.get("abs")
+            if original_abs and str(original_abs) in self._abs_lookup:
+                if self._abs_lookup[str(original_abs)] == row_index:
+                     self._abs_lookup.pop(str(original_abs), None)
+            self._abs_lookup[str(guessed_abs)] = row_index
+
             self._cache.move_thumbnail(original_rel, guessed_rel)
             self._cache.move_placeholder(original_rel, guessed_rel)
 
@@ -385,8 +459,17 @@ class AssetListStateManager:
                 self._cache.move_thumbnail(guessed_rel, final_rel)
                 self._cache.move_placeholder(guessed_rel, final_rel)
 
+            # Update abs lookup
+            guessed_abs = row_data.get("abs")
+            final_abs = str(self._safe_resolve(target_path))
+
+            if guessed_abs and str(guessed_abs) in self._abs_lookup:
+                if self._abs_lookup[str(guessed_abs)] == row_index:
+                    self._abs_lookup.pop(str(guessed_abs), None)
+            self._abs_lookup[final_abs] = row_index
+
             row_data["rel"] = final_rel
-            row_data["abs"] = str(self._safe_resolve(target_path))
+            row_data["abs"] = final_abs
             updated_rows.append(row_index)
 
         if self._pending_row_removals:
@@ -419,8 +502,17 @@ class AssetListStateManager:
                 self._cache.move_thumbnail(guessed_rel, original_rel)
                 self._cache.move_placeholder(guessed_rel, original_rel)
 
+            # Update abs lookup
+            guessed_abs = row_data.get("abs")
+            original_abs = str(absolute)
+
+            if guessed_abs and str(guessed_abs) in self._abs_lookup:
+                if self._abs_lookup[str(guessed_abs)] == row_index:
+                    self._abs_lookup.pop(str(guessed_abs), None)
+            self._abs_lookup[original_abs] = row_index
+
             row_data["rel"] = original_rel
-            row_data["abs"] = str(absolute)
+            row_data["abs"] = original_abs
             restored_rows.append(row_index)
 
         if self._pending_row_removals:
@@ -434,7 +526,7 @@ class AssetListStateManager:
                 if abs_key:
                     self._cache.remove_recently_removed(abs_key)
             self._pending_row_removals.clear()
-            self._row_lookup = {row["rel"]: index for index, row in enumerate(self._rows)}
+            self.rebuild_lookup()
             self._cache.clear_all_thumbnails()
             self._cache.clear_placeholders()
             self._visible_rows.clear()
