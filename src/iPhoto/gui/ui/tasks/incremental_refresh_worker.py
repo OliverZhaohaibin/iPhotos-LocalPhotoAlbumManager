@@ -63,9 +63,7 @@ class IncrementalRefreshWorker(QRunnable):
 
     def _merge_descendant_rows(self, fresh_rows: List[Dict[str, object]]) -> None:
         """Merge fresh rows from the descendant album into the parent's row set."""
-        # Note: We import Album locally to avoid circular dependencies if any,
-        # or just rely on pure IO/DB calls if possible. But compute_asset_rows needs featured list.
-        # The original code loaded manifest to get featured.
+        # Import Album locally to avoid circular dependencies.
 
         from ....models.album import Album
         from ....errors import IPhotoError
