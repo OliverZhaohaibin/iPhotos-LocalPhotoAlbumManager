@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QPoint,
     Qt,
     QUrl,
+    QRect,
     Signal,
     Slot,
     QItemSelection,
@@ -133,6 +134,9 @@ class GalleryQuickWidget(QQuickWidget):
     itemClicked = Signal(QModelIndex)
     visibleRowsChanged = Signal(int, int)
     customContextMenuRequested = Signal(QPoint)
+    requestPreview = Signal(QModelIndex)
+    previewReleased = Signal()
+    previewCancelled = Signal()
 
     # Drag & Drop signals handled internally via DropArea -> filesDropped shim
 
@@ -271,6 +275,9 @@ class GalleryQuickWidget(QQuickWidget):
 
     def set_preview_enabled(self, enabled: bool) -> None:
         pass
+
+    def visualRect(self, index: QModelIndex) -> QRect:
+        return QRect()
 
     def setItemDelegate(self, delegate) -> None:
         pass
