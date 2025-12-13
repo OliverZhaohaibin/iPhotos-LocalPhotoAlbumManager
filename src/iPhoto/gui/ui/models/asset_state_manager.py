@@ -114,7 +114,19 @@ class AssetListStateManager:
         self._abs_lookup = refreshed_abs
 
     def get_index_by_abs(self, abs_path: str) -> Optional[int]:
-        """Return the row index for the given absolute path, if found."""
+        """
+        Return the row index for the given absolute path, if found.
+
+        Parameters
+        ----------
+        abs_path : str
+            The absolute path of the asset to look up.
+
+        Returns
+        -------
+        Optional[int]
+            The row index corresponding to the given absolute path, or None if not found.
+        """
         return self._abs_lookup.get(abs_path)
 
     @staticmethod
