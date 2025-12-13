@@ -12,7 +12,7 @@ from ...cache.index_store import IndexStore
 from ...config import ALBUM_MANIFEST_NAMES
 from ...errors import IPhotoError
 from ...models.album import Album
-from ...utils.pathutils import is_descendant_path
+from ...utils.pathutils import is_descendant_path, normalise_for_compare
 
 if TYPE_CHECKING:
     from ...library.manager import LibraryManager
@@ -70,11 +70,25 @@ class AlbumMetadataService(QObject):
         target_ref: str | None = None
 
         if library_root is not None:
-            if library_root != album.root:
+            norm_library_root = normalise_for_compare(library_root)
+            norm_album_root = normalise_for_compare(album.root)
+
+            if norm_library_root != norm_album_root:
                 # Case 1: Toggling in a sub-album. Need to update the Library Root as well.
                 try:
                     absolute_asset = (album.root / ref).resolve()
-                    root_relative = absolute_asset.relative_to(library_root.resolve())
+                    # normalise_for_compare uses realpath/normcase to ensure consistent comparison
+                    # but relative_to requires strict path containment. To be safe on Windows,
+                    # we should ideally use the original resolved path if possible, but if library_root
+                    # has different casing, relative_to might fail.
+                    # We try to use normalised paths for calculation if original fails.
+                    try:
+                        root_relative = absolute_asset.relative_to(library_root.resolve())
+                    except ValueError:
+                        # Fallback: try normalised paths
+                        norm_asset = normalise_for_compare(absolute_asset)
+                        root_relative = norm_asset.relative_to(norm_library_root)
+
                 except (OSError, ValueError):
                     pass
                 else:
@@ -96,7 +110,15 @@ class AlbumMetadataService(QObject):
                     if physical_root:
                         # Calculate the correct relative path from the actual physical root
                         # e.g., converts absolute path to "SubFolder/Photo.jpg"
-                        target_ref = absolute_asset.relative_to(physical_root).as_posix()
+                        try:
+                            target_ref = absolute_asset.relative_to(physical_root).as_posix()
+                        except ValueError:
+                            # Fallback: try normalised paths.
+                            # Note: physical_root returned by _find... might be original or normalised
+                            # depending on implementation.
+                            norm_asset = normalise_for_compare(absolute_asset)
+                            norm_physical_root = normalise_for_compare(physical_root)
+                            target_ref = norm_asset.relative_to(norm_physical_root).as_posix()
 
                         try:
                             target_album = Album.open(physical_root)
@@ -151,8 +173,15 @@ class AlbumMetadataService(QObject):
         """Traverse upwards from the asset path to find the nearest physical album root."""
         candidate = asset_path.parent
 
+        norm_root = normalise_for_compare(library_root)
+
         # Safety check: Ensure we stay strictly within the library root
-        while candidate != library_root and is_descendant_path(candidate, library_root):
+        # We use normalised paths for the boundary check to handle Windows case-insensitivity
+        # and potential symlink resolution differences.
+        while (
+            normalise_for_compare(candidate) != norm_root
+            and is_descendant_path(normalise_for_compare(candidate), norm_root)
+        ):
             # Check if any known manifest file exists in the current candidate directory
             for name in ALBUM_MANIFEST_NAMES:
                 if (candidate / name).exists():
