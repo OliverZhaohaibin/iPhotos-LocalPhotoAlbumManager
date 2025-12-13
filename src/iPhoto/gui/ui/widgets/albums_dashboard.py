@@ -371,6 +371,11 @@ class DashboardThumbnailLoader(QObject):
         key_str = self._make_key_str(unique_rel, size, stamp)
         self._key_to_root[key_str] = album_root
 
+        suffix = image_path.suffix.lower()
+        is_video = suffix in VIDEO_EXTENSIONS
+        # Default to treating as image unless it is explicitly a known video type.
+        is_image = not is_video
+
         job = ThumbnailJob(
             self,  # type: ignore
             unique_rel,  # Pass absolute path string as rel to ensure uniqueness
@@ -378,8 +383,8 @@ class DashboardThumbnailLoader(QObject):
             size,
             stamp,
             cache_path,
-            is_image=True,
-            is_video=False,
+            is_image=is_image,
+            is_video=is_video,
             still_image_time=None,
             duration=None,
         )

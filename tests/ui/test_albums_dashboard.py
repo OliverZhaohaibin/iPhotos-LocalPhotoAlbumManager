@@ -14,7 +14,7 @@ pytest.importorskip(
     exc_type=ImportError,
 )
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import QApplication
 
 from src.iPhoto.gui.ui.widgets.albums_dashboard import AlbumCard, AlbumsDashboard, AlbumDataWorker
@@ -187,6 +187,33 @@ def test_scan_finished_triggers_full_refresh_for_root(qtbot, mock_library):
         worker = mock_pool.start.call_args[0][0]
         assert isinstance(worker, AlbumDataWorker)
         assert worker.node.path == album.path
+
+def test_dashboard_thumbnail_loader_detects_video(qapp):
+    """Test that DashboardThumbnailLoader correctly identifies video files."""
+    from src.iPhoto.gui.ui.widgets.albums_dashboard import DashboardThumbnailLoader, ThumbnailJob
+
+    loader = DashboardThumbnailLoader()
+    album_root = Path("/tmp/album")
+    video_path = album_root / "movie.mp4"
+
+    # Mock stat to avoid OSError
+    with patch.object(Path, "stat") as mock_stat, \
+         patch("src.iPhoto.gui.ui.widgets.albums_dashboard.ThumbnailJob") as MockJob, \
+         patch("src.iPhoto.gui.ui.widgets.albums_dashboard.QThreadPool") as MockPool, \
+         patch("src.iPhoto.gui.ui.widgets.albums_dashboard.ensure_work_dir"):
+
+        mock_stat.return_value.st_mtime = 123456789
+
+        loader.request_with_absolute_key(album_root, video_path, QSize(100, 100))
+
+        # Verify Job creation args
+        assert MockJob.call_count == 1
+        call_kwargs = MockJob.call_args[1]
+        assert call_kwargs.get("is_video") is True
+        # is_image can be True or False depending on implementation,
+        # usually classify_media returns (is_image, is_video).
+        # But if I change logic to use extensions, I'll see.
+        # Assuming we pass is_video=True.
 
 def test_album_data_worker_fallback_scan(qapp):
     """Test that AlbumDataWorker falls back to filesystem scan if index is empty."""
