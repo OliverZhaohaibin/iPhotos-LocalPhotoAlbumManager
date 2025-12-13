@@ -280,7 +280,7 @@ class AssetListStateManager:
             self._rows.pop(row)
             self._model.endRemoveRows()
             self._row_lookup.pop(rel_key, None)
-            if abs_key:
+            if abs_key and self._abs_lookup.get(abs_key) == row:
                 self._abs_lookup.pop(abs_key, None)
 
             self._cache.remove_thumbnail(rel_key)
