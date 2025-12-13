@@ -56,7 +56,7 @@ Rectangle {
         Component.onCompleted: updateVisibleRows()
 
         function formatDuration(seconds) {
-            if (!seconds) return ""
+            if (seconds === null || seconds === undefined) return ""
             var sec = Math.floor(seconds)
             var min = Math.floor(sec / 60)
             sec = sec % 60
