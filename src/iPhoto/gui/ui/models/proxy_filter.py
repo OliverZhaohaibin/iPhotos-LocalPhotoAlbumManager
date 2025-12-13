@@ -20,6 +20,7 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         self._default_sort_order: Qt.SortOrder = Qt.SortOrder.DescendingOrder
         self._monitored_source: Optional[QAbstractItemModel] = None
         self._fast_source: Optional[object] = None
+        self._bypass_sort_optimization: bool = False
         self.setDynamicSortFilter(True)
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
         # ``configure_default_sort`` applies the sort role and ensures the proxy
@@ -32,10 +33,20 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
     # Public API
     # ------------------------------------------------------------------
     def set_filter_mode(self, mode: Optional[str]) -> None:
+        """Apply the filter mode by delegating to the source model for DB-level filtering."""
         normalized = mode.casefold() if isinstance(mode, str) and mode else None
         if normalized == self._filter_mode:
             return
+
         self._filter_mode = normalized
+
+        # Delegate to the source model to reload with SQL filtering
+        source = self.sourceModel()
+        if hasattr(source, "set_filter_mode"):
+            source.set_filter_mode(normalized)
+
+        # We invalidate the proxy filter just in case, but rely on the source model
+        # to provide only the matching rows.
         self.invalidateFilter()
 
     def filter_mode(self) -> Optional[str]:
@@ -75,15 +86,27 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         """
 
         normalized_role = int(role)
-        if (
-            self._default_sort_role == normalized_role
-            and self._default_sort_order == order
-        ):
-            self._reapply_default_sort()
-            return
+
+        # 1. Check if the configuration is actually changing
+        config_changed = (
+            self._default_sort_role != normalized_role
+            or self._default_sort_order != order
+        )
+
+        # 2. Update internal storage
         self._default_sort_role = normalized_role
         self._default_sort_order = order
-        self._reapply_default_sort()
+
+        # 3. Optimization: Only re-sort if the config changed OR
+        #    if the current active sort state differs from the target.
+        #    This prevents O(N log N) sorting when switching between views
+        #    that share the same sort order (e.g., All Photos -> Videos).
+        if (
+            config_changed
+            or self.sortRole() != normalized_role
+            or self.sortOrder() != order
+        ):
+            self._reapply_default_sort()
 
     def apply_default_sort(self) -> None:
         """Reapply the stored default sort order to the current dataset."""
@@ -92,6 +115,20 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
 
     def setSourceModel(self, sourceModel: QAbstractItemModel | None) -> None:  # type: ignore[override]
         """Attach *sourceModel* while keeping default sort hooks in sync."""
+
+        if sourceModel is self:
+            raise ValueError(
+                "Circular reference detected: AssetFilterProxyModel cannot be its own source."
+            )
+
+        candidate = sourceModel
+        while hasattr(candidate, "sourceModel"):
+            candidate = candidate.sourceModel()
+            if candidate is self:
+                raise ValueError(
+                    "Circular reference detected: "
+                    "AssetFilterProxyModel source chain leads back to self."
+                )
 
         if self._monitored_source is not None:
             try:
@@ -118,19 +155,24 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
     # QSortFilterProxyModel API
     # ------------------------------------------------------------------
     def filterAcceptsRow(self, row: int, parent) -> bool:  # type: ignore[override]
-        if self._filter_mode is None and not self._search_text:
+        # When using DB-side filtering, the source model only contains matching rows.
+        # However, we still support text search on top of the DB results.
+        # If _filter_mode is active, we assume the source model has already
+        # filtered by type, so we only check text search here.
+
+        if not self._search_text and self._filter_mode is None:
+            return True
+
+        # If we have a filter mode but no search text, we can trust the source model (DB)
+        # and just accept everything. Note: This assumes set_filter_mode successfully
+        # triggered a DB reload.
+        if self._filter_mode is not None and not self._search_text:
             return True
 
         if self._fast_source is not None:
             # Bypass Qt index creation and role lookups for raw performance.
             row_data = self._fast_source.get_internal_row(row)  # type: ignore
             if row_data is None:
-                return False
-            if self._filter_mode == "videos" and not row_data["is_video"]:
-                return False
-            if self._filter_mode == "live" and not row_data["is_live"]:
-                return False
-            if self._filter_mode == "favorites" and not row_data["featured"]:
                 return False
             if self._search_text:
                 rel = row_data["rel"]
@@ -166,6 +208,14 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
         """Apply a timestamp-aware comparison when sorting by :data:`Roles.DT`."""
 
         if self.sortRole() == int(Roles.DT):
+            # Optimization: If we are bulk filtering and the source is known to be
+            # sorted by date (newest first), we can bypass expensive lookups.
+            # We assume source rows are ordered 0..N (Newest..Oldest).
+            # If SortOrder is Descending (Newest First), we want [0, 1, 2].
+            # lessThan(0, 1) should be False. (0 > 1 -> False).
+            if self._bypass_sort_optimization:
+                return left.row() > right.row()
+
             if self._fast_source is not None:
                 left_row = self._fast_source.get_internal_row(left.row())  # type: ignore
                 right_row = self._fast_source.get_internal_row(right.row())  # type: ignore
@@ -188,8 +238,10 @@ class AssetFilterProxyModel(QSortFilterProxyModel):
                 return left_ts < right_ts
 
             # Fallback for standard models (rarely used in the main grid).
-            left_value = float(left.data(Roles.DT_SORT) if left.data(Roles.DT_SORT) is not None else float("-inf"))
-            right_value = float(right.data(Roles.DT_SORT) if right.data(Roles.DT_SORT) is not None else float("-inf"))
+            left_val = left.data(Roles.DT_SORT)
+            right_val = right.data(Roles.DT_SORT)
+            left_value = float(left_val if left_val is not None else float("-inf"))
+            right_value = float(right_val if right_val is not None else float("-inf"))
             if left_value == right_value:
                 left_rel = str(left.data(Roles.REL) or "")
                 right_rel = str(right.data(Roles.REL) or "")

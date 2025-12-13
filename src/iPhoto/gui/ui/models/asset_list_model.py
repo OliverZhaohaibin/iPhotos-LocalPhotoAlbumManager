@@ -20,18 +20,16 @@ from PySide6.QtGui import QPixmap
 from ..tasks.thumbnail_loader import ThumbnailLoader
 from ..tasks.asset_loader_worker import (
     build_asset_entry,
-    resolve_live_map,
-    get_motion_paths_to_hide,
     normalize_featured,
 )
 from .asset_cache_manager import AssetCacheManager
 from .asset_data_loader import AssetDataLoader
 from .asset_state_manager import AssetListStateManager
-from .asset_data_accumulator import AssetDataAccumulator
 from .asset_row_adapter import AssetRowAdapter
 from .list_diff_calculator import ListDiffCalculator
-from .live_map import load_live_map
 from .roles import Roles, role_names
+from ....models.album import Album
+from ....errors import IPhotoError
 from ....utils.pathutils import (
     normalise_for_compare,
     is_descendant_path,
@@ -55,6 +53,10 @@ class AssetListModel(QAbstractListModel):
     loadProgress = Signal(Path, int, int)
     loadFinished = Signal(Path, bool)
 
+    # Tuning constants for streaming updates
+    _STREAM_FLUSH_INTERVAL_MS = 100
+    _STREAM_FLUSH_THRESHOLD = 500
+
     def __init__(self, facade: "AppFacade", parent=None) -> None:  # type: ignore[override]
         super().__init__(parent)
         self._facade = facade
@@ -70,17 +72,21 @@ class AssetListModel(QAbstractListModel):
         self._state_manager = AssetListStateManager(self, self._cache_manager)
         self._cache_manager.set_recently_removed_limit(256)
 
-        self._accumulator = AssetDataAccumulator(self, self._state_manager, self)
+        # AssetDataAccumulator is removed in favor of direct streaming buffers
         self._row_adapter = AssetRowAdapter(self._thumb_size, self._cache_manager)
 
-        # ``_pending_rows`` accumulates worker results while a background load is
-        # in flight.  Once :meth:`_on_loader_finished` fires we swap the buffered
-        # snapshot into the model in a single reset so aggregate views only see
-        # one visual refresh instead of flickering through multiple incremental
-        # updates.
-        self._pending_rows: List[Dict[str, object]] = []
+        # Streaming buffer state
+        self._pending_chunks_buffer: List[Dict[str, object]] = []
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setInterval(self._STREAM_FLUSH_INTERVAL_MS)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.timeout.connect(self._flush_pending_chunks)
+        self._is_first_chunk = True
+        self._is_flushing = False
+
         self._pending_loader_root: Optional[Path] = None
         self._deferred_incremental_refresh: Optional[Path] = None
+        self._active_filter: Optional[str] = None
 
         self._facade.linksUpdated.connect(self.handle_links_updated)
         self._facade.assetUpdated.connect(self.handle_asset_updated)
@@ -207,45 +213,11 @@ class AssetListModel(QAbstractListModel):
         return self._state_manager.has_pending_move_placeholders()
 
     def populate_from_cache(self) -> bool:
-        """Synchronously load cached index data when the file is small."""
+        """Synchronously load cached index data when the file is small.
 
-        if not self._album_root:
-            return False
-        if self._data_loader.is_running():
-            return False
-
-        root = self._album_root
-        manifest = self._facade.current_album.manifest if self._facade.current_album else {}
-        featured = manifest.get("featured", []) or []
-        live_map = load_live_map(root)
-        self._cache_manager.set_live_map(live_map)
-
-        # ``AssetDataLoader.populate_from_cache`` computes the rows immediately yet
-        # defers all signal emission to the next event-loop iteration.  This mirrors
-        # the asynchronous worker behaviour so ``QSignalSpy`` and other listeners
-        # attached right after :meth:`AppFacade.open_album` still observe
-        # ``loadFinished`` notifications.
-        result = self._data_loader.populate_from_cache(
-            root,
-            featured,
-            self._cache_manager.live_map_snapshot(),
-        )
-        if result is None:
-            return False
-
-        rows, _ = result
-
-        self._pending_rows = []
-        self._pending_loader_root = None
-
-        self.beginResetModel()
-        self._state_manager.set_rows(rows)
-        self.endResetModel()
-
-        self._cache_manager.reset_caches_for_new_rows(rows)
-        self._state_manager.clear_reload_pending()
-
-        return True
+        Disabled to enforce streaming behavior and prevent main thread blocking on large albums.
+        """
+        return False
 
     # ------------------------------------------------------------------
     # Qt model implementation
@@ -324,14 +296,17 @@ class AssetListModel(QAbstractListModel):
         self._album_root = root
         self._cache_manager.reset_for_album(root)
         self._set_deferred_incremental_refresh(None)
-        self._accumulator.clear()
+
+        self._pending_chunks_buffer = []
+        self._flush_timer.stop()
+        self._is_flushing = False
+
         self.beginResetModel()
         self._state_manager.clear_rows()
         self.endResetModel()
         self._cache_manager.clear_recently_removed()
         self._state_manager.set_virtual_reload_suppressed(False)
         self._state_manager.set_virtual_move_requires_revisit(False)
-        self._pending_rows = []
         self._pending_loader_root = None
 
     def update_featured_status(self, rel: str, is_featured: bool) -> None:
@@ -354,6 +329,35 @@ class AssetListModel(QAbstractListModel):
         self.dataChanged.emit(model_index, model_index, [Roles.FEATURED])
 
     # ------------------------------------------------------------------
+    # Filtering
+    # ------------------------------------------------------------------
+    def set_filter_mode(self, mode: Optional[str]) -> None:
+        """
+        Apply a new filter mode and trigger a reload if necessary.
+
+        Changing the filter mode will cause the model to perform a full reload of the dataset
+        from the database by calling `start_load()`. This operation will clear the current view
+        and repopulate the model with the filtered data. Be aware that this may have performance
+        implications, especially for large datasets, as the entire model is reset and reloaded.
+        """
+        normalized = mode.casefold() if isinstance(mode, str) and mode else None
+        if normalized == self._active_filter:
+            return
+
+        self._active_filter = normalized
+
+        # Clear data immediately to avoid "ghosting" (showing stale data while the
+        # new filter is being processed asynchronously).
+        self.beginResetModel()
+        self._state_manager.clear_rows()
+        self.endResetModel()
+
+        self.start_load()
+
+    def active_filter_mode(self) -> Optional[str]:
+        return self._active_filter
+
+    # ------------------------------------------------------------------
     # Data loading helpers
     # ------------------------------------------------------------------
     def start_load(self) -> None:
@@ -364,27 +368,26 @@ class AssetListModel(QAbstractListModel):
             self._state_manager.mark_reload_pending()
             return
 
-        # Clear the model before starting a fresh load so progressive updates
-        # build the view from scratch.  This replaces the old behaviour where we
-        # waited for the full payload and then did a single ``beginResetModel``.
-        self._accumulator.clear()
-        self.beginResetModel()
-        self._state_manager.clear_rows()
-        self.endResetModel()
+        self._pending_chunks_buffer = []
+        self._flush_timer.stop()
+        self._is_first_chunk = True
+        self._is_flushing = False
+
         self._cache_manager.clear_recently_removed()
 
         manifest = self._facade.current_album.manifest if self._facade.current_album else {}
         featured = manifest.get("featured", []) or []
 
-        live_map = load_live_map(self._album_root)
-        self._cache_manager.set_live_map(live_map)
-
         # Remember which album root is being populated so chunk handlers know
         # the incoming data belongs to the active view.
         self._pending_loader_root = self._album_root
 
+        filter_params = {}
+        if self._active_filter:
+            filter_params["filter_mode"] = self._active_filter
+
         try:
-            self._data_loader.start(self._album_root, featured, live_map)
+            self._data_loader.start(self._album_root, featured, filter_params=filter_params)
         except RuntimeError:
             self._state_manager.mark_reload_pending()
             self._pending_loader_root = None
@@ -401,7 +404,51 @@ class AssetListModel(QAbstractListModel):
         ):
             return
 
-        self._accumulator.add_chunk(chunk)
+        if self._is_first_chunk:
+            self._is_first_chunk = False
+
+            # First chunk: Reset model immediately
+            self.beginResetModel()
+            self._state_manager.clear_rows()
+            self._state_manager.append_chunk(chunk)
+            self.endResetModel()
+
+            # Start loading thumbnails for the first batch immediately
+            self.prioritize_rows(0, len(chunk) - 1)
+
+            return
+
+        # Subsequent chunks: Buffer and throttle
+        self._pending_chunks_buffer.extend(chunk)
+
+        if len(self._pending_chunks_buffer) >= self._STREAM_FLUSH_THRESHOLD:
+            self._flush_pending_chunks()
+        elif not self._flush_timer.isActive():
+            self._flush_timer.start()
+
+    def _flush_pending_chunks(self) -> None:
+        """Commit buffered chunks to the model."""
+        if self._is_flushing:
+            return
+        if not self._pending_chunks_buffer:
+            return
+
+        self._is_flushing = True
+        try:
+            payload = self._pending_chunks_buffer
+            self._pending_chunks_buffer = []
+            self._flush_timer.stop()
+
+            start_row = self._state_manager.row_count()
+            end_row = start_row + len(payload) - 1
+
+            self.beginInsertRows(QModelIndex(), start_row, end_row)
+            self._state_manager.append_chunk(payload)
+            self.endInsertRows()
+
+            self._state_manager.on_external_row_inserted(start_row, len(payload))
+        finally:
+            self._is_flushing = False
 
     def _on_scan_chunk_ready(self, root: Path, chunk: List[Dict[str, object]]) -> None:
         """Integrate fresh rows from the scanner into the live view."""
@@ -416,29 +463,34 @@ class AssetListModel(QAbstractListModel):
         featured = manifest.get("featured", []) or []
         featured_set = normalize_featured(featured)
 
-        live_map_snapshot = self._cache_manager.live_map_snapshot()
-        # Note: During a fresh scan, `chunk` contains new items that might form
-        # Live Photo pairs.  However, `live_map_snapshot` is based on the
-        # *existing* `links.json`.  We can't easily update the live map incrementally
-        # here without reimplementing the full pairing logic.
-        # User experience: Items that could form Live Photo pairs may temporarily
-        # appear unpaired in the UI during the scan. Once the scan completes and
-        # `linksUpdated` fires, the model will update and correctly pair these items.
-        # This is an acceptable trade-off to avoid complex incremental pairing logic.
-        # Use the existing map to at least resolve known pairs.
-        resolved_map = resolve_live_map(chunk, live_map_snapshot)
-        paths_to_hide = get_motion_paths_to_hide(resolved_map)
-
         entries: List[Dict[str, object]] = []
         for row in chunk:
+            rel = row.get("rel")
+            if rel and normalise_rel_value(rel) in self._state_manager.row_lookup:
+                continue
+
             entry = build_asset_entry(
-                root, row, featured_set, resolved_map, paths_to_hide
+                root, row, featured_set
             )
             if entry is not None:
+                # Apply active filter constraints to prevent pollution during rescans
+                if self._active_filter == "videos" and not entry.get("is_video"):
+                    continue
+                if self._active_filter == "live" and not entry.get("is_live"):
+                    continue
+                if self._active_filter == "favorites" and not entry.get("featured"):
+                    continue
+
                 entries.append(entry)
 
         if entries:
-            self._accumulator.add_chunk(entries)
+            # For live scanning, we just append directly as it's not high-frequency streaming
+            start_row = self._state_manager.row_count()
+            end_row = start_row + len(entries) - 1
+            self.beginInsertRows(QModelIndex(), start_row, end_row)
+            self._state_manager.append_chunk(entries)
+            self.endInsertRows()
+            self._state_manager.on_external_row_inserted(start_row, len(entries))
 
     def _on_loader_progress(self, root: Path, current: int, total: int) -> None:
         if not self._album_root or root != self._album_root:
@@ -453,7 +505,7 @@ class AssetListModel(QAbstractListModel):
             return
 
         # Ensure any remaining items are committed before announcing completion.
-        self._accumulator.flush()
+        self._flush_pending_chunks()
 
         self.loadFinished.emit(root, success)
 
@@ -489,7 +541,8 @@ class AssetListModel(QAbstractListModel):
         self._facade.errorRaised.emit(message)
         self.loadFinished.emit(root, False)
 
-        self._pending_rows = []
+        self._pending_chunks_buffer = []
+        self._flush_timer.stop()
         self._pending_loader_root = None
 
         should_restart = self._state_manager.consume_pending_reload(self._album_root, root)
@@ -600,7 +653,8 @@ class AssetListModel(QAbstractListModel):
             )
             self._state_manager.set_virtual_reload_suppressed(False)
             if self._state_manager.rows:
-                self._reload_live_metadata()
+                # With the schema update, we must trigger an incremental refresh from DB.
+                self._refresh_rows_from_index(self._album_root)
             return
 
         logger.debug(
@@ -609,8 +663,12 @@ class AssetListModel(QAbstractListModel):
             album_root,
         )
 
+        descendant_root = updated_root if updated_root != album_root else None
+
         if self._state_manager.rows:
-            self._reload_live_metadata()
+            # We used to call _reload_live_metadata here, but it relied on reading links.json synchronously.
+            # Now we use the DB as the source of truth, so we refresh rows from the index.
+            self._refresh_rows_from_index(self._album_root, descendant_root=descendant_root)
 
         if not self._state_manager.rows or self._pending_loader_root:
             logger.debug(
@@ -629,9 +687,11 @@ class AssetListModel(QAbstractListModel):
             return
 
         self._set_deferred_incremental_refresh(None)
-        self._refresh_rows_from_index(self._album_root)
+        self._refresh_rows_from_index(self._album_root, descendant_root=descendant_root)
 
-    def _refresh_rows_from_index(self, root: Path) -> None:
+    def _refresh_rows_from_index(
+        self, root: Path, descendant_root: Optional[Path] = None
+    ) -> None:
         """Synchronise the model with the latest index snapshot for *root*.
 
         The helper performs a synchronous load of ``index.jsonl`` so the model
@@ -643,11 +703,70 @@ class AssetListModel(QAbstractListModel):
         manifest = self._facade.current_album.manifest if self._facade.current_album else {}
         featured = manifest.get("featured", []) or []
 
-        live_map = load_live_map(root)
-        self._cache_manager.set_live_map(live_map)
+        filter_params = {}
+        if self._active_filter:
+            filter_params["filter_mode"] = self._active_filter
 
         try:
-            fresh_rows, _ = self._data_loader.compute_rows(root, featured, live_map)
+            fresh_rows, _ = self._data_loader.compute_rows(
+                root, featured, filter_params=filter_params
+            )
+
+            # If the update came from a descendant sub-album, the parent's DB might not yet
+            # reflect the changes (e.g., favorite status). We explicitly fetch the rows
+            # from the descendant's DB and merge them into the parent's row set.
+            if descendant_root and descendant_root != root:
+                # Load the descendant's manifest to get the fresh 'featured' list.
+                # This ensures that even if the DB is stale (is_favorite=0), the manifest
+                # will provide the correct status.
+                try:
+                    child_album = Album.open(descendant_root)
+                    child_featured = child_album.manifest.get("featured", [])
+                except (IPhotoError, OSError, ValueError) as exc:
+                    logger.error(
+                        "AssetListModel: failed to load manifest for %s: %s",
+                        descendant_root,
+                        exc,
+                    )
+                    child_featured = []
+
+                child_rows, _ = self._data_loader.compute_rows(
+                    descendant_root, child_featured, filter_params=filter_params
+                )
+                if child_rows:
+                    # Map fresh rows by rel for O(1) update
+                    fresh_lookup = {
+                        normalise_rel_value(row.get("rel")): i
+                        for i, row in enumerate(fresh_rows)
+                    }
+
+                    rel_prefix = descendant_root.relative_to(root)
+                    prefix_str = rel_prefix.as_posix()
+
+                    for child_row in child_rows:
+                        child_rel = child_row.get("rel")
+                        if not child_rel:
+                            continue
+
+                        # Adjust child rel to be relative to the parent root
+                        # Use string concatenation for performance instead of Path objects
+                        # Ensure forward slashes for consistency
+                        child_rel_str = str(child_rel).replace("\\", "/")
+                        # Use PurePosixPath to join paths reliably, avoiding leading slashes
+                        from pathlib import PurePosixPath
+                        adjusted_rel = PurePosixPath(prefix_str, child_rel_str).as_posix()
+                        normalized_key = normalise_rel_value(adjusted_rel)
+
+                        if normalized_key in fresh_lookup:
+                            # Create a copy to avoid mutating data potentially shared or cached
+                            merged_row = child_row.copy()
+                            # Update the child row with adjusted rel
+                            merged_row["rel"] = adjusted_rel
+                            # Since ID might be different or same depending on implementation,
+                            # we trust the match by rel/abs path.
+                            # We replace the stale row in fresh_rows with the fresh child_row.
+                            fresh_rows[fresh_lookup[normalized_key]] = merged_row
+
         except Exception as exc:  # pragma: no cover - surfaced via GUI
             logger.error(
                 "AssetListModel: incremental refresh for %s failed: %s", root, exc
@@ -786,24 +905,3 @@ class AssetListModel(QAbstractListModel):
             return True
 
         return is_descendant_path(updated_root, album_root)
-
-    def _reload_live_metadata(self) -> None:
-        """Re-read ``links.json`` and update cached Live Photo roles."""
-
-        rows = self._state_manager.rows
-        if not self._album_root or not rows:
-            return
-
-        updated_rows = self._cache_manager.reload_live_metadata(rows)
-        if not updated_rows:
-            return
-
-        roles_to_refresh = [
-            Roles.IS_LIVE,
-            Roles.LIVE_GROUP_ID,
-            Roles.LIVE_MOTION_REL,
-            Roles.LIVE_MOTION_ABS,
-        ]
-        for row_index in updated_rows:
-            model_index = self.index(row_index, 0)
-            self.dataChanged.emit(model_index, model_index, roles_to_refresh)
