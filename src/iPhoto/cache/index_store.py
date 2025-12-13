@@ -449,6 +449,10 @@ class IndexStore:
 
             if limit is not None:
                 query += f" LIMIT {int(limit)}"
+            elif offset is not None:
+                # SQLite requires a LIMIT clause if OFFSET is present.
+                # A negative limit indicates no upper bound.
+                query += " LIMIT -1"
 
             if offset is not None:
                 query += f" OFFSET {int(offset)}"
