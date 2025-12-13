@@ -41,7 +41,7 @@ from ....cache.index_store import IndexStore
 from ....config import WORK_DIR_NAME
 from ....media_classifier import IMAGE_EXTENSIONS, classify_media
 from ....models.album import Album
-from ..tasks.thumbnail_loader import ThumbnailJob
+from ..tasks.thumbnail_loader import ThumbnailJob, generate_cache_path
 from .flow_layout import FlowLayout
 from ..icon import load_icon
 
@@ -341,13 +341,6 @@ class DashboardThumbnailLoader(QObject):
         # ThumbnailJob uses the passed cache_path.
 
         try:
-            work_dir = ensure_work_dir(album_root, WORK_DIR_NAME)
-            thumbs_dir = work_dir / "thumbs"
-            thumbs_dir.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            return
-
-        try:
             stat = image_path.stat()
         except OSError:
             return
@@ -360,9 +353,8 @@ class DashboardThumbnailLoader(QObject):
         except ValueError:
             real_rel = image_path.name
 
-        digest = hashlib.sha256(real_rel.encode("utf-8")).hexdigest()
-        filename = f"{digest}_{stamp}_{size.width()}x{size.height()}.png"
-        cache_path = thumbs_dir / filename
+        # Check existing cache using correct generation logic
+        cache_path = generate_cache_path(album_root, real_rel, size, stamp)
 
         if cache_path.exists():
             pixmap = QPixmap(str(cache_path))
@@ -380,11 +372,12 @@ class DashboardThumbnailLoader(QObject):
             image_path,
             size,
             stamp,
-            cache_path,
+            album_root,
             is_image=True,
             is_video=False,
             still_image_time=None,
             duration=None,
+            cache_rel=real_rel,
         )
         self._pool.start(job)
 
