@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
@@ -69,13 +70,23 @@ def normalise_for_compare(path: Path) -> Path:
     representation that collapses symbolic links and performs the necessary
     case folding so that two references to the same directory compare equal
     regardless of how they were produced.
+
+    We also enforce NFC normalization to handle Unicode path differences
+    (NFC vs NFD) across operating systems (e.g. macOS vs Windows/Linux).
     """
 
     try:
         resolved = os.path.realpath(path)
     except OSError:
         resolved = str(path)
-    return Path(os.path.normcase(resolved))
+
+    # normcase handles case-insensitivity (e.g. Windows)
+    cased = os.path.normcase(resolved)
+
+    # normalize handles Unicode composition (e.g. macOS NFD vs Linux/Windows NFC)
+    normalised = unicodedata.normalize("NFC", cased)
+
+    return Path(normalised)
 
 
 def is_descendant_path(path: Path, candidate_root: Path) -> bool:
