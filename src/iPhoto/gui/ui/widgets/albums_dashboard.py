@@ -348,6 +348,7 @@ class DashboardThumbnailLoader(QObject):
         self._key_to_root[key_str] = album_root
 
         media_type = get_media_type(image_path)
+        is_image = media_type == MediaType.IMAGE
         is_video = media_type == MediaType.VIDEO
 
         job = ThumbnailJob(
@@ -357,7 +358,7 @@ class DashboardThumbnailLoader(QObject):
             size,
             None,  # Pass None as known_stamp to force regeneration if missing
             album_root,
-            is_image=True,  # Is image (can be viewed as still)
+            is_image=is_image,
             is_video=is_video,
             still_image_time=None,
             duration=None,
