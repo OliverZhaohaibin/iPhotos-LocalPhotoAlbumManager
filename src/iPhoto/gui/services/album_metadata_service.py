@@ -97,37 +97,30 @@ class AlbumMetadataService(QObject):
         for alb, r in targets:
             unique_targets[alb.root] = (alb, r)
 
-        # Apply changes in memory
+        primary_success = False
+
+        # Process each album atomically: Update Memory -> Persist -> Update DB
         for alb, r in unique_targets.values():
+            # Apply changes in memory
             if desired_state:
                 alb.add_featured(r)
             else:
                 alb.remove_featured(r)
 
-        # Persist changes
-        successful_targets: list[tuple[Album, str]] = []
-        failed_targets: list[tuple[Album, str]] = []
-
-        for alb, r in unique_targets.values():
+            # Persist changes
             if self._save_manifest(alb, reload_view=False):
-                successful_targets.append((alb, r))
+                # Success: Update DB immediately to minimize inconsistency window
+                IndexStore(alb.root).set_favorite_status(r, desired_state)
+
+                # Check if this was the primary album
+                if alb is album:
+                    primary_success = True
             else:
-                failed_targets.append((alb, r))
-
-        # Update DB indices for successful saves
-        for alb, r in successful_targets:
-            IndexStore(alb.root).set_favorite_status(r, desired_state)
-
-        # Rollback in-memory state for failed saves to match disk
-        for alb, r in failed_targets:
-            if desired_state:
-                alb.remove_featured(r)
-            else:
-                alb.add_featured(r)
-
-        # Check if the primary album (current view) was successfully updated
-        # We use strict object identity for the album check
-        primary_success = any(alb is album for alb, _ in successful_targets)
+                # Failure: Rollback in-memory state to match disk
+                if desired_state:
+                    alb.remove_featured(r)
+                else:
+                    alb.add_featured(r)
 
         if primary_success:
             self._asset_list_model_provider().update_featured_status(ref, desired_state)
