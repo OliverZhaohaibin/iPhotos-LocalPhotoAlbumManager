@@ -112,9 +112,11 @@ class SpacerProxyModel(QAbstractProxyModel):
         # Runtime safety: if source somehow became self (or a wrapper leading to self),
         # prevent infinite recursion and crash. This can happen if the model graph
         # is mutated dynamically in ways `setSourceModel` couldn't catch initially.
+        # We explicitly check for identity equality.
         if source is self:
             return QModelIndex()
 
+        # Assuming standard list models where column matches (0)
         row = proxy_index.row()
         count = source.rowCount()
         if not (1 <= row <= count):
@@ -140,10 +142,6 @@ class SpacerProxyModel(QAbstractProxyModel):
         if not index.isValid():
             return None
 
-        source = self.sourceModel()
-        if source is None:
-            return None
-
         row = index.row()
         last_row = self.rowCount() - 1
         if row in {0, last_row} and last_row >= 0:
@@ -154,6 +152,100 @@ class SpacerProxyModel(QAbstractProxyModel):
             if role == Qt.ItemDataRole.DisplayRole:
                 return None
             return None
+
+        source = self.sourceModel()
+        if source is None:
+            return None
+
+        # Prevent recursion loop where delegate checks for spacer role on standard items,
+        # which maps to source, which might somehow trigger proxy index creation again?
+        # Actually, the deadloop is likely simply:
+        # 1. delegate.sizeHint calls index.data(IS_SPACER)
+        # 2. index.data calls mapToSource
+        # 3. mapToSource calls source.index
+        # 4. If source is somehow wrapping us back, or if mapToSource logic is flawed?
+        #
+        # The traceback shows `SpacerProxyModel.index` being called inside `AssetDelegate.sizeHint`.
+        # `sizeHint` takes `index` as argument. It calls `index.data`.
+        # If `index` belongs to `SpacerProxyModel`, `data` is called.
+        # Inside `data`, we call `mapToSource`.
+        # `mapToSource` calls `source.index`.
+        # If `source` is NOT the `SpacerProxyModel` itself (checked in `setSourceModel`), then it should be fine.
+        #
+        # However, the traceback implies `index` (the method) is called.
+        # `mapFromSource` calls `index`.
+        #
+        # Let's look at `AssetDelegate.sizeHint`:
+        # `if bool(index.data(Roles.IS_SPACER)):`
+        #
+        # If `index.data` calls something that eventually calls `sizeHint` again?
+        # No, `sizeHint` is a delegate method called by the View.
+        #
+        # Wait, the traceback shows `SpacerProxyModel.index` calling `AssetDelegate.sizeHint`??
+        # No, the traceback shows:
+        #   File ".../asset_delegate.py", line 48, in sizeHint
+        #     if bool(index.data(Roles.IS_SPACER)):
+        #   File ".../spacer_proxy_model.py", line 132, in index
+        #     if parent.isValid():
+        #
+        # Line 132 in `spacer_proxy_model.py` is inside `index()` method.
+        # Why would `index.data` call `SpacerProxyModel.index`?
+        # `data` calls `mapToSource`, which calls `source.index`.
+        # `data` does NOT call `self.index`.
+        #
+        # Unless... `source` IS `self`. Or `source` wraps `self`.
+        # `setSourceModel` has checks, but maybe they are insufficient?
+        #
+        # OR:
+        # `data` implementation:
+        # `source_index = self.mapToSource(index)`
+        #
+        # `mapToSource`:
+        # `return source.index(row - 1, proxy_index.column())`
+        #
+        # If `source` is `self`, then `self.index` is called.
+        # `setSourceModel` checks `if source_model is self`.
+        #
+        # Is it possible that `index.data` triggers a signal that causes the view to call `index()`?
+        # No, `data()` should be const-like.
+        #
+        # Wait, the traceback alternates between `sizeHint` and `index`.
+        # `sizeHint` calls `data`.
+        # `data` calls... `index`?
+        #
+        # Maybe `index.data(Roles.IS_SPACER)` returns `None` (falling through to `source.data`)
+        # and `source.data` somehow triggers `sizeHint`?
+        #
+        # Let's look at `index()` implementation in `SpacerProxyModel`.
+        # `if parent.isValid(): return QModelIndex()`
+        # `return self.createIndex(row, column)`
+        #
+        # It's a very simple method. How can `sizeHint` call it?
+        # `sizeHint` doesn't call `index()`.
+        #
+        # Maybe the traceback is misleading or I am misreading it?
+        # "File ... asset_delegate.py ... sizeHint ... if bool(index.data(Roles.IS_SPACER))"
+        # "File ... spacer_proxy_model.py ... index ... if parent.isValid()"
+        #
+        # This implies `index.data` calls `index`?
+        # `data` -> `mapToSource` -> `source.index`.
+        # If `source` is `self` (SpacerProxyModel), then `self.index` is called.
+        #
+        # This confirms a cycle in the model structure. `SpacerProxyModel` is wrapping itself, or a model chain leads back to it.
+        # The `setSourceModel` check prevents direct self-wrapping.
+        # But maybe `AssetModel` wraps `AssetListModel`, and `SpacerProxyModel` wraps `AssetModel`?
+        # If someone did `model.setSourceModel(model)`, that would be caught.
+        #
+        # If the traceback shows `SpacerProxyModel.index` being called from `AssetDelegate.sizeHint`, it means `sizeHint` invoked something that led to `index`.
+        # The only call in `sizeHint` at line 48 is `index.data(Roles.IS_SPACER)`.
+        # So `index.data` MUST be leading to `SpacerProxyModel.index`.
+        # Since `data` calls `source.index` (via `mapToSource`), `source` MUST be `SpacerProxyModel`.
+        #
+        # How did `source` become `self`?
+        # Maybe `setSourceModel` check is bypassed or `source` changes?
+        #
+        # Let's strengthen the cycle detection in `setSourceModel`.
+        # Also, inside `mapToSource`, we can add a runtime check.
 
         source_index = self.mapToSource(index)
         if not source_index.isValid():
