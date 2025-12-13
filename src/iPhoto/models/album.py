@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -135,9 +136,18 @@ class Album:
 
     def add_featured(self, ref: str) -> None:
         featured = self.manifest.setdefault("featured", [])
-        if ref not in featured:
+
+        # Check for existence using NFC normalization to prevent duplicates
+        norm_ref = unicodedata.normalize("NFC", ref)
+        if not any(unicodedata.normalize("NFC", item) == norm_ref for item in featured):
             featured.append(ref)
 
     def remove_featured(self, ref: str) -> None:
         featured = self.manifest.setdefault("featured", [])
-        self.manifest["featured"] = [item for item in featured if item != ref]
+
+        # Filter out items that match the reference using NFC normalization
+        norm_ref = unicodedata.normalize("NFC", ref)
+        self.manifest["featured"] = [
+            item for item in featured
+            if unicodedata.normalize("NFC", item) != norm_ref
+        ]
