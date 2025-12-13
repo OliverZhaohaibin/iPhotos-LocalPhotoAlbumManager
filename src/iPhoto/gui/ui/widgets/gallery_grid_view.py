@@ -19,7 +19,7 @@ from PySide6.QtCore import (
     QItemSelectionModel,
     QEvent,
 )
-from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent
+from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QSurfaceFormat
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QWidget
 
@@ -142,9 +142,17 @@ class GalleryQuickWidget(QQuickWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+
+        # Disable the alpha buffer to prevent transparency issues with the DWM
+        # when using a frameless window configuration.
+        gl_format = QSurfaceFormat()
+        gl_format.setAlphaBufferSize(0)
+        self.setFormat(gl_format)
+
         self.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
         self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
 
         # Internal state
         self._model = None
