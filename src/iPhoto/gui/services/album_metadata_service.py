@@ -105,25 +105,33 @@ class AlbumMetadataService(QObject):
                 alb.remove_featured(r)
 
         # Persist changes
-        all_saved = True
-        for alb, _ in unique_targets.values():
-            if not self._save_manifest(alb, reload_view=False):
-                all_saved = False
+        successful_targets: list[tuple[Album, str]] = []
+        failed_targets: list[tuple[Album, str]] = []
 
-        if all_saved:
-            # Update DB indices
-            for alb, r in unique_targets.values():
-                IndexStore(alb.root).set_favorite_status(r, desired_state)
-
-            self._asset_list_model_provider().update_featured_status(ref, desired_state)
-            return desired_state
-
-        # Rollback on failure
         for alb, r in unique_targets.values():
+            if self._save_manifest(alb, reload_view=False):
+                successful_targets.append((alb, r))
+            else:
+                failed_targets.append((alb, r))
+
+        # Update DB indices for successful saves
+        for alb, r in successful_targets:
+            IndexStore(alb.root).set_favorite_status(r, desired_state)
+
+        # Rollback in-memory state for failed saves to match disk
+        for alb, r in failed_targets:
             if desired_state:
                 alb.remove_featured(r)
             else:
                 alb.add_featured(r)
+
+        # Check if the primary album (current view) was successfully updated
+        # We use strict object identity for the album check
+        primary_success = any(alb is album for alb, _ in successful_targets)
+
+        if primary_success:
+            self._asset_list_model_provider().update_featured_status(ref, desired_state)
+            return desired_state
 
         return was_featured
 
