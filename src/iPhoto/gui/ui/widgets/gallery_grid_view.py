@@ -43,6 +43,7 @@ class SelectionModelShim(QObject):
         super().__init__(parent)
         self._model = model
         self._selection_cache: Optional[List[QModelIndex]] = None
+        self._current_index_cache: Optional[QModelIndex] = None
 
         # Connect signals to invalidate cache
         self._model.dataChanged.connect(self._on_data_changed)
@@ -54,11 +55,14 @@ class SelectionModelShim(QObject):
     @Slot()
     def _invalidate_cache(self) -> None:
         self._selection_cache = None
+        self._current_index_cache = None
 
     @Slot(QModelIndex, QModelIndex, list)
     def _on_data_changed(self, top: QModelIndex, bottom: QModelIndex, roles: List[int] = []) -> None:
         if not roles or Roles.IS_SELECTED in roles:
             self._selection_cache = None
+        if not roles or Roles.IS_CURRENT in roles:
+            self._current_index_cache = None
 
     def isSelected(self, index: QModelIndex) -> bool:
         if not index.isValid():
@@ -171,12 +175,22 @@ class SelectionModelShim(QObject):
         return list(selected)
 
     def currentIndex(self) -> QModelIndex:
+        if self._current_index_cache is not None:
+            if self._current_index_cache.isValid():
+                return self._current_index_cache
+            # If invalid, it might mean 'no current item', so we still trust it
+            # unless we invalidated it to None.
+            return self._current_index_cache
+
         row_count = self._model.rowCount()
         for i in range(row_count):
             index = self._model.index(i, 0)
             if self._model.data(index, Roles.IS_CURRENT):
+                self._current_index_cache = index
                 return index
-        return QModelIndex()
+
+        self._current_index_cache = QModelIndex()
+        return self._current_index_cache
 
     def setCurrentIndex(self, index: QModelIndex, command: QItemSelectionModel.SelectionFlag) -> None:
         """Set current index and optionally select."""
