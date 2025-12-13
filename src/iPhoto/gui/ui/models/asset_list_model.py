@@ -22,6 +22,7 @@ from ..tasks.asset_loader_worker import (
     build_asset_entry,
     normalize_featured,
 )
+from ..tasks.incremental_refresh_worker import IncrementalRefreshSignals, IncrementalRefreshWorker
 from .asset_cache_manager import AssetCacheManager
 from .asset_data_loader import AssetDataLoader
 from .asset_state_manager import AssetListStateManager
@@ -88,6 +89,9 @@ class AssetListModel(QAbstractListModel):
         self._deferred_incremental_refresh: Optional[Path] = None
         self._active_filter: Optional[str] = None
 
+        self._incremental_worker: Optional[IncrementalRefreshWorker] = None
+        self._incremental_signals: Optional[IncrementalRefreshSignals] = None
+
         self._facade.linksUpdated.connect(self.handle_links_updated)
         self._facade.assetUpdated.connect(self.handle_asset_updated)
         self._facade.scanChunkReady.connect(self._on_scan_chunk_ready)
@@ -136,9 +140,12 @@ class AssetListModel(QAbstractListModel):
                     return rows[row_index]
 
         normalized_str = str(normalized_path)
-        for row in rows:
-            if str(row.get("abs")) == normalized_str:
-                return row
+
+        # O(1) Lookup optimization
+        row_index = self._state_manager.get_index_by_abs(normalized_str)
+        if row_index is not None and 0 <= row_index < len(rows):
+            return rows[row_index]
+
         # Fall back to the recently removed cache so operations triggered right
         # after an optimistic removal can still access metadata that is no
         # longer present in the live dataset.  The cache mirrors the structure
@@ -694,11 +701,22 @@ class AssetListModel(QAbstractListModel):
     ) -> None:
         """Synchronise the model with the latest index snapshot for *root*.
 
-        The helper performs a synchronous load of ``index.jsonl`` so the model
-        can calculate a diff without forcing a full reset.  This is lightweight
-        compared to launching a new background worker and avoids the flicker
-        caused by ``beginResetModel``.
+        This method spawns a background worker to load the data and calculate
+        the diff, avoiding UI blocking on the main thread.
         """
+        # If a worker is already running for this root, we might want to cancel it or queue.
+        # For simplicity, if one is running, we assume it will cover the latest state or
+        # another update will trigger later. But ideally we should ensure the latest update runs.
+        # Since this is an incremental refresh, we can just start a new one, but we must
+        # be careful about race conditions if multiple finish out of order.
+        # However, Python's GIL and the fact that we process results on the main thread via signals
+        # simplifies things.
+
+        if self._incremental_worker is not None:
+             # Already refreshing, skip this request or queue it?
+             # For now, let's just log and skip, relying on subsequent updates or the current one being enough.
+             logger.debug("AssetListModel: incremental refresh already in progress, skipping request.")
+             return
 
         manifest = self._facade.current_album.manifest if self._facade.current_album else {}
         featured = manifest.get("featured", []) or []
@@ -707,72 +725,42 @@ class AssetListModel(QAbstractListModel):
         if self._active_filter:
             filter_params["filter_mode"] = self._active_filter
 
-        try:
-            fresh_rows, _ = self._data_loader.compute_rows(
-                root, featured, filter_params=filter_params
-            )
+        self._incremental_signals = IncrementalRefreshSignals()
+        self._incremental_signals.resultsReady.connect(self._apply_incremental_results)
+        self._incremental_signals.error.connect(self._on_incremental_error)
 
-            # If the update came from a descendant sub-album, the parent's DB might not yet
-            # reflect the changes (e.g., favorite status). We explicitly fetch the rows
-            # from the descendant's DB and merge them into the parent's row set.
-            if descendant_root and descendant_root != root:
-                # Load the descendant's manifest to get the fresh 'featured' list.
-                # This ensures that even if the DB is stale (is_favorite=0), the manifest
-                # will provide the correct status.
-                try:
-                    child_album = Album.open(descendant_root)
-                    child_featured = child_album.manifest.get("featured", [])
-                except (IPhotoError, OSError, ValueError) as exc:
-                    logger.error(
-                        "AssetListModel: failed to load manifest for %s: %s",
-                        descendant_root,
-                        exc,
-                    )
-                    child_featured = []
+        self._incremental_worker = IncrementalRefreshWorker(
+            root,
+            featured,
+            self._incremental_signals,
+            filter_params=filter_params,
+            descendant_root=descendant_root
+        )
 
-                child_rows, _ = self._data_loader.compute_rows(
-                    descendant_root, child_featured, filter_params=filter_params
-                )
-                if child_rows:
-                    # Map fresh rows by rel for O(1) update
-                    fresh_lookup = {
-                        normalise_rel_value(row.get("rel")): i
-                        for i, row in enumerate(fresh_rows)
-                    }
+        # We need to keep a reference to signals/worker to prevent GC before it finishes?
+        # QRunnable auto-deletes, but signals are QObjects.
+        # We store them in self._incremental_signals/worker.
 
-                    rel_prefix = descendant_root.relative_to(root)
-                    prefix_str = rel_prefix.as_posix()
+        QThreadPool.globalInstance().start(self._incremental_worker)
 
-                    for child_row in child_rows:
-                        child_rel = child_row.get("rel")
-                        if not child_rel:
-                            continue
+    def _on_incremental_error(self, root: Path, message: str) -> None:
+        logger.error("AssetListModel: incremental refresh error for %s: %s", root, message)
+        self._cleanup_incremental_worker()
 
-                        # Adjust child rel to be relative to the parent root
-                        # Use string concatenation for performance instead of Path objects
-                        # Ensure forward slashes for consistency
-                        child_rel_str = str(child_rel).replace("\\", "/")
-                        # Use PurePosixPath to join paths reliably, avoiding leading slashes
-                        from pathlib import PurePosixPath
-                        adjusted_rel = PurePosixPath(prefix_str, child_rel_str).as_posix()
-                        normalized_key = normalise_rel_value(adjusted_rel)
+    def _cleanup_incremental_worker(self) -> None:
+        if self._incremental_signals:
+            self._incremental_signals.deleteLater()
+            self._incremental_signals = None
+        self._incremental_worker = None
 
-                        if normalized_key in fresh_lookup:
-                            # Create a copy to avoid mutating data potentially shared or cached
-                            merged_row = child_row.copy()
-                            # Update the child row with adjusted rel
-                            merged_row["rel"] = adjusted_rel
-                            # Since ID might be different or same depending on implementation,
-                            # we trust the match by rel/abs path.
-                            # We replace the stale row in fresh_rows with the fresh child_row.
-                            fresh_rows[fresh_lookup[normalized_key]] = merged_row
+    def _apply_incremental_results(self, root: Path, fresh_rows: List[Dict[str, object]]) -> None:
+        """Apply the fetched rows to the model via diffing."""
 
-        except Exception as exc:  # pragma: no cover - surfaced via GUI
-            logger.error(
-                "AssetListModel: incremental refresh for %s failed: %s", root, exc
-            )
-            self._facade.errorRaised.emit(str(exc))
-            return
+        if not self._album_root or root != self._album_root:
+             self._cleanup_incremental_worker()
+             return
+
+        self._cleanup_incremental_worker()
 
         if self._apply_incremental_rows(fresh_rows):
             logger.debug(
