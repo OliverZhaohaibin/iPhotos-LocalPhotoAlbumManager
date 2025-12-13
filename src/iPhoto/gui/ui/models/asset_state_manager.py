@@ -98,7 +98,9 @@ class AssetListStateManager:
             # Update ABS lookup
             abs_value = row.get("abs")
             if abs_value:
-                refreshed_abs[str(abs_value)] = index
+                key = str(abs_value)
+                if key not in refreshed_abs:
+                    refreshed_abs[key] = index
 
         self._row_lookup = refreshed_rel
         self._abs_lookup = refreshed_abs
@@ -168,7 +170,9 @@ class AssetListStateManager:
             self._row_lookup[row_data["rel"]] = idx
             abs_val = row_data.get("abs")
             if abs_val:
-                self._abs_lookup[str(abs_val)] = idx
+                key = str(abs_val)
+                if key not in self._abs_lookup:
+                    self._abs_lookup[key] = idx
         return start_row, start_row + len(chunk) - 1
 
     def update_row_at_index(self, index: int, row_data: Dict[str, object]) -> None:
