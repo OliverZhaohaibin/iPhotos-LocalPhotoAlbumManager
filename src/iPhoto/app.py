@@ -121,7 +121,7 @@ def _normalise_rel_key(rel_value: object) -> Optional[str]:
 
 
 def _update_index_snapshot(root: Path, materialised_rows: List[dict]) -> None:
-    """Apply *materialised_rows* to ``index.jsonl`` using incremental updates.
+    """Apply *materialised_rows* to ``index.db`` using incremental updates.
 
     Instead of rewriting the entire index after every scan, the helper removes
     entries that are no longer present and upserts any rows that appeared or
