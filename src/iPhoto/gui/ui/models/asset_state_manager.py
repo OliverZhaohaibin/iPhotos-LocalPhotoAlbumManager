@@ -495,8 +495,8 @@ class AssetListStateManager:
             original_abs = str(absolute)
 
             if guessed_abs and str(guessed_abs) in self._abs_lookup:
-                 if self._abs_lookup[str(guessed_abs)] == row_index:
-                     self._abs_lookup.pop(str(guessed_abs), None)
+                if self._abs_lookup[str(guessed_abs)] == row_index:
+                    self._abs_lookup.pop(str(guessed_abs), None)
             self._abs_lookup[original_abs] = row_index
 
             row_data["rel"] = original_rel
