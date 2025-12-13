@@ -311,73 +311,80 @@ class AssetLoaderWorker(QRunnable):
         params = copy.deepcopy(self._filter_params) if self._filter_params else {}
 
         # 2. Stream rows using lightweight geometry-first query
-        # Use a transaction context to keep the connection open for both the read and count queries.
+        # We use a two-stage approach:
+        # Stage 1: Fast initial batch using LIMIT
+        # Stage 2: Remaining items using OFFSET
+
+        # We keep the connection open using transaction context
         with store.transaction():
-            generator = store.read_geometry_only(
+            # ---- Stage 1: Initial Batch ----
+            initial_limit = 100
+            initial_generator = store.read_geometry_only(
                 filter_params=params,
-                sort_by_date=True
+                sort_by_date=True,
+                limit=initial_limit
             )
 
             chunk: List[Dict[str, object]] = []
-            last_reported = 0
-
-            # Priority: Emit first 20 items quickly
-            first_chunk_size = 20
-            normal_chunk_size = 200
-
-            total = 0
-            total_calculated = False
-            first_batch_emitted = False
             yielded_count = 0
 
-            for position, row in enumerate(generator, start=1):
+            for row in initial_generator:
                 if self._is_cancelled:
                     return
-
-                entry = build_asset_entry(
-                    self._root,
-                    row,
-                    self._featured,
-                )
-
+                entry = build_asset_entry(self._root, row, self._featured)
                 if entry is not None:
                     chunk.append(entry)
 
-                # Determine emission
-                should_flush = False
+            if chunk:
+                yielded_count += len(chunk)
+                yield chunk
+                chunk = []
 
-                if not first_batch_emitted:
-                    if len(chunk) >= first_chunk_size:
-                        should_flush = True
-                        first_batch_emitted = True
-                elif len(chunk) >= normal_chunk_size:
-                    should_flush = True
+            # Calculate total after first flush
+            try:
+                total = store.count(filter_hidden=True, filter_params=params)
+            except Exception as exc:
+                LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)
+                total = 0
 
-                if should_flush:
+            self._signals.progressUpdated.emit(self._root, yielded_count, total)
+
+            # If we fetched less than limit, we are done
+            if yielded_count < initial_limit and yielded_count == total:
+                 self._signals.progressUpdated.emit(self._root, total, total)
+                 return
+
+            # ---- Stage 2: Remaining Items ----
+            remaining_generator = store.read_geometry_only(
+                filter_params=params,
+                sort_by_date=True,
+                offset=initial_limit
+            )
+
+            normal_chunk_size = 200
+            last_reported = yielded_count
+
+            for i, row in enumerate(remaining_generator):
+                if self._is_cancelled:
+                    return
+
+                entry = build_asset_entry(self._root, row, self._featured)
+                if entry is not None:
+                    chunk.append(entry)
+
+                if len(chunk) >= normal_chunk_size:
                     yielded_count += len(chunk)
                     yield chunk
                     chunk = []
 
-                    # Perform count after yielding first chunk
-                    if not total_calculated:
-                        try:
-                            total = store.count(filter_hidden=True, filter_params=params)
-                            total_calculated = True
-                        except Exception as exc:
-                            LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)
-                            total = 0  # fallback
-
-                # Update progress periodically
-                # Use >= total to robustly handle concurrent additions where position might exceed original total
-                if total_calculated and (position >= total or position - last_reported >= 50):
-                    last_reported = position
-                    self._signals.progressUpdated.emit(self._root, position, total)
+                    # Periodic progress
+                    current_pos = initial_limit + i + 1
+                    if current_pos - last_reported >= 50:
+                        last_reported = current_pos
+                        self._signals.progressUpdated.emit(self._root, current_pos, total)
 
             if chunk:
                 yielded_count += len(chunk)
                 yield chunk
 
-            # Final progress update
-            if not total_calculated:  # If we never flushed (e.g. small album)
-                total = yielded_count
             self._signals.progressUpdated.emit(self._root, total, total)

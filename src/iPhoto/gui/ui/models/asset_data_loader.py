@@ -23,8 +23,9 @@ class AssetDataLoader(QObject):
     # Threshold for synchronous loading (number of rows).
     # If the index has fewer assets than this, we load synchronously
     # on the UI thread to make small albums appear instantly.
-    # 20,000 rows is roughly instantaneous on modern SSDs with SQLite.
-    SYNC_LOAD_THRESHOLD: int = 20000
+    # We set this to 0 to force all loads to go through the background worker,
+    # relying on the two-stage streaming (Limit 100 -> Offset) for instant response.
+    SYNC_LOAD_THRESHOLD: int = 0
 
     def __init__(self, parent: QObject | None = None) -> None:
         """Initialise the loader wrapper."""

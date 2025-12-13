@@ -387,7 +387,9 @@ class IndexStore:
     def read_geometry_only(
         self,
         filter_params: Optional[Dict[str, Any]] = None,
-        sort_by_date: bool = True
+        sort_by_date: bool = True,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Yield lightweight asset rows (geometry & core metadata) for fast grid layout.
 
@@ -402,6 +404,8 @@ class IndexStore:
                                 - 'media_type' (int): Filter by media type.
                                 - 'filter_mode' (str): Filter mode, accepts "videos", "live", or "favorites".
         :param sort_by_date: If True, sort results by date descending.
+        :param limit: Optional integer to limit the number of returned rows.
+        :param offset: Optional integer to skip the first N rows.
         """
         conn = self._get_conn()
         should_close = (conn != self._conn)
@@ -442,6 +446,12 @@ class IndexStore:
 
             if sort_by_date:
                 query += " ORDER BY dt DESC NULLS LAST, id DESC"
+
+            if limit is not None:
+                query += f" LIMIT {int(limit)}"
+
+            if offset is not None:
+                query += f" OFFSET {int(offset)}"
 
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()

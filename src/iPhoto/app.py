@@ -24,20 +24,35 @@ from .utils.logging import get_logger
 LOGGER = get_logger()
 
 
-def open_album(root: Path, autoscan: bool = True) -> Album:
-    """Open an album directory, scanning and pairing as required."""
+def open_album(root: Path, autoscan: bool = True, pair: bool = True) -> Album:
+    """Open an album directory, scanning and pairing as required.
+
+    :param root: The root directory of the album.
+    :param autoscan: If True, automatically scan for assets if the index is empty.
+    :param pair: If True, perform Live Photo pairing synchronously.
+                 Set to False to defer pairing to a background task (recommended for GUI).
+    """
 
     album = Album.open(root)
     store = IndexStore(root)
-    rows = list(store.read_all())
-    if not rows and autoscan:
+
+    # We check if the index is empty without loading all rows into memory
+    has_assets = store.count() > 0
+
+    if not has_assets and autoscan:
         include = album.manifest.get("filters", {}).get("include", DEFAULT_INCLUDE)
         exclude = album.manifest.get("filters", {}).get("exclude", DEFAULT_EXCLUDE)
         from .io.scanner import scan_album
 
         rows = list(scan_album(root, include, exclude))
         store.write_rows(rows)
-    _ensure_links(root, rows)
+        # If we just scanned, we must pair immediately to ensure consistency
+        _ensure_links(root, rows)
+    elif pair:
+        # Legacy/CLI mode: Load all rows and pair synchronously
+        rows = list(store.read_all())
+        _ensure_links(root, rows)
+
     store.sync_favorites(album.manifest.get("featured", []))
     return album
 

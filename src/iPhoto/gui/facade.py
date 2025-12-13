@@ -172,10 +172,14 @@ class AppFacade(QObject):
         """Open *root* and trigger background work as needed."""
 
         try:
-            album = backend.open_album(root, autoscan=False)
+            # We defer pairing to the background to speed up the initial UI response
+            album = backend.open_album(root, autoscan=False, pair=False)
         except IPhotoError as exc:
             self.errorRaised.emit(str(exc))
             return None
+
+        # Queue background pairing
+        self._library_update_service.pair_live_async(album)
 
         # Dual-Model Switching Strategy:
         # Determine whether to use the persistent library model or the transient album model.

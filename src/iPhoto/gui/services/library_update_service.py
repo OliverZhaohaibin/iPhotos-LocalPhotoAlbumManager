@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
-from PySide6.QtCore import QObject, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QTimer, Signal, Slot, QRunnable
 
 from ... import app as backend
 from ...config import RECENTLY_DELETED_DIR_NAME, WORK_DIR_NAME
@@ -14,6 +14,33 @@ from ...errors import IPhotoError
 from ..background_task_manager import BackgroundTaskManager
 from ..ui.tasks.rescan_worker import RescanSignals, RescanWorker
 from ..ui.tasks.scanner_worker import ScannerSignals, ScannerWorker
+
+# Reuse scanner infrastructure for background pairing task (lightweight task, so re-using base signals/worker structure is okay)
+# Or define a simple PairingWorker inline or in a separate file.
+# For simplicity, we'll define a simple PairingWorker here or inline using a lambda if BackgroundTaskManager supports it.
+# BackgroundTaskManager expects a QRunnable (worker) and signals.
+# Let's import PairingWorker if it exists or create a simple generic one.
+# We don't have a PairingWorker, so let's use a generic runnable wrapper or create one.
+# For now, we will add a PairingWorker class at the bottom or import one.
+# Actually, let's create a minimal PairingWorker in this file to handle the background pairing.
+
+class PairingSignals(QObject):
+    finished = Signal(Path, bool)
+    error = Signal(Path, str)
+
+class PairingWorker(QRunnable):
+    def __init__(self, root: Path, signals: PairingSignals) -> None:
+        super().__init__()
+        self._root = root
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            backend.pair(self._root)
+            self._signals.finished.emit(self._root, True)
+        except Exception as exc:
+            self._signals.error.emit(self._root, str(exc))
+            self._signals.finished.emit(self._root, False)
 
 if TYPE_CHECKING:
     from ...library.manager import LibraryManager
@@ -109,6 +136,40 @@ class LibraryUpdateService(QObject):
         self.linksUpdated.emit(album.root)
         self.assetReloadRequested.emit(album.root, False, False)
         return [group.__dict__ for group in groups]
+
+    def pair_live_async(self, album: "Album") -> None:
+        """Start a background pairing task for *album*."""
+
+        signals = PairingSignals()
+        worker = PairingWorker(album.root, signals)
+
+        # We can reuse the same callback logic as rescan or simpler
+        def _on_finished(root: Path, success: bool) -> None:
+            if success:
+                self.linksUpdated.emit(root)
+                # We request a soft reload (update rows) because pairing might change hidden/visible status
+                self.assetReloadRequested.emit(root, False, False)
+
+        def _on_error(root: Path, message: str) -> None:
+            # Silent failure or log? Typically silent for background optimization, but let's log error
+            self.errorRaised.emit(f"Background pairing failed for {root.name}: {message}")
+
+        self._task_manager.submit_task(
+            task_id=f"pair:{album.root}",
+            worker=worker,
+            finished=signals.finished,
+            error=signals.error,
+            pause_watcher=False, # Pairing updates links.json, maybe we should pause?
+                                 # backend.pair writes links.json. If we don't pause, watcher triggers.
+                                 # If watcher triggers, we get linksUpdated via facade.
+                                 # However, to be safe and consistent, we can pause.
+                                 # But previous synchronous code paused via TaskManager?
+                                 # No, pair_live was synchronous.
+                                 # Let's pause to avoid double-reload (one from watcher, one from us).
+            on_finished=_on_finished,
+            on_error=_on_error,
+            result_payload=lambda r, s: (r, s)
+        )
 
     def announce_album_refresh(
         self,
