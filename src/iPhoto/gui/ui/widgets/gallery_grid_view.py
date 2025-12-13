@@ -225,6 +225,7 @@ class GalleryQuickWidget(QQuickWidget):
         self._model = None
         self._selection_shim: Optional[SelectionModelShim] = None
         self._drop_handler: Optional[Callable[[List[Path]], None]] = None
+        self._drop_validator: Optional[Callable[[List[Path]], bool]] = None
         self._last_context_menu_index: Optional[QModelIndex] = None
 
     def setModel(self, model) -> None:
@@ -370,7 +371,10 @@ class GalleryQuickWidget(QQuickWidget):
                     url = QUrl(url)
                 if url.isLocalFile():
                     paths.append(Path(url.toLocalFile()))
+
             if paths:
+                if self._drop_validator and not self._drop_validator(paths):
+                    return
                 self._drop_handler(paths)
 
     # ------------------------------------------------------------------
@@ -401,3 +405,4 @@ class GalleryQuickWidget(QQuickWidget):
         validator: Optional[Callable[[List[Path]], bool]] = None,
     ) -> None:
         self._drop_handler = handler
+        self._drop_validator = validator
