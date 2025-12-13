@@ -327,7 +327,15 @@ class GalleryQuickWidget(QQuickWidget):
         return self
 
     def indexAt(self, point: QPoint) -> QModelIndex:
-        """Shim for indexAt."""
+        """
+        Shim for indexAt.
+
+        LIMITATION: This implementation does not perform actual geometric hit-testing
+        against the QML scene graph. It relies on the `_last_context_menu_index`
+        captured during the `customContextMenuRequested` event. Calls to this method
+        outside of a context menu event handler will likely return an invalid index
+        or a stale value.
+        """
         if self._last_context_menu_index and self._last_context_menu_index.isValid():
             return self._last_context_menu_index
         return QModelIndex()
