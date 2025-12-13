@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, QRunnable, Signal
 
@@ -44,13 +44,12 @@ class IncrementalRefreshWorker(QRunnable):
 
     def run(self) -> None:
         try:
-            # 1. Load fresh rows from DB (now handles location resolution internally)
+            # 1. Load fresh rows from DB (location resolution occurs in build_asset_entry, called during row processing)
             fresh_rows, _ = compute_asset_rows(
                 self._root, self._featured, filter_params=self._filter_params
             )
 
-            # 2. If a descendant root is involved, merge its fresh data
-            # This logic mimics what was previously in AssetListModel._refresh_rows_from_index
+            # 2. If a descendant root is involved, merge its fresh data into the current set of rows
             if self._descendant_root and self._descendant_root != self._root:
                 self._merge_descendant_rows(fresh_rows)
 
@@ -63,9 +62,7 @@ class IncrementalRefreshWorker(QRunnable):
 
     def _merge_descendant_rows(self, fresh_rows: List[Dict[str, object]]) -> None:
         """Merge fresh rows from the descendant album into the parent's row set."""
-        # Note: We import Album locally to avoid circular dependencies if any,
-        # or just rely on pure IO/DB calls if possible. But compute_asset_rows needs featured list.
-        # The original code loaded manifest to get featured.
+        # Import Album locally to avoid circular dependencies.
 
         from ....models.album import Album
         from ....errors import IPhotoError

@@ -704,23 +704,18 @@ class AssetListModel(QAbstractListModel):
     ) -> None:
         """Synchronise the model with the latest index snapshot for *root*.
 
-        This method spawns a background worker to load the data and calculate
-        the diff, avoiding UI blocking on the main thread.
+        This method spawns an :class:`IncrementalRefreshWorker` on a background
+        thread to load the data and calculate the diff, avoiding UI blocking on
+        the main thread.
         """
-        # If a worker is already running for this root, we might want to cancel it or queue.
-        # For simplicity, if one is running, we assume it will cover the latest state or
-        # another update will trigger later. But ideally we should ensure the latest update runs.
-        # Since this is an incremental refresh, we can just start a new one, but we must
-        # be careful about race conditions if multiple finish out of order.
-        # However, Python's GIL and the fact that we process results on the main thread via signals
-        # simplifies things.
+        # Spawn a background worker to refresh data incrementally without blocking the UI.
 
         with QMutexLocker(self._refresh_lock):
             if self._incremental_worker is not None:
-                 # Already refreshing, skip this request or queue it?
-                 # For now, let's just log and skip, relying on subsequent updates or the current one being enough.
-                 logger.debug("AssetListModel: incremental refresh already in progress, skipping request.")
-                 return
+                # Already refreshing, skip this request or queue it?
+                # For now, let's just log and skip, relying on subsequent updates or the current one being enough.
+                logger.debug("AssetListModel: incremental refresh already in progress, skipping request.")
+                return
 
             manifest = self._facade.current_album.manifest if self._facade.current_album else {}
             featured = manifest.get("featured", []) or []
@@ -741,10 +736,6 @@ class AssetListModel(QAbstractListModel):
                 descendant_root=descendant_root
             )
 
-            # We need to keep a reference to signals/worker to prevent GC before it finishes?
-            # QRunnable auto-deletes, but signals are QObjects.
-            # We store them in self._incremental_signals/worker.
-
             QThreadPool.globalInstance().start(self._incremental_worker)
 
     def _on_incremental_error(self, root: Path, message: str) -> None:
@@ -754,18 +745,23 @@ class AssetListModel(QAbstractListModel):
     def _cleanup_incremental_worker(self) -> None:
         with QMutexLocker(self._refresh_lock):
             if self._incremental_signals:
-                self._incremental_signals.resultsReady.disconnect(self._apply_incremental_results)
-                self._incremental_signals.error.disconnect(self._on_incremental_error)
+                try:
+                    self._incremental_signals.resultsReady.disconnect(self._apply_incremental_results)
+                    self._incremental_signals.error.disconnect(self._on_incremental_error)
+                except RuntimeError:
+                    # Ignore errors if signals were already disconnected
+                    pass
                 self._incremental_signals.deleteLater()
                 self._incremental_signals = None
+            # Reset worker inside lock to prevent race
             self._incremental_worker = None
 
     def _apply_incremental_results(self, root: Path, fresh_rows: List[Dict[str, object]]) -> None:
         """Apply the fetched rows to the model via diffing."""
 
         if not self._album_root or root != self._album_root:
-             self._cleanup_incremental_worker()
-             return
+            self._cleanup_incremental_worker()
+            return
 
         self._cleanup_incremental_worker()
 

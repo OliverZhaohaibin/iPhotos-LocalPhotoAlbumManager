@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from PySide6.QtCore import QModelIndex
+
+logger = logging.getLogger(__name__)
 
 if False:  # pragma: no cover - circular import guard
     from .asset_list_model import AssetListModel
@@ -101,12 +104,29 @@ class AssetListStateManager:
                 key = str(abs_value)
                 if key not in refreshed_abs:
                     refreshed_abs[key] = index
+                else:
+                    logger.warning(
+                        "Duplicate absolute path detected in rebuild_lookup: %s (indices %s, %s)",
+                        key, refreshed_abs[key], index
+                    )
 
         self._row_lookup = refreshed_rel
         self._abs_lookup = refreshed_abs
 
     def get_index_by_abs(self, abs_path: str) -> Optional[int]:
-        """Return the row index for the given absolute path, if found."""
+        """
+        Return the row index for the given absolute path, if found.
+
+        Parameters
+        ----------
+        abs_path : str
+            The absolute path of the asset to look up.
+
+        Returns
+        -------
+        Optional[int]
+            The row index corresponding to the given absolute path, or None if not found.
+        """
         return self._abs_lookup.get(abs_path)
 
     @staticmethod
@@ -173,6 +193,11 @@ class AssetListStateManager:
                 key = str(abs_val)
                 if key not in self._abs_lookup:
                     self._abs_lookup[key] = idx
+                else:
+                    logger.warning(
+                        "Duplicate absolute path detected in append_chunk: %s (existing index %s, new index %s)",
+                        key, self._abs_lookup[key], idx
+                    )
         return start_row, start_row + len(chunk) - 1
 
     def update_row_at_index(self, index: int, row_data: Dict[str, object]) -> None:
@@ -373,7 +398,7 @@ class AssetListStateManager:
             # Update abs lookup
             original_abs = row_data.get("abs")
             if original_abs and str(original_abs) in self._abs_lookup:
-                 if self._abs_lookup[str(original_abs)] == row_index:
+                if self._abs_lookup[str(original_abs)] == row_index:
                      self._abs_lookup.pop(str(original_abs), None)
             self._abs_lookup[str(guessed_abs)] = row_index
 
@@ -482,8 +507,8 @@ class AssetListStateManager:
             original_abs = str(absolute)
 
             if guessed_abs and str(guessed_abs) in self._abs_lookup:
-                 if self._abs_lookup[str(guessed_abs)] == row_index:
-                     self._abs_lookup.pop(str(guessed_abs), None)
+                if self._abs_lookup[str(guessed_abs)] == row_index:
+                    self._abs_lookup.pop(str(guessed_abs), None)
             self._abs_lookup[original_abs] = row_index
 
             row_data["rel"] = original_rel
