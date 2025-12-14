@@ -257,9 +257,14 @@ class LibraryManager(QObject):
             # Note: We do NOT trigger a full UI reload here via signals,
             # because the scanner emits chunkReady which the UI (AssetListModel) listens to directly
             # to merge "live" data.
-        except (OSError, IOError, RuntimeError) as e:
+        except (OSError, IOError) as e:
+            # File system errors (disk full, permission denied, etc.)
             LOGGER.error(f"Failed to persist scan chunk for {root}: {e}")
             raise
+        except Exception as e:
+            # Catch any other unexpected errors (e.g., database errors) to prevent
+            # the scan from crashing, but log them for debugging
+            LOGGER.exception(f"Unexpected error persisting scan chunk for {root}: {e}")
 
         # 3. Forward signal
         self.scanChunkReady.emit(root, chunk)

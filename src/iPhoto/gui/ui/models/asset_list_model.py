@@ -598,8 +598,7 @@ class AssetListModel(QAbstractListModel):
                 continue
 
             # Re-base the row's 'rel' path to be relative to the current view root.
-            # Note: This creates a shallow copy which modifies the row dict. If this chunk
-            # is shared elsewhere, consider whether this side effect is acceptable.
+            # Creates a shallow copy to avoid modifying the original row dict.
             adjusted_row = row.copy()
             adjusted_row['rel'] = view_rel
 
