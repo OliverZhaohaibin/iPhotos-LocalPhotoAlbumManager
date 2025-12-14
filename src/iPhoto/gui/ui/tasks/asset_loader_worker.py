@@ -16,6 +16,7 @@ from ....config import WORK_DIR_NAME
 from ....media_classifier import classify_media
 from ....utils.geocoding import resolve_location_name
 from ....utils.pathutils import ensure_work_dir
+from ....utils.image_loader import qimage_from_bytes
 
 
 LOGGER = logging.getLogger(__name__)
@@ -160,6 +161,12 @@ def build_asset_entry(
         if dt_parsed != float("-inf"):
             ts_value = int(dt_parsed * 1_000_000)
 
+    # Eagerly decode micro thumbnail if present
+    micro_thumb_img = None
+    micro_thumb_blob = row.get("micro_thumbnail")
+    if isinstance(micro_thumb_blob, bytes):
+        micro_thumb_img = qimage_from_bytes(micro_thumb_blob)
+
     entry: Dict[str, object] = {
         "rel": rel,
         "abs": abs_path,
@@ -200,6 +207,7 @@ def build_asset_entry(
         "original_rel_path": row.get("original_rel_path"),
         "original_album_id": row.get("original_album_id"),
         "original_album_subpath": row.get("original_album_subpath"),
+        "micro_thumbnail_image": micro_thumb_img,
     }
     return entry
 

@@ -241,6 +241,12 @@ def _process_path_stream(
                     ):
                         # Verify we have essential fields
                         if "id" in existing_record:
+                            # Backfill missing micro_thumbnail if needed
+                            if existing_record.get("micro_thumbnail") is None:
+                                micro_thumb = generate_micro_thumbnail(path)
+                                if micro_thumb:
+                                    existing_record["micro_thumbnail"] = micro_thumb
+
                             yield existing_record
                             processed_count += 1
                             if progress_callback and total_provider and processed_count != last_reported_count:
@@ -435,5 +441,12 @@ def _build_row(
                 base_row["media_type"] = None
         else:
             base_row["media_type"] = None
+
+    # Generate micro thumbnail
+    micro_thumb = generate_micro_thumbnail(file_path)
+    if micro_thumb:
+        base_row["micro_thumbnail"] = micro_thumb
+    else:
+        base_row["micro_thumbnail"] = None
 
     return base_row

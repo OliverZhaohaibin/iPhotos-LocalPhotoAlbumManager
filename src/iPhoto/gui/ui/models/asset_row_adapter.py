@@ -60,4 +60,6 @@ class AssetRowAdapter:
             return bool(row.get("is_current", False))
         if role == Roles.INFO:
             return dict(row)
+        if role == Roles.MICRO_THUMBNAIL:
+            return row.get("micro_thumbnail_image")
         return None
