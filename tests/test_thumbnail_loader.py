@@ -48,9 +48,9 @@ def test_generate_cache_path_basic(tmp_path: Path) -> None:
     assert result.parent.name == "thumbs"
     assert result.suffix == ".png"
     
-    # Verify filename includes stamp and size
+    # Verify filename DOES NOT include stamp, but includes size
     filename = result.name
-    assert f"{stamp}_" in filename
+    assert f"{stamp}_" not in filename
     assert "512x512.png" in filename
 
 
@@ -170,7 +170,7 @@ def test_thumbnail_loader_lru_eviction(tmp_path: Path, qapp: QApplication) -> No
 
 
 def test_generate_cache_path_different_stamps(tmp_path: Path) -> None:
-    """Test that different timestamps produce different cache paths."""
+    """Test that different timestamps produce SAME cache paths (filename decoupled from stamp)."""
     album_root = tmp_path / "album"
     rel = "photos/IMG_0001.JPG"
     size = QSize(512, 512)
@@ -178,10 +178,10 @@ def test_generate_cache_path_different_stamps(tmp_path: Path) -> None:
     result_old = generate_cache_path(album_root, rel, size, 1234567890)
     result_new = generate_cache_path(album_root, rel, size, 9876543210)
     
-    # Different timestamps should produce different filenames
-    assert result_old != result_new
-    assert "_1234567890_" in result_old.name
-    assert "_9876543210_" in result_new.name
+    # Different timestamps should produce SAME filenames now
+    assert result_old == result_new
+    assert "_1234567890_" not in result_old.name
+    assert "_9876543210_" not in result_new.name
 
 
 def test_generate_cache_path_different_rel_paths(tmp_path: Path) -> None:
@@ -247,11 +247,17 @@ def test_thumbnail_loader_cache_naming(tmp_path: Path, qapp: QApplication) -> No
     filename = files[0].name
     digest = hashlib.blake2b("IMG_0001.JPG".encode("utf-8"), digest_size=20).hexdigest()
     assert filename.startswith(f"{digest}_")
-    assert filename.endswith("_512x512.png")
+    assert filename.endswith("512x512.png")
 
-    # Changing the modification time should produce a new cache entry and
-    # remove the stale one.
+    # Changing the modification time should NOT produce a new filename,
+    # but SHOULD trigger a re-render because of mtime check.
+    # The file content (and mtime) will change, but the name remains the same.
+    old_mtime = files[0].stat().st_mtime
+
+    # Wait a bit to ensure mtime change is detectable
+    time.sleep(1.1)
     os.utime(image_path, None)
+
     spy = QSignalSpy(loader.ready)
     loader.request("IMG_0001.JPG", image_path, QSize(512, 512), is_image=True)
     deadline = time.monotonic() + 4.0
@@ -259,9 +265,11 @@ def test_thumbnail_loader_cache_naming(tmp_path: Path, qapp: QApplication) -> No
         qapp.processEvents()
         time.sleep(0.05)
     assert spy.count() >= 1
+
     files = list(thumbs_dir.iterdir())
     assert len(files) == 1
-    assert files[0].name != filename
+    assert files[0].name == filename # Name is the same
+    assert files[0].stat().st_mtime > old_mtime # mtime updated
 
 def test_thumbnail_loader_sidecar_invalidation(tmp_path: Path, qapp: QApplication) -> None:
     image_path = tmp_path / "IMG_SIDE.JPG"
@@ -282,15 +290,37 @@ def test_thumbnail_loader_sidecar_invalidation(tmp_path: Path, qapp: QApplicatio
     files = list(thumbs_dir.iterdir())
     assert len(files) == 1
     original_cache_file = files[0].name
+    original_mtime = files[0].stat().st_mtime
 
     # Create sidecar with edits - ensure mtime is newer
     save_adjustments(image_path, {"Light_Master": 0.5})
     sidecar_path = image_path.with_suffix(".ipo")
     image_mtime = image_path.stat().st_mtime
-    os.utime(sidecar_path, (image_mtime + 5, image_mtime + 5))
 
-    # Request again - should trigger new generation because sidecar is newer
+    # Ensure sidecar is significantly newer (e.g. +2 seconds) to beat the cache
+    # Wait to ensure filesystem time difference if needed, but manual utime is safer
+    future_time = image_mtime + 5
+    os.utime(sidecar_path, (future_time, future_time))
+
+    # We must also ensure the sidecar time is > current cache mtime - 1s logic
+    # The cache mtime was just set to "now".
+    # If "now" > future_time, we might have issues?
+    # Actually logic is: cache_mtime >= (actual_stamp - 1s).
+    # actual_stamp will be max(image_mtime, sidecar_mtime) = future_time.
+    # So we need cache_mtime < future_time - 1s to trigger regeneration.
+    # But cache_mtime is "now". If we run this test fast, "now" might be < future_time.
+    # Wait, if cache_mtime is OLDER than source, we regenerate.
+    # So we need cache_mtime < actual_stamp - 1s.
+
+    # Let's force the cache file to appear OLD.
+    old_time = future_time - 10
+    os.utime(thumbs_dir / original_cache_file, (old_time, old_time))
+
+    # Request again - should trigger new generation because sidecar is newer than cache
     spy = QSignalSpy(loader.ready)
+
+    # Clear memory cache so it forces a disk check
+    loader._memory.clear()
 
     loader.request("IMG_SIDE.JPG", image_path, QSize(512, 512), is_image=True)
     deadline = time.monotonic() + 4.0
@@ -302,8 +332,12 @@ def test_thumbnail_loader_sidecar_invalidation(tmp_path: Path, qapp: QApplicatio
     files = list(thumbs_dir.iterdir())
     assert len(files) == 1
     new_cache_file = files[0].name
+    new_mtime = files[0].stat().st_mtime
 
-    assert new_cache_file != original_cache_file
+    # Filename stays same
+    assert new_cache_file == original_cache_file
+    # But mtime should be updated to "now" (which is >= future_time usually, or at least > old_time)
+    assert new_mtime > old_time
 
 
 def test_thumbnail_loader_cache_validation(tmp_path: Path, qapp: QApplication) -> None:
