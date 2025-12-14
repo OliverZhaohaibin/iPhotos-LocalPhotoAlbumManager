@@ -76,8 +76,8 @@ class AssetGridDelegate(QStyledItemDelegate):
         pixmap = index.data(Qt.DecorationRole)
         micro_thumb = None
         if not (isinstance(pixmap, QPixmap) and not pixmap.isNull()):
-             # Fallback to micro thumbnail
-             micro_thumb = index.data(Roles.MICRO_THUMBNAIL)
+            # Fallback to micro thumbnail
+            micro_thumb = index.data(Roles.MICRO_THUMBNAIL)
 
         clip_path: QPainterPath | None = None
         if self._filmstrip_mode and corner_radius > 0.0:
