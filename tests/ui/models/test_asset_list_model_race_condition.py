@@ -132,7 +132,7 @@ def test_race_condition_stale_chunk_ignored(model_setup):
 
     # Assertion: If bug exists, rowCount > 0. If fix works, rowCount == 0.
 
-    # For now, I will assert failure to confirm the bug exists.
+    # Assert that the model does not accept a stale chunk (verifies the bug is fixed).
     if model.rowCount() > 0:
         pytest.fail("Race condition reproduced: Stale chunk was accepted!")
 
