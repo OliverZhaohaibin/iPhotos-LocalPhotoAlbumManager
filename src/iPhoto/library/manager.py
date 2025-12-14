@@ -30,6 +30,7 @@
                     if full_path == rel_root or rel_root in full_path.parents:
                         filtered.append(item)
             except (OSError, ValueError):
+                # Ignore errors due to invalid or missing paths; these can occur if files are moved or deleted during scanning.
                 pass
 
             return filtered
