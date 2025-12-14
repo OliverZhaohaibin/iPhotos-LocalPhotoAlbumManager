@@ -876,13 +876,13 @@ class AssetListModel(QAbstractListModel):
         # 'ts' (timestamp) is the primary versioning key.
         # 'bytes' (filesize) implies content change.
         # 'abs' (absolute path) implies file location change.
-        # 'orientation' / 'rotation' (if present) affect geometry.
+        # 'w'/'h' affect aspect ratio and cropping.
         visual_keys = {
             "ts",
             "bytes",
             "abs",
-            "orientation",
-            "crop_id",
+            "w",
+            "h",
             "still_image_time",
         }
 

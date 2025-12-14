@@ -22,7 +22,7 @@ class TestAssetListModelShouldInvalidate:
 
     def test_invalidation_triggers_on_visual_fields(self, model):
         """Verify that changes to visual fields trigger invalidation."""
-        base_row = {"rel": "photo.jpg", "ts": 100, "bytes": 500, "abs": "/tmp/a"}
+        base_row = {"rel": "photo.jpg", "ts": 100, "bytes": 500, "abs": "/tmp/a", "w": 100, "h": 100}
 
         # Timestamp change
         assert model._should_invalidate_thumbnail(base_row, {**base_row, "ts": 101})
@@ -33,11 +33,9 @@ class TestAssetListModelShouldInvalidate:
         # Absolute path change
         assert model._should_invalidate_thumbnail(base_row, {**base_row, "abs": "/tmp/b"})
 
-        # Orientation change
-        assert model._should_invalidate_thumbnail(base_row, {**base_row, "orientation": 6})
-
-        # Crop ID change
-        assert model._should_invalidate_thumbnail(base_row, {**base_row, "crop_id": "new_crop"})
+        # Width/Height change
+        assert model._should_invalidate_thumbnail(base_row, {**base_row, "w": 200})
+        assert model._should_invalidate_thumbnail(base_row, {**base_row, "h": 200})
 
         # Still image time change
         assert model._should_invalidate_thumbnail(base_row, {**base_row, "still_image_time": 1.5})
