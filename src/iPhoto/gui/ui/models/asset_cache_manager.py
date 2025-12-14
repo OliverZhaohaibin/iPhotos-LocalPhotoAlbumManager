@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, QSize, Signal, Qt, QRectF
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap, QImage
 
 from ..tasks.thumbnail_loader import ThumbnailLoader
 from ..geometry_utils import calculate_center_crop
@@ -192,6 +192,11 @@ class AssetCacheManager(QObject):
         if cached is not None:
             # Generate composite from cached raw thumbnail
             return self._create_composite_thumbnail(rel, cached, row)
+
+        # Check for micro thumbnail before falling back to generic placeholder
+        micro_thumb = row.get("micro_thumbnail_image")
+        if isinstance(micro_thumb, QImage) and not micro_thumb.isNull():
+            return QPixmap.fromImage(micro_thumb)
 
         placeholder = self._placeholder_for(rel, bool(row.get("is_video")))
         if not self._album_root:
