@@ -256,7 +256,7 @@ class LibraryManager(QObject):
                     # e.g. "Vacation/img.jpg" -> "img.jpg"
                     new_item["rel"] = item_rel[len(prefix_slash):] if item_rel != prefix else ""
                     if not new_item["rel"]:
-                        continue # Should not happen for files, but safe guard
+                        continue # Should not happen for files, but safeguard
                     filtered.append(new_item)
 
         # Case D: Disjoint paths (e.g. scan Photos/A, view Photos/B).
