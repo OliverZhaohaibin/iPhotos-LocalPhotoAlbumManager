@@ -141,6 +141,13 @@ class LibraryManager(QObject):
     # ------------------------------------------------------------------
     def start_scanning(self, root: Path, include: Iterable[str], exclude: Iterable[str]) -> None:
         """Start a background scan for the given root directory."""
+        # Prepare signals outside the lock
+        signals = ScannerSignals()
+        signals.progressUpdated.connect(self.scanProgress)
+        signals.chunkReady.connect(self._on_scan_chunk)
+        signals.finished.connect(self._on_scan_finished)
+        signals.error.connect(self._on_scan_error)
+
         # Check if already scanning the same root (thread-safe)
         locker = QMutexLocker(self._scan_buffer_lock)
         if self._current_scanner_worker is not None:
@@ -154,14 +161,10 @@ class LibraryManager(QObject):
         self._live_scan_root = root
         self._live_scan_buffer.clear()
 
-        signals = ScannerSignals()
-        signals.progressUpdated.connect(self.scanProgress)
-        signals.chunkReady.connect(self._on_scan_chunk)
-        signals.finished.connect(self._on_scan_finished)
-        signals.error.connect(self._on_scan_error)
-
         worker = ScannerWorker(root, include, exclude, signals)
         self._current_scanner_worker = worker
+        # Release lock before starting the worker
+        del locker
 
         self._scan_thread_pool.start(worker)
 
