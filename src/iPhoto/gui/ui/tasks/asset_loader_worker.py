@@ -425,6 +425,11 @@ class LiveIngestWorker(QRunnable):
         self._items = items
         self._featured = normalize_featured(featured)
         self._signals = signals
+        self._is_cancelled = False
+
+    def cancel(self) -> None:
+        """Cancel the current ingest operation."""
+        self._is_cancelled = True
 
     def run(self) -> None:
         try:
@@ -433,6 +438,9 @@ class LiveIngestWorker(QRunnable):
             batch_size = 50
 
             for row in self._items:
+                if self._is_cancelled:
+                    return
+
                 # Process the potentially expensive metadata build in the background
                 entry = build_asset_entry(self._root, row, self._featured)
                 if entry:
@@ -442,7 +450,7 @@ class LiveIngestWorker(QRunnable):
                     self._signals.chunkReady.emit(self._root, list(chunk))
                     chunk = []
 
-            if chunk:
+            if chunk and not self._is_cancelled:
                 self._signals.chunkReady.emit(self._root, chunk)
         except Exception as exc:
             LOGGER.error("Error processing live items: %s", exc, exc_info=True)

@@ -103,6 +103,7 @@ class AssetListModel(QAbstractListModel):
         self._incremental_worker: Optional[IncrementalRefreshWorker] = None
         self._incremental_signals: Optional[IncrementalRefreshSignals] = None
         self._refresh_lock = QMutex()
+        self._current_live_worker: Optional[LiveIngestWorker] = None
 
         self._facade.linksUpdated.connect(self.handle_links_updated)
         self._facade.assetUpdated.connect(self.handle_asset_updated)
@@ -460,6 +461,11 @@ class AssetListModel(QAbstractListModel):
             # main thread causes visible UI lag.
             if self._facade.library_manager:
                 try:
+                    # Cancel any existing live worker to prevent race conditions or wasted work
+                    if self._current_live_worker:
+                        self._current_live_worker.cancel()
+                        self._current_live_worker = None
+
                     live_items = self._facade.library_manager.get_live_scan_results(relative_to=self._album_root)
                     if live_items:
                         # Create dedicated signals for the live ingest worker.
@@ -474,6 +480,7 @@ class AssetListModel(QAbstractListModel):
                             featured,
                             live_signals
                         )
+                        self._current_live_worker = worker
                         QThreadPool.globalInstance().start(worker)
                 except Exception as e:
                     logger.error("Failed to inject live scan results: %s", e, exc_info=True)
