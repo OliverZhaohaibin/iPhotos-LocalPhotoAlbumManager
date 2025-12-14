@@ -244,9 +244,11 @@ def _process_path_stream(
                         if "id" in existing_record:
                             # Backfill missing micro_thumbnail if needed
                             if existing_record.get("micro_thumbnail") is None:
-                                micro_thumb = generate_micro_thumbnail(path)
-                                if micro_thumb:
-                                    existing_record["micro_thumbnail"] = micro_thumb
+                                suffix = path.suffix.lower()
+                                if suffix in _IMAGE_EXTENSIONS:
+                                    micro_thumb = generate_micro_thumbnail(path)
+                                    if micro_thumb:
+                                        existing_record["micro_thumbnail"] = micro_thumb
 
                             yield existing_record
                             processed_count += 1
