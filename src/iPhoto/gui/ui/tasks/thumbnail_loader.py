@@ -504,7 +504,8 @@ class ThumbnailLoader(QObject):
         self._album_root: Optional[Path] = None
         self._album_root_str: Optional[str] = None
 
-        self._memory: Dict[Tuple[str, str, int, int], Tuple[int, QPixmap]] = {}
+        self._memory: OrderedDict[Tuple[str, str, int, int], Tuple[int, QPixmap]] = OrderedDict()
+        self._max_memory_items = 500
 
         self._pending_deque: deque[Tuple[Tuple[str, str, int, int], ThumbnailJob]] = deque()
         self._pending_keys: Set[Tuple[str, str, int, int]] = set()
@@ -551,7 +552,8 @@ class ThumbnailLoader(QObject):
         if self._album_root is None or self._album_root_str is None:
             return None
 
-        base_key = self._base_key(rel, size)
+        fixed_size = QSize(512, 512)
+        base_key = self._base_key(rel, fixed_size)
 
         if base_key in self._missing:
             return None
@@ -563,6 +565,7 @@ class ThumbnailLoader(QObject):
         retval: Optional[QPixmap] = None
 
         if cached_entry:
+            self._memory.move_to_end(base_key)
             known_stamp, retval = cached_entry
 
         if base_key in self._pending_keys:
@@ -575,7 +578,7 @@ class ThumbnailLoader(QObject):
             self,
             rel,
             path,
-            size,
+            fixed_size,
             known_stamp,
             self._album_root,
             is_image=is_image,
@@ -643,6 +646,9 @@ class ThumbnailLoader(QObject):
 
         self._memory[base_key] = (stamp, pixmap)
 
+        while len(self._memory) > self._max_memory_items:
+            self._memory.popitem(last=False)
+
         if self._album_root is not None:
             self.ready.emit(self._album_root, rel, pixmap)
 
@@ -667,9 +673,11 @@ class ThumbnailLoader(QObject):
             if entry:
                 stamp, pixmap = entry
                 del pixmap
-                _, _, width, height = k
-                path = generate_cache_path(self._album_root, rel, QSize(width, height), stamp)
-                safe_unlink(path)
+                # We intentionally do not delete the disk cache here.
+                # Invalidation primarily means "clear from memory and force a check".
+                # If the disk file is stale, ThumbnailJob will detect the timestamp mismatch
+                # and clean it up. If the disk file is still valid (e.g. invalidation triggered
+                # by a false alarm or metadata update), we want to reuse it.
 
         self._pending_keys = {k for k in self._pending_keys if k[1] != rel}
         self._failures = {k for k in self._failures if k[1] != rel}
@@ -679,13 +687,3 @@ class ThumbnailLoader(QObject):
             (key, job) for key, job in self._pending_deque
             if key[1] != rel
         )
-
-        if self._album_root is not None:
-            try:
-                digest = hashlib.blake2b(rel.encode("utf-8"), digest_size=20).hexdigest()
-                thumbs_dir = self._album_root / WORK_DIR_NAME / "thumbs"
-                if thumbs_dir.exists():
-                    for file_path in thumbs_dir.glob(f"{digest}_*.png"):
-                        safe_unlink(file_path)
-            except Exception:
-                pass
