@@ -237,7 +237,10 @@ class LibraryManager(QObject):
                  # If buffer is full, we rely on disk.
                  # We can optionally rotate, but simply stopping accumulation is safer for memory.
                  # The consuming models should have already pulled earlier data.
-                 pass
+                 LOGGER.warning(
+                     f"Live scan buffer for {root} reached its limit of {self._MAX_LIVE_BUFFER_SIZE} items. "
+                     f"{len(chunk)} new items were not added to the in-memory buffer; relying on disk persistence."
+                 )
 
         # 2. Persist to Disk Incrementally
         # We use IndexStore to append rows. This is thread-safe via the class design (uses new connection).
