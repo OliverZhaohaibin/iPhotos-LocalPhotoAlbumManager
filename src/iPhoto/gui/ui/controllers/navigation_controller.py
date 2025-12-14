@@ -153,6 +153,15 @@ class NavigationController:
         self._view_controller.restore_default_gallery()
         self._view_controller.show_gallery_view()
 
+        # If we're opening an album, check if it's already being scanned by the LibraryManager.
+        # If so, we should preserve the ongoing scan instead of canceling it (which usually happens implicitly
+        # if the scan was tied to the transient controller, but now it's in LibraryManager).
+
+        # However, `AppFacade.open_album` might trigger logic. We should rely on `AppFacade` handling the persistence.
+        # The key change in NavigationController is ensuring we don't accidentally stop anything or misinterpret state.
+        # With the refactor, the scan is owned by LibraryManager, so navigating here simply requests the album open.
+        # `AppFacade` (updated) checks `is_scanning_path` to avoid restarting/canceling inappropriately.
+
         album = self._facade.open_album(path)
         if album is not None:
             self._context.remember_album(album.root)
@@ -341,8 +350,12 @@ class NavigationController:
         else:
             # --- STANDARD PATH (Context Switch) ---
             # We are switching from a different physical album root or loading the library for the first time.
-            # 1. Destroy the old model FIRST.
-            # This prevents wasting CPU cycles filtering the old dataset.
+
+            # Note: We do NOT want to interrupt scanning if we are simply switching context to the library root
+            # (which might be the scan root).
+            # The logic inside `AppFacade.open_album` now checks `LibraryManager.is_scanning_path`.
+            # If the scan is running on the library root, and we open it here, the scan persists.
+
             album = self._facade.open_album(target_root)
             if album is None:
                 self._static_selection = None

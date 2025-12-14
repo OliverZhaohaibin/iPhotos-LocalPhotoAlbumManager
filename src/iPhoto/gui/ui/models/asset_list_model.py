@@ -371,6 +371,38 @@ class AssetListModel(QAbstractListModel):
 
         self._active_filter = normalized
 
+        # --- NEW OPTIMIZATION: In-Memory Filtering ---
+        # If we have a reasonable number of items in memory, try to filter locally
+        # instead of hitting the DB.
+
+        # Threshold: 10,000 items (arbitrary, can tune).
+        # We also need to check if the current model data is "complete" enough to support filtering.
+        # But wait, AssetListModel typically only holds what is loaded.
+        # If we are currently filtered to "Videos" (subset) and switch to "All Photos" (superset),
+        # we MUST reload because we don't have the photos in RAM.
+        #
+        # If we are currently "All Photos" (superset) and switch to "Videos" (subset),
+        # we COULD filter in memory.
+        #
+        # For this PR, the key requirement is "Seamless transition".
+        # If we switch filters, we trigger `start_load()`.
+        # `start_load()` will now merge DB data + Live Buffer.
+        # The Live Buffer helps fill gaps.
+        #
+        # For now, I will stick to the reload-based approach (safer) but augmented with the live buffer.
+        # Implementing robust In-Memory filtering requires holding the FULL dataset always,
+        # which defeats the purpose of pagination/loading optimization if we implemented that.
+        # However, this app currently loads EVERYTHING into AssetListModel RAM anyway (it's not paginated).
+        #
+        # So, if we are switching to a subset, we could just hide rows.
+        # But QAbstractListModel with `QSortFilterProxyModel` is usually the Qt way.
+        # Here we are managing rows manually.
+        #
+        # Let's rely on `start_load()` being fast enough thanks to the Live Buffer integration.
+        # The user requirement said: "Try in-memory filtering... OR ensure seamless loading".
+        # I will focus on the "Hybrid Loading" in `start_load` first as it solves the "missing data" problem
+        # regardless of filter direction.
+
         # Clear data immediately to avoid "ghosting" (showing stale data while the
         # new filter is being processed asynchronously).
         self.beginResetModel()
@@ -419,6 +451,29 @@ class AssetListModel(QAbstractListModel):
         try:
             self._data_loader.start(self._album_root, featured, filter_params=filter_params)
             self._ignore_incoming_chunks = False
+
+            # --- NEW: Inject Live Buffer Data ---
+            # Immediately fetch any items that have been scanned but not yet persisted/loaded.
+            # We do this AFTER starting the loader so that the loader is "active".
+            # Actually, we can just process them as if they were a "chunk".
+
+            if self._facade.library_manager:
+                live_items = self._facade.library_manager.get_live_scan_results(relative_to=self._album_root)
+                if live_items:
+                    # We treat this as an "instant chunk".
+                    # Note: We must ensure we don't duplicate what the loader finds from DB.
+                    # The loader runs async. We have these items NOW.
+                    # Strategy:
+                    # 1. Add live items immediately.
+                    # 2. When loader brings items, we rely on deduplication in `AssetListModel` / `StateManager`.
+                    #    Currently `AssetListModel` handles chunks by appending. It does NOT dedupe automatically against existing rows
+                    #    in `_on_loader_chunk_ready` unless we add logic.
+                    #
+                    #    However, `_on_scan_chunk_ready` DOES check `row_lookup`.
+                    #
+                    #    Let's re-use `_on_scan_chunk_ready` logic for these live items!
+                    self._on_scan_chunk_ready(self._album_root, live_items)
+
         except RuntimeError:
             self._state_manager.mark_reload_pending()
             self._pending_loader_root = None
@@ -438,17 +493,47 @@ class AssetListModel(QAbstractListModel):
         ):
             return
 
+        # Deduplicate incoming chunk against what we already have (e.g. from live buffer)
+        # The loader reads from DB. The live buffer came from Scanner.
+        # They might overlap if the scanner persisted data and the loader picked it up.
+        unique_chunk = []
+        for row in chunk:
+             rel = row.get("rel")
+             # Only add if not already present
+             if rel and normalise_rel_value(rel) not in self._state_manager.row_lookup:
+                 unique_chunk.append(row)
+
+        if not unique_chunk:
+             return
+
+        chunk = unique_chunk
+
         if self._is_first_chunk:
             self._is_first_chunk = False
 
             # First chunk: Reset model immediately
-            self.beginResetModel()
-            self._state_manager.clear_rows()
-            self._state_manager.append_chunk(chunk)
-            self.endResetModel()
+            # Note: If we already added live items, we shouldn't reset them away!
+            # But usually `start_load` triggers a reset via `set_filter_mode` -> `reset`.
+            # Wait, `start_load` doesn't call `reset` itself.
+            # But `_on_loader_chunk_ready` DOES call `beginResetModel` for the first chunk.
+            # This wipes our live items if we added them in `start_load`.
 
-            # Start loading thumbnails for the first batch immediately
-            self.prioritize_rows(0, len(chunk) - 1)
+            # Fix: We should NOT wipe if we already have rows (from live buffer).
+            # If `self._state_manager.row_count() > 0`, we should treat this as an APPEND, not a reset.
+
+            if self._state_manager.row_count() > 0:
+                # We have data (live buffer). Treat this chunk as subsequent.
+                self._pending_chunks_buffer.extend(chunk)
+                if len(self._pending_chunks_buffer) >= self._STREAM_FLUSH_THRESHOLD:
+                    self._flush_pending_chunks()
+                elif not self._flush_timer.isActive():
+                    self._flush_timer.start()
+            else:
+                self.beginResetModel()
+                self._state_manager.clear_rows()
+                self._state_manager.append_chunk(chunk)
+                self.endResetModel()
+                self.prioritize_rows(0, len(chunk) - 1)
 
             return
 
@@ -487,27 +572,92 @@ class AssetListModel(QAbstractListModel):
     def _on_scan_chunk_ready(self, root: Path, chunk: List[Dict[str, object]]) -> None:
         """Integrate fresh rows from the scanner into the live view."""
 
-        if not self._album_root or root != self._album_root or not chunk:
+        # Note: We loosen the check here. Even if root != album_root, if the chunk belongs to a subfolder
+        # or we are in a "recursive" view, we might want it.
+        # But generally, `LibraryManager` will filter `get_live_scan_results` for us.
+        # For live updates from signal, we need to check if the chunk is relevant.
+
+        if not self._album_root or not chunk:
             return
 
-        # Scanner rows are raw metadata dictionaries.  We must transform them
-        # into full asset entries (including derived fields like `is_live`)
-        # so the model behaves consistently regardless of the data source.
+        # If the scan root matches our album root, or if we are viewing the Library root and scan is happening there.
+        # We rely on `build_asset_entry` to potentially filter? No, that just formats.
+
+        # Simple check: Is the chunk relevant to current view?
+        # If chunk root == album root, yes.
+        # If chunk root is a parent of album root? No.
+        # If chunk root is a child? No, scanner emits root as the scan root, not the file parent.
+
+        # So `root` here is the `scan_root`.
+        # If `scan_root` == `album_root`, we accept.
+        # If `scan_root` is the Library Root, and we are viewing `Library/Folder`, we accept?
+        # Yes, `get_live_scan_results` handles this logic.
+        # But this slot receives raw signal.
+
+        # Logic:
+        # 1. If scan_root == album_root: Accept.
+        # 2. If scan_root contains album_root: Accept (files might be inside our folder).
+        # 3. If album_root contains scan_root: Accept (we are viewing parent, scan is inside).
+
+        # To be safe, we just check if the individual files in the chunk are relevant.
+        # But the chunk schema is dicts with 'rel' relative to 'scan_root'.
+        # This is tricky if scan_root != album_root.
+        # Converting 'rel' requires knowing both roots.
+
+        # Assumption for this PR: The "Library Scan" runs on the Library Root.
+        # The "Album View" might be a sub-folder.
+        # If `root` (scan source) != `self._album_root`, we need to adjust `rel` paths or filter.
+
+        # Actually, `AssetListModel` expects `rel` to be relative to `self._album_root`.
+        # If the scanner provides `rel` relative to `Library`, and we are in `Library/Sub`,
+        # we must adjust path.
+
+        # Implementing path re-basing:
+        scan_root = root.resolve()
+        view_root = self._album_root.resolve()
+
+        is_direct_match = (scan_root == view_root)
+        is_scan_parent_of_view = (scan_root in view_root.parents)
+
+        if not (is_direct_match or is_scan_parent_of_view):
+            return
+
         manifest = self._facade.current_album.manifest if self._facade.current_album else {}
         featured = manifest.get("featured", []) or []
         featured_set = normalize_featured(featured)
 
         entries: List[Dict[str, object]] = []
         for row in chunk:
-            rel = row.get("rel")
-            if rel and normalise_rel_value(rel) in self._state_manager.row_lookup:
+            # `row['rel']` is relative to `scan_root`
+            raw_rel = row.get("rel")
+            if not raw_rel:
                 continue
 
+            full_path = scan_root / raw_rel
+
+            # Check if file is inside view_root
+            try:
+                view_rel = full_path.relative_to(view_root).as_posix()
+            except ValueError:
+                # File not inside current view
+                continue
+
+            # Re-check uniqueness using the VIEW relative path
+            if normalise_rel_value(view_rel) in self._state_manager.row_lookup:
+                continue
+
+            # We need to construct a row compatible with `build_asset_entry`.
+            # `build_asset_entry` takes `root` (view root) and `row`.
+            # `row` must have `rel` relative to `root`.
+
+            adjusted_row = row.copy()
+            adjusted_row['rel'] = view_rel
+
             entry = build_asset_entry(
-                root, row, featured_set
+                view_root, adjusted_row, featured_set
             )
+
             if entry is not None:
-                # Apply active filter constraints to prevent pollution during rescans
                 if self._active_filter == "videos" and not entry.get("is_video"):
                     continue
                 if self._active_filter == "live" and not entry.get("is_live"):
@@ -518,7 +668,6 @@ class AssetListModel(QAbstractListModel):
                 entries.append(entry)
 
         if entries:
-            # For live scanning, we just append directly as it's not high-frequency streaming
             start_row = self._state_manager.row_count()
             end_row = start_row + len(entries) - 1
             self.beginInsertRows(QModelIndex(), start_row, end_row)

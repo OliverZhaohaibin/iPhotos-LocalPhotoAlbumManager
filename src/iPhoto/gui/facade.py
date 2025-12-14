@@ -9,6 +9,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, TYPE_CHECKING
 from PySide6.QtCore import QObject, Signal, Slot
 
 from .. import app as backend
+from ..config import DEFAULT_INCLUDE, DEFAULT_EXCLUDE
 from ..errors import AlbumOperationError, IPhotoError
 from ..models.album import Album
 from .background_task_manager import BackgroundTaskManager
@@ -98,6 +99,8 @@ class AppFacade(QObject):
             library_manager_getter=self._get_library_manager,
             parent=self,
         )
+        # Note: We now hook up signals from LibraryManager when binding library,
+        # but existing update service signals are still useful for non-scan events.
         self._library_update_service.scanProgress.connect(self._relay_scan_progress)
         self._library_update_service.scanChunkReady.connect(self._relay_scan_chunk_ready)
         self._library_update_service.scanFinished.connect(self._relay_scan_finished)
@@ -240,7 +243,12 @@ class AppFacade(QObject):
         except (StopIteration, IPhotoError):
             pass
 
-        if not has_assets:
+        # We now check if the LibraryManager is ALREADY scanning this path.
+        is_already_scanning = False
+        if self._library_manager and self._library_manager.is_scanning_path(album_root):
+            is_already_scanning = True
+
+        if not has_assets and not is_already_scanning:
             self.rescan_current_async()
 
         force_reload = self._library_update_service.consume_forced_reload(album_root)
@@ -261,6 +269,11 @@ class AppFacade(QObject):
         album = self._require_album()
         if album is None:
             return []
+
+        # We delegate synchronous rescan to backend but update the library manager state if needed
+        # Actually synchronous rescan is blocking, so maybe we shouldn't route via LibraryManager async
+        # unless we change the API.
+        # For now, we keep using LibraryUpdateService for synchronous legacy calls.
         return self._library_update_service.rescan_album(album)
 
     def rescan_current_async(self) -> None:
@@ -269,7 +282,17 @@ class AppFacade(QObject):
         album = self._require_album()
         if album is None:
             return
-        self._library_update_service.rescan_album_async(album)
+
+        # Delegate to LibraryManager for robust scanning state
+        if self._library_manager:
+            filters = album.manifest.get("filters", {}) if isinstance(album.manifest, dict) else {}
+            include = filters.get("include", DEFAULT_INCLUDE)
+            exclude = filters.get("exclude", DEFAULT_EXCLUDE)
+
+            self._library_manager.start_scanning(album.root, include, exclude)
+        else:
+            # Fallback if library manager isn't bound (unlikely in full app)
+            self._library_update_service.rescan_album_async(album)
 
     def is_performing_background_operation(self) -> bool:
         """Return ``True`` while imports or moves are still running."""
@@ -301,6 +324,11 @@ class AppFacade(QObject):
         self._library_manager = library
         self._library_update_service.reset_cache()
         self._library_manager.treeUpdated.connect(self._on_library_tree_updated)
+
+        # Hook up scanning signals from LibraryManager to Facade
+        self._library_manager.scanProgress.connect(self._relay_scan_progress)
+        self._library_manager.scanChunkReady.connect(self._relay_scan_chunk_ready)
+        self._library_manager.scanFinished.connect(self._relay_scan_finished)
 
         if self._library_manager.root():
             self._on_library_tree_updated()
