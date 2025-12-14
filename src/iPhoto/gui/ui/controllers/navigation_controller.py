@@ -351,10 +351,7 @@ class NavigationController:
             # --- STANDARD PATH (Context Switch) ---
             # We are switching from a different physical album root or loading the library for the first time.
 
-            # Note: We do NOT want to interrupt scanning if we are simply switching context to the library root
-            # (which might be the scan root).
-            # The logic inside `AppFacade.open_album` now checks `LibraryManager.is_scanning_path`.
-            # If the scan is running on the library root, and we open it here, the scan persists.
+            # Scanning persistence is handled by LibraryManager and survives navigation.
 
             album = self._facade.open_album(target_root)
             if album is None:
