@@ -146,3 +146,36 @@ def _load_with_pillow(source: Path, target: QSize | None = None) -> Optional[QIm
         _LOGGER.exception("Pillow failed to load image from %s", source)
         return None
     return QImage(qt_image)
+
+
+def generate_micro_thumbnail(source: Path) -> Optional[bytes]:
+    """Generate a 16x16 (max dimension) JPEG thumbnail bytes for the given image.
+
+    This function loads the image using Pillow, scales it down maintaining aspect ratio
+    such that the longest side is 16 pixels, and encodes it as a JPEG.
+    """
+    if _Image is None or _ImageOps is None:
+        return None
+
+    try:
+        with _Image.open(source) as img:  # type: ignore[attr-defined]
+            # Handle orientation
+            img = _ImageOps.exif_transpose(img)  # type: ignore[attr-defined]
+
+            # Convert to RGB to ensure JPEG compatibility (drop alpha if present)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+
+            # Scale to 16px max dimension
+            target_size = (16, 16)
+            resample = getattr(_Image, "Resampling", _Image)
+            resample_filter = getattr(resample, "LANCZOS", _Image.BICUBIC)
+            img.thumbnail(target_size, resample_filter)
+
+            # Save to bytes
+            output = BytesIO()
+            img.save(output, format="JPEG", quality=75)
+            return output.getvalue()
+    except Exception:
+        _LOGGER.debug("Failed to generate micro thumbnail for %s", source, exc_info=True)
+        return None

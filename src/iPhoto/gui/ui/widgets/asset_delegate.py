@@ -10,6 +10,7 @@ from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QIcon,
+    QImage,
     QPainter,
     QPainterPath,
     QPalette,
@@ -73,6 +74,10 @@ class AssetGridDelegate(QStyledItemDelegate):
         corner_radius = 8.0 if self._filmstrip_mode else 0.0
 
         pixmap = index.data(Qt.DecorationRole)
+        micro_thumb = None
+        if not (isinstance(pixmap, QPixmap) and not pixmap.isNull()):
+            # Fallback to micro thumbnail
+            micro_thumb = index.data(Roles.MICRO_THUMBNAIL)
 
         clip_path: QPainterPath | None = None
         if self._filmstrip_mode and corner_radius > 0.0:
@@ -92,6 +97,19 @@ class AssetGridDelegate(QStyledItemDelegate):
             source_rect = calculate_center_crop(pixmap.size(), thumb_rect.size())
             if not source_rect.isEmpty():
                 painter.drawPixmap(QRectF(thumb_rect), pixmap, source_rect)
+            else:
+                painter.fillRect(thumb_rect, QColor("#1b1b1b"))
+        elif isinstance(micro_thumb, QImage) and not micro_thumb.isNull():
+            # Draw micro thumbnail scaled
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+
+            # Simple scaling to fill the thumb_rect, using center crop logic
+            source_rect = calculate_center_crop(micro_thumb.size(), thumb_rect.size())
+            if not source_rect.isEmpty():
+                # We can draw QImage directly. QPainter handles scaling.
+                # Since it's a tiny image, SmoothPixmapTransform (bilinear) is important.
+                painter.drawImage(QRectF(thumb_rect), micro_thumb, QRectF(source_rect))
             else:
                 painter.fillRect(thumb_rect, QColor("#1b1b1b"))
         else:

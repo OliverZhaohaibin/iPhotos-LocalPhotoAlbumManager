@@ -84,13 +84,17 @@ class IndexStore:
                     month INTEGER,
                     media_type INTEGER,
                     is_favorite INTEGER DEFAULT 0,
-                    location TEXT
+                    location TEXT,
+                    micro_thumbnail BLOB
                 )
             """)
 
             # Check if columns exist and add them if not (migration)
             cursor = conn.execute("PRAGMA table_info(assets)")
             columns = {row[1] for row in cursor}
+
+            if "micro_thumbnail" not in columns:
+                conn.execute("ALTER TABLE assets ADD COLUMN micro_thumbnail BLOB")
 
             if "live_role" not in columns:
                 conn.execute("ALTER TABLE assets ADD COLUMN live_role INTEGER DEFAULT 0")
@@ -193,7 +197,7 @@ class IndexStore:
             "original_album_id", "original_album_subpath",
             "live_role", "live_partner_rel",
             "aspect_ratio", "year", "month", "media_type", "is_favorite",
-            "location"
+            "location", "micro_thumbnail"
         ]
         placeholders = ", ".join(["?"] * len(columns))
         query = f"INSERT OR REPLACE INTO assets ({', '.join(columns)}) VALUES ({placeholders})"
@@ -239,6 +243,7 @@ class IndexStore:
             row.get("media_type"),
             row.get("is_favorite", 0),
             row.get("location"),
+            row.get("micro_thumbnail"),
         ]
 
     def _db_row_to_dict(self, db_row: sqlite3.Row) -> Dict[str, Any]:
@@ -435,7 +440,8 @@ class IndexStore:
                 "original_album_subpath",
                 "is_favorite",
                 "location",
-                "gps"
+                "gps",
+                "micro_thumbnail"
             ]
             query = f"SELECT {', '.join(columns)} FROM assets"
 

@@ -16,6 +16,7 @@ from ..utils.hashutils import file_xxh3
 from ..utils.logging import get_logger
 from ..utils.pathutils import ensure_work_dir, is_excluded, should_include
 from .metadata import read_image_meta_with_exiftool, read_video_meta
+from ..utils.image_loader import generate_micro_thumbnail
 
 _IMAGE_EXTENSIONS = {".heic", ".heif", ".heifs", ".heicf", ".jpg", ".jpeg", ".png"}
 _VIDEO_EXTENSIONS = {".mov", ".mp4", ".m4v", ".qt"}
@@ -241,6 +242,14 @@ def _process_path_stream(
                     ):
                         # Verify we have essential fields
                         if "id" in existing_record:
+                            # Backfill missing micro_thumbnail if needed
+                            if existing_record.get("micro_thumbnail") is None:
+                                suffix = path.suffix.lower()
+                                if suffix in _IMAGE_EXTENSIONS:
+                                    micro_thumb = generate_micro_thumbnail(path)
+                                    if micro_thumb:
+                                        existing_record["micro_thumbnail"] = micro_thumb
+
                             yield existing_record
                             processed_count += 1
                             if progress_callback and total_provider and processed_count != last_reported_count:
@@ -435,5 +444,16 @@ def _build_row(
                 base_row["media_type"] = None
         else:
             base_row["media_type"] = None
+
+    # Generate micro thumbnail
+    # Only generate for images to avoid Pillow errors on videos
+    micro_thumb = None
+    if suffix in _IMAGE_EXTENSIONS:
+        micro_thumb = generate_micro_thumbnail(file_path)
+
+    if micro_thumb:
+        base_row["micro_thumbnail"] = micro_thumb
+    else:
+        base_row["micro_thumbnail"] = None
 
     return base_row

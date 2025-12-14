@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, QSize, Signal, Qt, QRectF
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap, QImage
 
 from ..tasks.thumbnail_loader import ThumbnailLoader
 from ..geometry_utils import calculate_center_crop
@@ -200,6 +200,7 @@ class AssetCacheManager(QObject):
         abs_value = row.get("abs", "")
         abs_path = Path(str(abs_value)) if abs_value else self._album_root / rel
 
+        # Trigger async load even if we return a micro thumbnail
         if bool(row.get("is_image")):
             pixmap = self._thumb_loader.request(
                 rel,
@@ -234,6 +235,11 @@ class AssetCacheManager(QObject):
             if pixmap is not None:
                 self._thumb_cache[rel] = pixmap
                 return self._create_composite_thumbnail(rel, pixmap, row)
+
+        # Check for micro thumbnail before falling back to generic placeholder
+        micro_thumb = row.get("micro_thumbnail_image")
+        if isinstance(micro_thumb, QImage) and not micro_thumb.isNull():
+            return QPixmap.fromImage(micro_thumb)
 
         return placeholder
 
