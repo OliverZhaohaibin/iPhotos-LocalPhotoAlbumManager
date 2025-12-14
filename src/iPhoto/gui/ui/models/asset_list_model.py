@@ -331,6 +331,7 @@ class AssetListModel(QAbstractListModel):
         self._state_manager.set_virtual_reload_suppressed(False)
         self._state_manager.set_virtual_move_requires_revisit(False)
         self._pending_loader_root = None
+        self._ignore_incoming_chunks = False
 
     def update_featured_status(self, rel: str, is_featured: bool) -> None:
         """Update the cached ``featured`` flag for the asset identified by *rel*."""
