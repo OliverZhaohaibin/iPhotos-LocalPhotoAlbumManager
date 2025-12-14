@@ -533,6 +533,7 @@ class ThumbnailLoader(QObject):
                 work_dir = ensure_work_dir(root, WORK_DIR_NAME)
                 (work_dir / "thumbs").mkdir(parents=True, exist_ok=True)
             except OSError:
+                # Ignore errors if the thumbnail directory cannot be created; not fatal.
                 pass
 
     def reset_for_album(self, root: Path) -> None:
