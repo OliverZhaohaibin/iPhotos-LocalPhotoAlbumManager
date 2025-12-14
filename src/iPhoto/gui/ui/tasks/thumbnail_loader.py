@@ -554,11 +554,11 @@ class ThumbnailLoader(QObject):
             except OSError:
                 pass
         else:
-             # Fallback: create in local album root if library not configured
-             try:
+            # Fallback: create in local album root if library not configured
+            try:
                 work_dir = ensure_work_dir(root, WORK_DIR_NAME)
                 (work_dir / "thumbs").mkdir(parents=True, exist_ok=True)
-             except OSError:
+            except OSError:
                 pass
 
     def request(
