@@ -96,7 +96,6 @@ def test_race_condition_stale_chunk_ignored(model_setup):
     assert model._active_filter is None
 
     # Simulate that loader is running
-    loader._running = True
 
     # 2. Start Load B (Filter: "videos")
     # This will internally call start_load -> cancel existing loader
