@@ -71,12 +71,14 @@ def generate_cache_path(album_root: Path, rel: str, size: QSize, stamp: int) -> 
         rel (str): The relative path of the media file within the album.
         size (QSize): The desired size of the thumbnail.
         stamp (int): A timestamp or version identifier for cache invalidation.
+                     (Ignored in filename generation to ensure stable lookups)
 
     Returns:
         Path: The path to the cache file for the thumbnail image.
     """
     digest = hashlib.blake2b(rel.encode("utf-8"), digest_size=20).hexdigest()
-    filename = f"{digest}_{stamp}_{size.width()}x{size.height()}.png"
+    # Modified: Remove {stamp}, filename is determined only by hash + size
+    filename = f"{digest}_{size.width()}x{size.height()}.png"
     return album_root / WORK_DIR_NAME / "thumbs" / filename
 
 
@@ -148,46 +150,57 @@ class ThumbnailJob(QRunnable):
 
         actual_stamp = int(stamp_ns)
 
+        # Optimization: if memory cache matches actual stamp, it is valid.
+        if self._known_stamp is not None and self._known_stamp == actual_stamp:
+            self._report_valid(actual_stamp)
+            return
+
         rel_for_path = self._cache_rel if self._cache_rel is not None else self._rel
 
-        # 2. Validation
-        if self._known_stamp is not None:
-            if self._known_stamp == actual_stamp:
-                # Cache is valid, remove from pending jobs and exit
-                self._report_valid(actual_stamp)
-                return
-            else:
-                # Stale cache detected. Remove old file.
-                old_path = generate_cache_path(self._album_root, rel_for_path, self._size, self._known_stamp)
-                safe_unlink(old_path)
-
-        # 3. Calculate Cache Path
+        # 1. Even if known_stamp does not match, do not rush to delete the file.
+        # We calculate the stable cache path (ignoring stamp).
         cache_path = generate_cache_path(self._album_root, rel_for_path, self._size, actual_stamp)
 
         image: Optional[QImage] = None
         loaded_from_cache = False
+        cache_is_valid = False
 
+        # 2. Try to find and validate cache
         try:
-            cache_exists = cache_path.exists()
-        except OSError:
-            cache_exists = False
-        if cache_exists:
-            image = QImage(str(cache_path))
-            if not image.isNull():
-                loaded_from_cache = True
-            else:
-                safe_unlink(cache_path)
-                image = None
+            if cache_path.exists():
+                cache_stat = cache_path.stat()
+                # Get cache mtime in nanoseconds
+                cache_mtime_ns = getattr(cache_stat, "st_mtime_ns", None)
+                if cache_mtime_ns is None:
+                    cache_mtime_ns = int(cache_stat.st_mtime * 1_000_000_000)
 
-        if image is None:
+                # Loose validation: as long as the cache file modification time is later than or equal to
+                # the original/Sidecar time, it is considered valid.
+                # Add 1 second tolerance to handle file system precision issues.
+                if cache_mtime_ns >= (actual_stamp - 1_000_000_000):
+                    image = QImage(str(cache_path))
+                    if not image.isNull():
+                        loaded_from_cache = True
+                        cache_is_valid = True
+                    else:
+                        # Image corrupted, need to redraw
+                        safe_unlink(cache_path)
+                else:
+                    # Cache file exists but is too old (original was modified), need to overwrite
+                    pass
+        except OSError:
+            pass
+
+        # 3. If cache is invalid or not found, perform re-rendering
+        if not cache_is_valid:
             image = self._render_media()
 
+        # 4. Write cache (overwrite old mode)
         success = False
         if image is not None:
             if not loaded_from_cache:
                 success = self._write_cache(image, cache_path)
             else:
-                # Cache hit, so it's already written.
                 success = True
 
         loader = getattr(self, "_loader", None)
@@ -452,10 +465,14 @@ class ThumbnailJob(QRunnable):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = path.with_suffix(path.suffix + ".tmp")
-            if canvas.save(str(tmp_path), "PNG"):
+            # quality=0 compresses fastest (file slightly larger), quality=100 compresses slowest.
+            # PNG is lossless, quality only affects compression rate/speed.
+            if canvas.save(str(tmp_path), "PNG", quality=0):
                 safe_unlink(path)
                 try:
                     tmp_path.replace(path)
+                    # Explicitly update the file's mtime to the current time, ensuring it is newer than the original
+                    os.utime(path, None)
                     return True
                 except OSError:
                     tmp_path.unlink(missing_ok=True)
