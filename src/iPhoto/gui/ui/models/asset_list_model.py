@@ -23,6 +23,8 @@ from ..tasks.thumbnail_loader import ThumbnailLoader
 from ..tasks.asset_loader_worker import (
     build_asset_entry,
     normalize_featured,
+    LiveIngestWorker,
+    AssetLoaderSignals,
 )
 from ..tasks.incremental_refresh_worker import IncrementalRefreshSignals, IncrementalRefreshWorker
 from .asset_cache_manager import AssetCacheManager
@@ -452,13 +454,27 @@ class AssetListModel(QAbstractListModel):
             self._data_loader.start(self._album_root, featured, filter_params=filter_params)
             self._ignore_incoming_chunks = False
 
-            # Inject any live (recently scanned but not yet persisted) items after starting the loader,
-            # so that the view includes the most up-to-date assets. Deduplication is handled downstream.
+            # Inject any live (recently scanned but not yet persisted) items.
+            # CRITICAL OPTIMIZATION: Process these items in a background thread.
+            # Building 200+ asset entries (decoding thumbs, resolving geo) on the
+            # main thread causes visible UI lag.
             if self._facade.library_manager:
                 try:
                     live_items = self._facade.library_manager.get_live_scan_results(relative_to=self._album_root)
                     if live_items:
-                        self._on_scan_chunk_ready(self._album_root, live_items)
+                        # Create dedicated signals for the live ingest worker.
+                        # We use a dedicated signal object to avoid interfering with the main loader's state,
+                        # but connect to the same slot (_on_loader_chunk_ready) which handles buffering/deduplication.
+                        live_signals = AssetLoaderSignals(self)
+                        live_signals.chunkReady.connect(self._on_loader_chunk_ready)
+
+                        worker = LiveIngestWorker(
+                            self._album_root,
+                            live_items,
+                            featured,
+                            live_signals
+                        )
+                        QThreadPool.globalInstance().start(worker)
                 except Exception as e:
                     logger.error("Failed to inject live scan results: %s", e, exc_info=True)
 

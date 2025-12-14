@@ -408,3 +408,41 @@ class AssetLoaderWorker(QRunnable):
             if not total_calculated:  # If we never flushed (e.g. small album)
                 total = yielded_count
             self._signals.progressUpdated.emit(self._root, total, total)
+
+class LiveIngestWorker(QRunnable):
+    """Process in-memory live scan results on a background thread."""
+
+    def __init__(
+        self,
+        root: Path,
+        items: List[Dict[str, object]],
+        featured: Iterable[str],
+        signals: AssetLoaderSignals,
+    ) -> None:
+        super().__init__()
+        self.setAutoDelete(True)
+        self._root = root
+        self._items = items
+        self._featured = normalize_featured(featured)
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            chunk: List[Dict[str, object]] = []
+            # Batch size to ensure responsiveness and smooth streaming
+            batch_size = 50
+
+            for row in self._items:
+                # Process the potentially expensive metadata build in the background
+                entry = build_asset_entry(self._root, row, self._featured)
+                if entry:
+                    chunk.append(entry)
+
+                if len(chunk) >= batch_size:
+                    self._signals.chunkReady.emit(self._root, list(chunk))
+                    chunk = []
+
+            if chunk:
+                self._signals.chunkReady.emit(self._root, chunk)
+        except Exception as exc:
+            LOGGER.error("Error processing live items: %s", exc, exc_info=True)
