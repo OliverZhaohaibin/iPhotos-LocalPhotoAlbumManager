@@ -444,7 +444,11 @@ def _build_row(
             base_row["media_type"] = None
 
     # Generate micro thumbnail
-    micro_thumb = generate_micro_thumbnail(file_path)
+    # Only generate for images to avoid Pillow errors on videos
+    micro_thumb = None
+    if suffix in _IMAGE_EXTENSIONS:
+        micro_thumb = generate_micro_thumbnail(file_path)
+
     if micro_thumb:
         base_row["micro_thumbnail"] = micro_thumb
     else:
