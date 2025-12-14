@@ -114,6 +114,17 @@ class ThumbnailJob(QRunnable):
         self._still_image_time = still_image_time
         self._duration = duration
         self._cache_rel = cache_rel
+        self._job_root_str = str(album_root.resolve())
+
+    def _make_local_key(self, stamp: int) -> Tuple[str, str, int, int, int]:
+        """Generate a cache key using the fixed job root string."""
+        return (
+            self._job_root_str,
+            self._rel,
+            self._size.width(),
+            self._size.height(),
+            stamp,
+        )
 
     def run(self) -> None:  # pragma: no cover - executed in worker thread
         # Memory Guard
@@ -209,7 +220,7 @@ class ThumbnailJob(QRunnable):
 
         try:
             loader._delivered.emit(
-                loader._make_key(self._rel, self._size, actual_stamp),
+                self._make_local_key(actual_stamp),
                 image,
                 self._rel,
             )
@@ -221,7 +232,7 @@ class ThumbnailJob(QRunnable):
         if loader:
             try:
                 # Use 0 as stamp for missing files, though the loader will just use the base key
-                key = loader._make_key(self._rel, self._size, 0)
+                key = self._make_local_key(0)
                 loader._delivered.emit(key, None, self._rel)
             except RuntimeError:  # pragma: no cover - race with QObject deletion
                 pass
@@ -231,7 +242,7 @@ class ThumbnailJob(QRunnable):
         loader = getattr(self, "_loader", None)
         if loader:
             try:
-                loader._validation_success.emit(loader._make_key(self._rel, self._size, stamp))
+                loader._validation_success.emit(self._make_local_key(stamp))
             except RuntimeError:
                 # pragma: no cover - race with QObject deletion
                 pass

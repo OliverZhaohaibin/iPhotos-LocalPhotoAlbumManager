@@ -38,10 +38,11 @@ def test_generate_cache_path_basic(tmp_path: Path) -> None:
     """Test basic cache path generation."""
     album_root = tmp_path / "album"
     rel = "photos/IMG_0001.JPG"
+    abs_path = album_root / rel
     size = QSize(512, 512)
     stamp = 1234567890
     
-    result = generate_cache_path(album_root, rel, size, stamp)
+    result = generate_cache_path(album_root, abs_path, size, stamp)
     
     # Verify the path structure
     assert result.parent.parent.name == WORK_DIR_NAME
@@ -58,11 +59,12 @@ def test_generate_cache_path_hash_consistency(tmp_path: Path) -> None:
     """Test that the hash is consistent for the same relative path."""
     album_root = tmp_path / "album"
     rel = "photos/IMG_0001.JPG"
+    abs_path = album_root / rel
     size = QSize(512, 512)
     stamp = 1234567890
     
-    result1 = generate_cache_path(album_root, rel, size, stamp)
-    result2 = generate_cache_path(album_root, rel, size, stamp)
+    result1 = generate_cache_path(album_root, abs_path, size, stamp)
+    result2 = generate_cache_path(album_root, abs_path, size, stamp)
     
     # Same inputs should produce identical paths
     assert result1 == result2
@@ -77,10 +79,11 @@ def test_generate_cache_path_different_sizes(tmp_path: Path) -> None:
     """Test that different sizes produce different cache paths."""
     album_root = tmp_path / "album"
     rel = "photos/IMG_0001.JPG"
+    abs_path = album_root / rel
     stamp = 1234567890
     
-    result_512 = generate_cache_path(album_root, rel, QSize(512, 512), stamp)
-    result_256 = generate_cache_path(album_root, rel, QSize(256, 256), stamp)
+    result_512 = generate_cache_path(album_root, abs_path, QSize(512, 512), stamp)
+    result_256 = generate_cache_path(album_root, abs_path, QSize(256, 256), stamp)
     
     # Different sizes should produce different filenames
     assert result_512 != result_256
@@ -173,10 +176,11 @@ def test_generate_cache_path_different_stamps(tmp_path: Path) -> None:
     """Test that different timestamps produce different cache paths."""
     album_root = tmp_path / "album"
     rel = "photos/IMG_0001.JPG"
+    abs_path = album_root / rel
     size = QSize(512, 512)
     
-    result_old = generate_cache_path(album_root, rel, size, 1234567890)
-    result_new = generate_cache_path(album_root, rel, size, 9876543210)
+    result_old = generate_cache_path(album_root, abs_path, size, 1234567890)
+    result_new = generate_cache_path(album_root, abs_path, size, 9876543210)
     
     # Different timestamps should produce different filenames
     assert result_old != result_new
@@ -190,8 +194,8 @@ def test_generate_cache_path_different_rel_paths(tmp_path: Path) -> None:
     size = QSize(512, 512)
     stamp = 1234567890
     
-    result1 = generate_cache_path(album_root, "photos/IMG_0001.JPG", size, stamp)
-    result2 = generate_cache_path(album_root, "photos/IMG_0002.JPG", size, stamp)
+    result1 = generate_cache_path(album_root, album_root / "photos/IMG_0001.JPG", size, stamp)
+    result2 = generate_cache_path(album_root, album_root / "photos/IMG_0002.JPG", size, stamp)
     
     # Different relative paths should produce different hash prefixes
     assert result1 != result2
@@ -204,13 +208,14 @@ def test_generate_cache_path_hash_algorithm(tmp_path: Path) -> None:
     """Test that the hash uses blake2b algorithm with correct digest size."""
     album_root = tmp_path / "album"
     rel = "photos/IMG_0001.JPG"
+    abs_path = album_root / rel
     size = QSize(512, 512)
     stamp = 1234567890
     
-    result = generate_cache_path(album_root, rel, size, stamp)
+    result = generate_cache_path(album_root, abs_path, size, stamp)
     
     # Calculate expected hash
-    expected_hash = hashlib.blake2b(rel.encode("utf-8"), digest_size=20).hexdigest()
+    expected_hash = hashlib.blake2b(str(abs_path.resolve()).encode("utf-8"), digest_size=20).hexdigest()
     
     # Verify the filename starts with the expected hash
     filename = result.name
@@ -245,7 +250,7 @@ def test_thumbnail_loader_cache_naming(tmp_path: Path, qapp: QApplication) -> No
     files = list(thumbs_dir.iterdir())
     assert len(files) == 1
     filename = files[0].name
-    digest = hashlib.blake2b("IMG_0001.JPG".encode("utf-8"), digest_size=20).hexdigest()
+    digest = hashlib.blake2b(str(image_path.resolve()).encode("utf-8"), digest_size=20).hexdigest()
     assert filename.startswith(f"{digest}_")
     assert filename.endswith("_512x512.png")
 
