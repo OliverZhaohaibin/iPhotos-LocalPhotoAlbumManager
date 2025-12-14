@@ -645,7 +645,6 @@ class ThumbnailLoader(QObject):
             return
 
         self._memory[base_key] = (stamp, pixmap)
-        self._memory.move_to_end(base_key)
 
         while len(self._memory) > self._max_memory_items:
             self._memory.popitem(last=False)
