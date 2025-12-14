@@ -160,7 +160,6 @@ class LibraryManager(QObject):
 
         worker = ScannerWorker(root, include, exclude, signals)
         self._current_scanner_worker = worker
-        del locker
         
         self._scan_thread_pool.start(worker)
 
@@ -170,9 +169,8 @@ class LibraryManager(QObject):
         if self._current_scanner_worker:
             self._current_scanner_worker.cancel()
             self._current_scanner_worker = None
-
-        # We don't clear the buffer immediately on stop, as the UI might still need it
-        # until a new scan starts or the app closes. Setting root to None invalidates it contextually.
+            # We don't clear the buffer immediately on stop, as the UI might still need it
+            # until a new scan starts or the app closes. Setting root to None invalidates it contextually.
             self._live_scan_root = None
 
     def is_scanning_path(self, path: Path) -> bool:
@@ -247,7 +245,6 @@ class LibraryManager(QObject):
                 f"Live scan buffer for {root} reached its limit of {self._MAX_LIVE_BUFFER_SIZE} items. "
                 f"{len(chunk)} new items were not added to the in-memory buffer; relying on disk persistence."
             )
-        del locker
 
         # 2. Persist to Disk Incrementally
         # We use IndexStore to append rows. This is thread-safe via the class design (uses new connection).
@@ -280,7 +277,6 @@ class LibraryManager(QObject):
     def _on_scan_error(self, root: Path, message: str) -> None:
         locker = QMutexLocker(self._scan_buffer_lock)
         self._current_scanner_worker = None
-        del locker
         self.errorRaised.emit(message)
         self.scanFinished.emit(root, False)
 
