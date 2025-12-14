@@ -645,6 +645,12 @@ class AssetListModel(QAbstractListModel):
             except ValueError:
                 # File not inside current view
                 continue
+            except OSError as e:
+                logger.error(
+                    "OSError while checking if %s is relative to %s: %s",
+                    full_path, view_root, e
+                )
+                continue
 
             # Re-check uniqueness using the VIEW relative path
             if normalise_rel_value(view_rel) in self._state_manager.row_lookup:
