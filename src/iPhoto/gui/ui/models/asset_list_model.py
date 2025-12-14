@@ -535,6 +535,11 @@ class AssetListModel(QAbstractListModel):
             should_restart = self._state_manager.consume_pending_reload(self._album_root, root)
             self._ignore_incoming_chunks = False
             self._pending_loader_root = None
+
+            # Defensive programming: clear any buffered chunks to prevent state leakage
+            self._pending_chunks_buffer = []
+            self._flush_timer.stop()
+
             self.loadFinished.emit(root, success)
             if should_restart:
                 QTimer.singleShot(0, self.start_load)
