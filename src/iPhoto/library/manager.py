@@ -262,7 +262,7 @@ class LibraryManager(QObject):
             # to merge "live" data.
         except (OSError, IOError) as e:
             # File system errors (disk full, permission denied, etc.)
-            # Do not re-raise; log and continue to maintain scan resilience.
+            # Log error and continue to maintain scan resilience; do not crash the scan.
             LOGGER.error(f"Failed to persist scan chunk for {root}: {e}")
         except Exception as e:
             # Catch any other unexpected errors (e.g., database errors) to prevent
