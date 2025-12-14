@@ -393,6 +393,7 @@ class AssetListModel(QAbstractListModel):
             # Clear buffer immediately to avoid commiting stale chunks if logic leaks
             self._pending_chunks_buffer = []
             self._flush_timer.stop()
+            self._is_first_chunk = True
             self._state_manager.mark_reload_pending()
             return
 
