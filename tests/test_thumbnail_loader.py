@@ -145,7 +145,7 @@ def test_thumbnail_loader_lru_eviction(tmp_path: Path, qapp: QApplication) -> No
     # Check memory cache size
     assert len(loader._memory) == 2
 
-    # Verify contents of cache: IMG_1 should be evicted (FIFO/LRU), IMG_2 and IMG_3 should remain
+    # Verify contents of cache: IMG_1 should be evicted because it is the least recently used (LRU); IMG_2 and IMG_3 should remain
     # Keys structure: (album_root_str, rel, width, height)
     keys = list(loader._memory.keys())
     rels = [k[1] for k in keys]
