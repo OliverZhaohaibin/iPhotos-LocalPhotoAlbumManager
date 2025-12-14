@@ -11,7 +11,6 @@ from .move_worker import MoveSignals, MoveWorker
 from .preview_render_worker import PreviewRenderSignals, PreviewRenderWorker
 from .thumbnail_generator_worker import ThumbnailGeneratorWorker
 from .thumbnail_loader import ThumbnailLoader
-from .video_frame_grabber import VideoFrameGrabber
 
 __all__ = [
     "AssetLoaderWorker",
@@ -27,5 +26,4 @@ __all__ = [
     "PreviewRenderWorker",
     "ThumbnailGeneratorWorker",
     "ThumbnailLoader",
-    "VideoFrameGrabber",
 ]
