@@ -553,6 +553,8 @@ class ThumbnailLoader(QObject):
                 work_dir = ensure_work_dir(self._library_root, WORK_DIR_NAME)
                 (work_dir / "thumbs").mkdir(parents=True, exist_ok=True)
             except OSError:
+                # Ignore errors when creating the thumbnail directory; it may already exist or be inaccessible,
+                # and the application can proceed without it.
                 pass
         else:
             # Fallback: create in local album root if library not configured
