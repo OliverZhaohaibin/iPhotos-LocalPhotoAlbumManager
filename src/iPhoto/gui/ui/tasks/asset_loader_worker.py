@@ -6,6 +6,7 @@ import logging
 import xxhash
 from datetime import datetime, timezone
 import copy
+import os
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
@@ -101,21 +102,34 @@ def _parse_timestamp(value: object) -> float:
         return float("-inf")
 
 
+def _cached_path_exists(path: Path, cache: Dict[Path, Set[str]]) -> bool:
+    parent = path.parent
+    names = cache.get(parent)
+    if names is None:
+        try:
+            names = {entry.name for entry in os.scandir(parent)}
+        except OSError:
+            names = set()
+        cache[parent] = names
+    return path.name in names
+
+
 def build_asset_entry(
     root: Path,
     row: Dict[str, object],
     featured: Set[str],
     store: Optional[IndexStore] = None,
+    path_exists: Optional[callable] = None,
 ) -> Optional[Dict[str, object]]:
     rel = str(row.get("rel"))
     if not rel:
         return None
 
     # Use string concatenation instead of path.resolve() to avoid extra resolution
-    # work; we still perform an existence check to drop index rows pointing to
-    # files that were deleted externally.
+    # work; we still perform an existence check (with directory-level caching) to
+    # drop index rows pointing to files deleted externally.
     abs_path_obj = root / rel
-    if not abs_path_obj.exists():
+    if path_exists is not None and not path_exists(abs_path_obj):
         return None
     abs_path = str(abs_path_obj)
 
@@ -251,6 +265,10 @@ def compute_asset_rows(
     featured_set = normalize_featured(featured)
 
     store = IndexStore(root)
+    dir_cache: Dict[Path, Set[str]] = {}
+
+    def _path_exists(path: Path) -> bool:
+        return _cached_path_exists(path, dir_cache)
     index_rows = list(store.read_geometry_only(
         filter_params=params,
         sort_by_date=True
@@ -259,7 +277,7 @@ def compute_asset_rows(
     # Filtering for videos, live photos, and favorites is now performed at the database query level
     # via filter_params in store.read_geometry_only, so no post-processing is needed here.
     for row in index_rows:
-        entry = build_asset_entry(root, row, featured_set, store)
+        entry = build_asset_entry(root, row, featured_set, store, path_exists=_path_exists)
         if entry is not None:
             entries.append(entry)
     return entries, len(entries)
@@ -347,6 +365,11 @@ class AssetLoaderWorker(QRunnable):
 
         # 2. Stream rows using lightweight geometry-first query
         # Use a transaction context to keep the connection open for both the read and count queries.
+        dir_cache: Dict[Path, Set[str]] = {}
+
+        def _path_exists(path: Path) -> bool:
+            return _cached_path_exists(path, dir_cache)
+
         with store.transaction():
             generator = store.read_geometry_only(
                 filter_params=params,
@@ -378,6 +401,7 @@ class AssetLoaderWorker(QRunnable):
                     row,
                     self._featured,
                     store,
+                    path_exists=_path_exists,
                 )
 
                 if entry is not None:
@@ -439,6 +463,10 @@ class LiveIngestWorker(QRunnable):
         self._featured = normalize_featured(featured)
         self._signals = signals
         self._is_cancelled = False
+        self._dir_cache: Dict[Path, Set[str]] = {}
+
+    def _path_exists(self, path: Path) -> bool:
+        return _cached_path_exists(path, self._dir_cache)
 
     def cancel(self) -> None:
         """Cancel the current ingest operation."""
@@ -464,7 +492,7 @@ class LiveIngestWorker(QRunnable):
                     break
 
                 # Process the potentially expensive metadata build in the background
-                entry = build_asset_entry(self._root, row, self._featured)
+                entry = build_asset_entry(self._root, row, self._featured, path_exists=self._path_exists)
                 if entry:
                     chunk.append(entry)
 
