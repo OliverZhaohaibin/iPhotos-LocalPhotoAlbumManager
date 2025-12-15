@@ -318,6 +318,7 @@ class AssetListModel(QAbstractListModel):
         self._cache_manager.reset_for_album(root)
         self._set_deferred_incremental_refresh(None)
         self._data_source = None
+        self._live_store_cache = None
         self._is_fetching = False
 
         self.beginResetModel()
@@ -554,10 +555,13 @@ class AssetListModel(QAbstractListModel):
             return []
 
         entries: List[Dict[str, object]] = []
-        try:
-            store = IndexStore(view_root)
-        except Exception:
-            store = None
+        store = getattr(self, "_live_store_cache", None)
+        if store is None:
+            try:
+                store = IndexStore(view_root)
+                self._live_store_cache = store
+            except Exception:
+                store = None
         for row in rows:
             raw_rel = row.get("rel")
             if not raw_rel:
