@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import copy
 import os
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from PySide6.QtCore import QObject, QRunnable, Signal, QThread
 
@@ -102,15 +102,26 @@ def _parse_timestamp(value: object) -> float:
         return float("-inf")
 
 
-def _cached_path_exists(path: Path, cache: Dict[Path, Set[str]]) -> bool:
+DIR_CACHE_THRESHOLD = 1000
+
+
+def _cached_path_exists(path: Path, cache: Dict[Path, Optional[Set[str]]]) -> bool:
     parent = path.parent
     names = cache.get(parent)
     if names is None:
         try:
-            names = {entry.name for entry in os.scandir(parent)}
+            names = set()
+            for idx, entry in enumerate(os.scandir(parent), start=1):
+                names.add(entry.name)
+                if idx > DIR_CACHE_THRESHOLD:
+                    # Avoid holding huge directory listings; fall back to direct exists checks.
+                    cache[parent] = None
+                    return path.exists()
         except OSError:
             names = set()
         cache[parent] = names
+    if names is None:
+        return path.exists()
     return path.name in names
 
 
@@ -119,7 +130,7 @@ def build_asset_entry(
     row: Dict[str, object],
     featured: Set[str],
     store: Optional[IndexStore] = None,
-    path_exists: Optional[callable] = None,
+    path_exists: Optional[Callable[[Path], bool]] = None,
 ) -> Optional[Dict[str, object]]:
     rel = str(row.get("rel"))
     if not rel:
@@ -129,7 +140,8 @@ def build_asset_entry(
     # work; we still perform an existence check (with directory-level caching) to
     # drop index rows pointing to files deleted externally.
     abs_path_obj = root / rel
-    if path_exists is not None and not path_exists(abs_path_obj):
+    exists_fn = path_exists or (lambda p: p.exists())
+    if not exists_fn(abs_path_obj):
         return None
     abs_path = str(abs_path_obj)
 
@@ -265,7 +277,7 @@ def compute_asset_rows(
     featured_set = normalize_featured(featured)
 
     store = IndexStore(root)
-    dir_cache: Dict[Path, Set[str]] = {}
+    dir_cache: Dict[Path, Optional[Set[str]]] = {}
 
     def _path_exists(path: Path) -> bool:
         return _cached_path_exists(path, dir_cache)
@@ -365,7 +377,7 @@ class AssetLoaderWorker(QRunnable):
 
         # 2. Stream rows using lightweight geometry-first query
         # Use a transaction context to keep the connection open for both the read and count queries.
-        dir_cache: Dict[Path, Set[str]] = {}
+        dir_cache: Dict[Path, Optional[Set[str]]] = {}
 
         def _path_exists(path: Path) -> bool:
             return _cached_path_exists(path, dir_cache)
@@ -463,7 +475,7 @@ class LiveIngestWorker(QRunnable):
         self._featured = normalize_featured(featured)
         self._signals = signals
         self._is_cancelled = False
-        self._dir_cache: Dict[Path, Set[str]] = {}
+        self._dir_cache: Dict[Path, Optional[Set[str]]] = {}
 
     def _path_exists(self, path: Path) -> bool:
         return _cached_path_exists(path, self._dir_cache)
