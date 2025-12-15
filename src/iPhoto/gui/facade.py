@@ -299,13 +299,26 @@ class AppFacade(QObject):
             # Fallback if library manager isn't bound (unlikely in full app)
             self._library_update_service.rescan_album_async(album)
 
+    def _inject_scan_dependencies_for_tests(
+        self,
+        *,
+        library_manager: Optional["LibraryManager"] = None,
+        library_update_service: Optional[LibraryUpdateService] = None,
+    ) -> None:
+        """Override scan collaborators during testing."""
+
+        if library_manager is not None:
+            self._library_manager = library_manager
+        if library_update_service is not None:
+            self._library_update_service = library_update_service
+
     def cancel_active_scans(self) -> None:
         """Request cancellation of any in-flight scan operations."""
 
         if self._library_manager is not None:
             try:
                 self._library_manager.stop_scanning()
-            except Exception:
+            except RuntimeError:
                 # Ignore shutdown-time errors to avoid blocking application exit
                 pass
 

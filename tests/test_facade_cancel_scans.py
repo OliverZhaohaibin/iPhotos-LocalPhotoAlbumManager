@@ -22,8 +22,9 @@ def test_cancel_active_scans_requests_cancellation() -> None:
     fake_library = _DummyLibrary()
     fake_update = _DummyUpdateService()
 
-    facade._library_manager = fake_library
-    facade._library_update_service = fake_update
+    facade._inject_scan_dependencies_for_tests(
+        library_manager=fake_library, library_update_service=fake_update
+    )
 
     facade.cancel_active_scans()
 

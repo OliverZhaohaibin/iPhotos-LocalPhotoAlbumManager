@@ -104,8 +104,9 @@ class LibraryUpdateService(QObject):
         if self._scanner_worker is None:
             return
 
-        self._scan_pending = False
         self._scanner_worker.cancel()
+        # Cancelling a scan should not schedule immediate retry attempts.
+        self._scan_pending = False
 
     def pair_live(self, album: "Album") -> List[dict]:
         """Rebuild Live Photo pairings for *album* and refresh related views."""
