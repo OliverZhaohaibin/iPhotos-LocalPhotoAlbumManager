@@ -551,6 +551,13 @@ class AssetListModel(QAbstractListModel):
                 self._state_manager.clear_rows()
                 self._state_manager.append_chunk(chunk)
                 self.endResetModel()
+
+                # Cleanup pending rels for items we just inserted immediately
+                for row in chunk:
+                    rel = row.get("rel")
+                    if rel:
+                        self._pending_rels.discard(normalise_rel_value(rel))
+
                 self.prioritize_rows(0, len(chunk) - 1)
 
             return
