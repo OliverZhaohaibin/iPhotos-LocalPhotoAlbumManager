@@ -28,6 +28,7 @@ class SingleAlbumSource(AssetDataSource):
         *,
         filter_params: Optional[Dict[str, object]] = None,
         featured: Optional[Iterable[str]] = None,
+        check_exists: bool = True,
     ) -> None:
         self._root = root
         self._store = IndexStore(root)
@@ -36,6 +37,7 @@ class SingleAlbumSource(AssetDataSource):
         self._cursor: Optional[Tuple[Optional[str], Optional[str]]] = None
         self._exhausted = False
         self._dir_cache: Dict[Path, Optional[Set[str]]] = {}
+        self._check_exists = check_exists
 
     def _path_exists(self, path: Path) -> bool:
         parent = path.parent
@@ -69,7 +71,7 @@ class SingleAlbumSource(AssetDataSource):
                 row,
                 self._featured,
                 self._store,
-                path_exists=self._path_exists,
+                path_exists=(self._path_exists if self._check_exists else None),
             )
             if entry is not None:
                 entries.append(entry)
@@ -98,6 +100,7 @@ class MergedAlbumSource(AssetDataSource):
         merger_factory,
         *,
         featured: Optional[Iterable[str]] = None,
+        check_exists: bool = True,
     ) -> None:
         self._root = root
         self._merger_factory = merger_factory
@@ -105,6 +108,7 @@ class MergedAlbumSource(AssetDataSource):
         self._store = IndexStore(root)
         self._dir_cache: Dict[Path, Optional[Set[str]]] = {}
         self._merger: PhotoStreamMerger = merger_factory()
+        self._check_exists = check_exists
 
     def _path_exists(self, path: Path) -> bool:
         parent = path.parent
@@ -129,7 +133,7 @@ class MergedAlbumSource(AssetDataSource):
                 row,
                 self._featured,
                 self._store,
-                path_exists=self._path_exists,
+                path_exists=(self._path_exists if self._check_exists else None),
             )
             if entry is not None:
                 entries.append(entry)

@@ -31,7 +31,10 @@ from .asset_state_manager import AssetListStateManager
 from .asset_row_adapter import AssetRowAdapter
 from .list_diff_calculator import ListDiffCalculator
 from .roles import Roles, role_names
-from .data_source import AssetDataSource, SingleAlbumSource
+from .data_source import AssetDataSource, SingleAlbumSource, MergedAlbumSource
+from ....cache.index_store import IndexStore
+from ....io.cursor_fetcher import CursorQuery
+from ....core.merger import PhotoStreamMerger
 from ....models.album import Album
 from ....errors import IPhotoError
 from ....utils.pathutils import (
@@ -424,15 +427,54 @@ class AssetListModel(QAbstractListModel):
         # Reset model contents
         self.beginResetModel()
         self._state_manager.clear_rows()
-        self._data_source = SingleAlbumSource(
-            self._album_root,
-            filter_params=filter_params,
-            featured=featured,
-        )
+
+        # Decide data source: merged view for library root, otherwise single album
+        library_root = self._facade.library_manager.root() if self._facade.library_manager else None
+        is_library_view = library_root is not None and library_root.resolve() == self._album_root.resolve()
+
+        if is_library_view and self._facade.library_manager:
+            album_nodes = self._facade.library_manager.list_albums()
+
+            def _merger_factory():
+                sources = []
+                for node in album_nodes:
+                    sources.append(
+                        CursorQuery(IndexStore(node.path), filter_params=filter_params)
+                    )
+                return PhotoStreamMerger(sources)
+
+            self._data_source = MergedAlbumSource(
+                self._album_root,
+                _merger_factory,
+                featured=featured,
+                check_exists=False,  # trust index for aggregated fast path
+            )
+        else:
+            self._data_source = SingleAlbumSource(
+                self._album_root,
+                filter_params=filter_params,
+                featured=featured,
+                check_exists=False,  # skip fs existence checks for faster initial paint
+            )
         self.endResetModel()
 
-        # Load initial page
-        self._trigger_fetch(self._initial_page_size)
+        # Load initial page synchronously for instant first paint
+        initial_items = self._data_source.fetch_next(self._initial_page_size) if self._data_source else []
+        if initial_items:
+            start_row = self._state_manager.row_count()
+            end_row = start_row + len(initial_items) - 1
+            self.beginInsertRows(QModelIndex(), start_row, end_row)
+            self._state_manager.append_chunk(initial_items)
+            self.endInsertRows()
+            self._state_manager.on_external_row_inserted(start_row, len(initial_items))
+            current_total = self._state_manager.row_count()
+            self.loadProgress.emit(self._album_root, current_total, current_total)
+
+        self._has_more_rows = self._data_source.has_more() if self._data_source else False
+        if self._has_more_rows:
+            self._trigger_fetch(self._page_size)
+        else:
+            self.loadFinished.emit(self._album_root, True)
 
     def _trigger_fetch(self, limit: int) -> None:
         if self._is_fetching or not self._data_source or not self._data_source.has_more():
