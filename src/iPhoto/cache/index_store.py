@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Dict, Iterable, Iterator, Optional, Any, List, Tuple
 
 from ..config import WORK_DIR_NAME
+from ..utils.logging import get_logger
+
+logger = get_logger()
 
 
 class IndexStore:
@@ -41,94 +44,178 @@ class IndexStore:
 
     def _init_db(self) -> None:
         """Initialize the database schema."""
-        # Use a transient connection for initialization
-        with sqlite3.connect(self.path, timeout=10.0) as conn:
-            # Enable Write-Ahead Logging for concurrency and performance
+        try:
+            # Use a transient connection for initialization
+            with sqlite3.connect(self.path, timeout=10.0) as conn:
+                self._run_init_sql(conn)
+        except sqlite3.DatabaseError as exc:
+            logger.warning("Detected index.db corruption at %s: %s", self.path, exc)
+            self._recover_database()
+
+    def _run_init_sql(self, conn: sqlite3.Connection) -> None:
+        """Create or migrate the assets table and indices."""
+        # Enable Write-Ahead Logging for concurrency and performance
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("PRAGMA synchronous=NORMAL;")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS assets (
+                rel TEXT PRIMARY KEY,
+                id TEXT,
+                dt TEXT,
+                ts INTEGER,
+                bytes INTEGER,
+                mime TEXT,
+                make TEXT,
+                model TEXT,
+                lens TEXT,
+                iso INTEGER,
+                f_number REAL,
+                exposure_time REAL,
+                exposure_compensation REAL,
+                focal_length REAL,
+                w INTEGER,
+                h INTEGER,
+                gps TEXT,
+                content_id TEXT,
+                frame_rate REAL,
+                codec TEXT,
+                still_image_time REAL,
+                dur REAL,
+                original_rel_path TEXT,
+                original_album_id TEXT,
+                original_album_subpath TEXT,
+                live_role INTEGER DEFAULT 0,
+                live_partner_rel TEXT,
+                aspect_ratio REAL,
+                year INTEGER,
+                month INTEGER,
+                media_type INTEGER,
+                is_favorite INTEGER DEFAULT 0,
+                location TEXT,
+                micro_thumbnail BLOB
+            )
+        """)
+
+        # Check if columns exist and add them if not (migration)
+        cursor = conn.execute("PRAGMA table_info(assets)")
+        columns = {row[1] for row in cursor}
+
+        if "micro_thumbnail" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN micro_thumbnail BLOB")
+
+        if "live_role" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN live_role INTEGER DEFAULT 0")
+        if "live_partner_rel" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN live_partner_rel TEXT")
+        if "aspect_ratio" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN aspect_ratio REAL")
+        if "year" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN year INTEGER")
+        if "month" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN month INTEGER")
+        if "media_type" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN media_type INTEGER")
+        if "is_favorite" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN is_favorite INTEGER DEFAULT 0")
+        if "location" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN location TEXT")
+
+        # Create indices for common sort/filter operations if needed.
+        # 'dt' is used for sorting.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_dt ON assets (dt)")
+        # Index for optimized favorites retrieval
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_favorite_dt ON assets (is_favorite, dt DESC)")
+        # Add specific index for descending sort on dt to optimize streaming query
+        # We use a composite index on dt and id to match the ORDER BY clause for optimal streaming.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_dt_id_desc ON assets (dt DESC, id DESC)")
+        # Index for timeline grouping (Year/Month headers)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_year_month ON assets(year, month)")
+        # Index for timeline optimization (year DESC, month DESC, dt DESC)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_timeline_optimization ON assets(year DESC, month DESC, dt DESC)")
+        # Index for media type filtering (Photos/Videos)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_media_type ON assets(media_type)")
+        # 'gps' index might help if we have huge datasets, but IS NOT NULL scan is usually fast enough
+        # unless we add partial index. For now, full table scan with filtering is better than loading all to Python.
+
+    def _recover_database(self) -> None:
+        """Attempt graded recovery from a corrupted database."""
+        # Level 1: REINDEX
+        try:
+            logger.info("Attempting REINDEX for %s", self.path)
+            with sqlite3.connect(self.path, timeout=10.0) as conn:
+                conn.execute("REINDEX;")
+                self._run_init_sql(conn)
+            logger.info("REINDEX succeeded for %s", self.path)
+            return
+        except sqlite3.DatabaseError as exc:
+            logger.warning("REINDEX failed for %s: %s", self.path, exc)
+
+        # Level 2: Salvage readable rows
+        salvaged_rows: List[Dict[str, Any]] = []
+        try:
+            with sqlite3.connect(self.path, timeout=10.0) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("SELECT * FROM assets")
+                try:
+                    for row in cursor:
+                        try:
+                            row_dict = self._db_row_to_dict(row)
+                            if not row_dict.get("rel"):
+                                logger.warning(
+                                    "Skipping salvaged row missing required 'rel' field: %s",
+                                    row_dict,
+                                )
+                                continue
+                            salvaged_rows.append(row_dict)
+                        except sqlite3.DatabaseError as row_exc:
+                            logger.warning("Skipping corrupted row during salvage: %s", row_exc)
+                except sqlite3.DatabaseError as scan_exc:
+                    logger.warning("Encountered error while scanning for salvage: %s", scan_exc)
+        except sqlite3.DatabaseError as exc:
+            logger.warning("Failed to open corrupted DB for salvage: %s", exc)
+
+        if salvaged_rows:
+            logger.info("Salvaged %d rows from corrupted database", len(salvaged_rows))
+        else:
+            logger.info("No rows salvaged; rebuilding fresh database")
+
+        # Level 3: Force reset and restore salvaged rows
+        self._force_reset_db()
+
+        try:
+            with sqlite3.connect(self.path, timeout=10.0) as conn:
+                self._run_init_sql(conn)
+                if salvaged_rows:
+                    self._insert_rows(conn, salvaged_rows)
+            logger.info("Rebuilt index database at %s", self.path)
+        except sqlite3.DatabaseError as exc:
+            logger.error("Failed to rebuild index database at %s: %s", self.path, exc)
+            raise
+
+    def _force_reset_db(self) -> None:
+        """Close any open connection and delete database files."""
+        if self._conn:
             try:
-                conn.execute("PRAGMA journal_mode=WAL;")
-            except sqlite3.OperationalError:
-                pass
-            conn.execute("PRAGMA synchronous=NORMAL;")
+                self._conn.close()
+            finally:
+                self._conn = None
 
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS assets (
-                    rel TEXT PRIMARY KEY,
-                    id TEXT,
-                    dt TEXT,
-                    ts INTEGER,
-                    bytes INTEGER,
-                    mime TEXT,
-                    make TEXT,
-                    model TEXT,
-                    lens TEXT,
-                    iso INTEGER,
-                    f_number REAL,
-                    exposure_time REAL,
-                    exposure_compensation REAL,
-                    focal_length REAL,
-                    w INTEGER,
-                    h INTEGER,
-                    gps TEXT,
-                    content_id TEXT,
-                    frame_rate REAL,
-                    codec TEXT,
-                    still_image_time REAL,
-                    dur REAL,
-                    original_rel_path TEXT,
-                    original_album_id TEXT,
-                    original_album_subpath TEXT,
-                    live_role INTEGER DEFAULT 0,
-                    live_partner_rel TEXT,
-                    aspect_ratio REAL,
-                    year INTEGER,
-                    month INTEGER,
-                    media_type INTEGER,
-                    is_favorite INTEGER DEFAULT 0,
-                    location TEXT,
-                    micro_thumbnail BLOB
-                )
-            """)
-
-            # Check if columns exist and add them if not (migration)
-            cursor = conn.execute("PRAGMA table_info(assets)")
-            columns = {row[1] for row in cursor}
-
-            if "micro_thumbnail" not in columns:
-                conn.execute("ALTER TABLE assets ADD COLUMN micro_thumbnail BLOB")
-
-            if "live_role" not in columns:
-                conn.execute("ALTER TABLE assets ADD COLUMN live_role INTEGER DEFAULT 0")
-            if "live_partner_rel" not in columns:
-                conn.execute("ALTER TABLE assets ADD COLUMN live_partner_rel TEXT")
-            if "aspect_ratio" not in columns:
-                conn.execute("ALTER TABLE assets ADD COLUMN aspect_ratio REAL")
-            if "year" not in columns:
-                conn.execute("ALTER TABLE assets ADD COLUMN year INTEGER")
-            if "month" not in columns:
-                conn.execute("ALTER TABLE assets ADD COLUMN month INTEGER")
-            if "media_type" not in columns:
-                conn.execute("ALTER TABLE assets ADD COLUMN media_type INTEGER")
-            if "is_favorite" not in columns:
-                conn.execute("ALTER TABLE assets ADD COLUMN is_favorite INTEGER DEFAULT 0")
-            if "location" not in columns:
-                conn.execute("ALTER TABLE assets ADD COLUMN location TEXT")
-
-            # Create indices for common sort/filter operations if needed.
-            # 'dt' is used for sorting.
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_dt ON assets (dt)")
-            # Index for optimized favorites retrieval
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_favorite_dt ON assets (is_favorite, dt DESC)")
-            # Add specific index for descending sort on dt to optimize streaming query
-            # We use a composite index on dt and id to match the ORDER BY clause for optimal streaming.
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_dt_id_desc ON assets (dt DESC, id DESC)")
-            # Index for timeline grouping (Year/Month headers)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_year_month ON assets(year, month)")
-            # Index for timeline optimization (year DESC, month DESC, dt DESC)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_timeline_optimization ON assets(year DESC, month DESC, dt DESC)")
-            # Index for media type filtering (Photos/Videos)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_media_type ON assets(media_type)")
-            # 'gps' index might help if we have huge datasets, but IS NOT NULL scan is usually fast enough
-            # unless we add partial index. For now, full table scan with filtering is better than loading all to Python.
+        paths = [
+            self.path,
+            Path(str(self.path) + "-wal"),
+            Path(str(self.path) + "-shm"),
+        ]
+        for p in paths:
+            try:
+                if p.exists():
+                    p.unlink()
+                    logger.info("Deleted corrupted database file %s", p)
+            except OSError as exc:
+                logger.warning("Failed to delete %s: %s", p, exc)
 
     def _get_conn(self) -> sqlite3.Connection:
         """Return the active connection or create a new one."""
