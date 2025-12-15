@@ -36,7 +36,7 @@ class TestAssetListModelBackpressure:
 
         # Verify tuned constants
         assert model._STREAM_BATCH_SIZE == 100
-        assert model._STREAM_FLUSH_THRESHOLD == 100
+        assert model._STREAM_FLUSH_THRESHOLD == 2000
         assert model._STREAM_FLUSH_INTERVAL_MS == 100
 
         # Simulate receiving a large chunk (e.g., 500 items)
