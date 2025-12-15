@@ -111,8 +111,9 @@ def build_asset_entry(
     if not rel:
         return None
 
-    # Performance optimization: use string concatenation instead of path.resolve()
-    # to avoid disk I/O. We assume root is absolute.
+    # Use string concatenation instead of path.resolve() to avoid extra resolution
+    # work; we still perform an existence check to drop index rows pointing to
+    # files that were deleted externally.
     abs_path_obj = root / rel
     if not abs_path_obj.exists():
         return None
