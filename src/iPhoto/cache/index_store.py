@@ -41,6 +41,30 @@ class IndexStore:
 
     # Whitelist of allowed filter modes to prevent injection and logic errors
     _VALID_FILTER_MODES = frozenset({"videos", "live", "favorites"})
+    _GEOMETRY_COLUMNS = [
+        "id",
+        "rel",
+        "aspect_ratio",
+        "media_type",
+        "live_partner_rel",
+        "dur",
+        "year",
+        "month",
+        "dt",
+        "ts",
+        "content_id",
+        "bytes",
+        "mime",
+        "w",
+        "h",
+        "original_rel_path",
+        "original_album_id",
+        "original_album_subpath",
+        "is_favorite",
+        "location",
+        "gps",
+        "micro_thumbnail",
+    ]
 
     def _init_db(self) -> None:
         """Initialize the database schema."""
@@ -132,6 +156,8 @@ class IndexStore:
         # Add specific index for descending sort on dt to optimize streaming query
         # We use a composite index on dt and id to match the ORDER BY clause for optimal streaming.
         conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_dt_id_desc ON assets (dt DESC, id DESC)")
+        # Explicit timeline index for cursor pagination seek scans
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_timeline ON assets (dt DESC, id DESC)")
         # Index for timeline grouping (Year/Month headers)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_year_month ON assets(year, month)")
         # Index for timeline optimization (year DESC, month DESC, dt DESC)
@@ -506,30 +532,7 @@ class IndexStore:
 
         try:
             # Columns needed for the lightweight "viewport-first" loading strategy
-            columns = [
-                "id",
-                "rel",
-                "aspect_ratio",
-                "media_type",
-                "live_partner_rel",
-                "dur",
-                "year",
-                "month",
-                "dt",
-                "ts",
-                "content_id",  # needed for live photo pairing logic if needed
-                "bytes",  # needed for panorama detection logic
-                "mime",  # needed for classifier
-                "w",  # needed for panorama detection logic
-                "h",  # needed for panorama detection logic
-                "original_rel_path",  # needed for trash restore logic
-                "original_album_id",
-                "original_album_subpath",
-                "is_favorite",
-                "location",
-                "gps",
-                "micro_thumbnail"
-            ]
+            columns = self._GEOMETRY_COLUMNS
             query = f"SELECT {', '.join(columns)} FROM assets"
 
             # Always filter hidden assets (live photo components) in grid view
@@ -557,6 +560,74 @@ class IndexStore:
                     except (json.JSONDecodeError, TypeError):
                         d["gps"] = None
                 yield d
+        finally:
+            if should_close:
+                conn.close()
+
+    def read_geometry_page(
+        self,
+        *,
+        limit: int,
+        cursor: Optional[Tuple[Optional[str], Optional[str]]] = None,
+        filter_params: Optional[Dict[str, Any]] = None,
+        sort_by_date: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Fetch a single page of geometry-first rows using cursor/seek pagination."""
+
+        if limit <= 0:
+            return []
+
+        conn = self._get_conn()
+        should_close = (conn != self._conn)
+
+        try:
+            columns = self._GEOMETRY_COLUMNS
+            query = f"SELECT {', '.join(columns)} FROM assets"
+
+            base_where = ["live_role = 0"]
+            filter_where, params = self._build_filter_clauses(filter_params)
+            where_clauses = base_where + filter_where
+
+            if cursor and sort_by_date:
+                cursor_dt, cursor_id = cursor
+                # When cursor dt is None we are paginating inside the NULL tail; fall back to id.
+                if cursor_dt is None:
+                    where_clauses.append("dt IS NULL")
+                    if cursor_id is not None:
+                        where_clauses.append("id < ?")
+                        params.append(cursor_id)
+                else:
+                    # Seek using composite key (dt DESC, id DESC). The leading OR dt IS NULL
+                    # keeps NULL capture times eligible so they can stream after all dated rows
+                    # have been emitted, while the composite comparison enforces deterministic
+                    # pagination for non-null timestamps.
+                    where_clauses.append("(dt IS NULL OR dt < ? OR (dt = ? AND id < ?))")
+                    params.extend([cursor_dt, cursor_dt, cursor_id])
+
+            if where_clauses:
+                query += " WHERE " + " AND ".join(where_clauses)
+
+            if sort_by_date:
+                # Ensure deterministic ordering with NULLs last
+                query += " ORDER BY dt IS NULL ASC, dt DESC, id DESC"
+
+            query += " LIMIT ?"
+            params.append(int(limit))
+
+            conn.row_factory = sqlite3.Row
+            cursor_obj = conn.cursor()
+            cursor_obj.execute(query, params)
+
+            rows: List[Dict[str, Any]] = []
+            for row in cursor_obj:
+                d = dict(row)
+                if d.get("gps"):
+                    try:
+                        d["gps"] = json.loads(d["gps"])
+                    except (json.JSONDecodeError, TypeError):
+                        d["gps"] = None
+                rows.append(d)
+            return rows
         finally:
             if should_close:
                 conn.close()

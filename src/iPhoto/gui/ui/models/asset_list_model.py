@@ -108,6 +108,7 @@ class AssetListModel(QAbstractListModel):
         self._incremental_signals: Optional[IncrementalRefreshSignals] = None
         self._refresh_lock = QMutex()
         self._current_live_worker: Optional[LiveIngestWorker] = None
+        self._has_more_rows: bool = False
 
         self._facade.linksUpdated.connect(self.handle_links_updated)
         self._facade.assetUpdated.connect(self.handle_asset_updated)
@@ -254,6 +255,24 @@ class AssetListModel(QAbstractListModel):
         if parent is not None and parent.isValid():  # pragma: no cover - tree fallback
             return 0
         return self._state_manager.row_count()
+
+    def canFetchMore(self, parent: QModelIndex | None = None) -> bool:  # type: ignore[override]
+        if parent is not None and parent.isValid():
+            return False
+        return (
+            self._has_more_rows
+            or self._data_loader.is_running()
+            or bool(self._pending_chunks_buffer)
+        )
+
+    def fetchMore(self, parent: QModelIndex | None = None) -> None:  # type: ignore[override]
+        if parent is not None and parent.isValid():
+            return
+        if self._pending_chunks_buffer:
+            self._flush_pending_chunks()
+        elif self._data_loader.is_running() and not self._flush_timer.isActive():
+            # Nudge the flush timer so pending chunks (if any) flush promptly.
+            self._flush_timer.start(0)
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):  # type: ignore[override]
         rows = self._state_manager.rows
@@ -447,6 +466,7 @@ class AssetListModel(QAbstractListModel):
         self._pending_finish_event = None
         self._is_first_chunk = True
         self._is_flushing = False
+        self._has_more_rows = True
 
         self._cache_manager.clear_recently_removed()
 
@@ -631,6 +651,12 @@ class AssetListModel(QAbstractListModel):
             # After processing this batch, if buffer is empty and we have a pending finish, finalize it.
             if self._pending_finish_event and not self._pending_chunks_buffer:
                 self._finalize_loading(*self._pending_finish_event)
+            elif (
+                not self._pending_chunks_buffer
+                and not self._data_loader.is_running()
+                and not self._pending_finish_event
+            ):
+                self._has_more_rows = False
 
         finally:
             self._is_flushing = False
@@ -756,6 +782,7 @@ class AssetListModel(QAbstractListModel):
         """Emit loadFinished and handle post-load tasks."""
         self._pending_finish_event = None
         self._flush_timer.stop()
+        self._has_more_rows = False
 
         self.loadFinished.emit(root, success)
 
@@ -798,6 +825,7 @@ class AssetListModel(QAbstractListModel):
         self._flush_timer.stop()
         self._pending_finish_event = None
         self._pending_loader_root = None
+        self._has_more_rows = False
 
         should_restart = self._state_manager.consume_pending_reload(self._album_root, root)
         if should_restart:

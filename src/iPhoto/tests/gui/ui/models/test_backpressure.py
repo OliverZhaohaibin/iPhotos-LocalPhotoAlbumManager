@@ -128,7 +128,7 @@ class TestWorkerYielding:
 
         # We need to mock build_asset_entry to return something valid, otherwise it might skip
         with patch("iPhoto.gui.ui.tasks.asset_loader_worker.build_asset_entry") as mock_build:
-            mock_build.side_effect = lambda r, row, f: row # just pass through row
+            mock_build.side_effect = lambda r, row, f, **kwargs: row # just pass through row
 
             worker.run()
 
@@ -143,10 +143,11 @@ class TestWorkerYielding:
             assert mock_msleep.call_count == 2
             mock_msleep.assert_has_calls([call(10), call(10)])
 
+    @patch("iPhoto.gui.ui.tasks.asset_loader_worker.PhotoStreamMerger")
     @patch("iPhoto.gui.ui.tasks.asset_loader_worker.QThread")
     @patch("iPhoto.gui.ui.tasks.asset_loader_worker.IndexStore")
     @patch("iPhoto.gui.ui.tasks.asset_loader_worker.ensure_work_dir")
-    def test_asset_loader_worker_yielding(self, mock_ensure, MockIndexStore, MockQThread):
+    def test_asset_loader_worker_yielding(self, mock_ensure, MockIndexStore, MockQThread, MockPhotoStreamMerger):
         """Test that AssetLoaderWorker sets low priority and sleeps periodically."""
 
         # Mock QThread.currentThread().setPriority
@@ -161,17 +162,12 @@ class TestWorkerYielding:
         # IMPORTANT: Mock count to return an integer, otherwise comparison fails!
         mock_store.count.return_value = 120
 
-        # Flag to check if generator was called
-        generator_ran = False
-
-        # Generator yielding 120 items
-        def fake_generator(*args, **kwargs):
-            nonlocal generator_ran
-            generator_ran = True
-            for i in range(120):
-                yield {"rel": f"img{i}.jpg"}
-
-        mock_store.read_geometry_only.side_effect = fake_generator
+        mock_merger = MockPhotoStreamMerger.return_value
+        mock_merger.has_more.side_effect = [True, True, False]
+        mock_merger.fetch_next_batch.side_effect = [
+            [{"rel": f"img{i}.jpg"} for i in range(60)],
+            [{"rel": f"img{i}.jpg"} for i in range(60, 120)],
+        ]
 
         signals = AssetLoaderSignals()
         signals.error = MagicMock()
@@ -181,16 +177,13 @@ class TestWorkerYielding:
 
         # Mock build_asset_entry
         with patch("iPhoto.gui.ui.tasks.asset_loader_worker.build_asset_entry") as mock_build:
-            mock_build.return_value = {"rel": "foo"}
+            mock_build.side_effect = lambda *args, **kwargs: {"rel": args[1].get("rel", "foo")}
 
             worker.run()
 
             # Check for errors
             if signals.error.called:
                 pytest.fail(f"Worker emitted error: {signals.error.call_args}")
-
-            if not generator_ran:
-                pytest.fail("Generator was not called! IndexStore logic skipped?")
 
             # Check priority set
             mock_thread_instance.setPriority.assert_called_with(QThread.LowPriority)

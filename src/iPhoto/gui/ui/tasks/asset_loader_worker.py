@@ -14,6 +14,8 @@ from PySide6.QtCore import QObject, QRunnable, Signal, QThread
 
 from ....cache.index_store import IndexStore
 from ....config import WORK_DIR_NAME
+from ....core.merger import PhotoStreamMerger
+from ....io.cursor_fetcher import CursorQuery
 from ....media_classifier import classify_media
 from ....utils.geocoding import resolve_location_name
 from ....utils.pathutils import ensure_work_dir
@@ -382,88 +384,71 @@ class AssetLoaderWorker(QRunnable):
         # Prepare filter params with featured list if needed
         params = copy.deepcopy(self._filter_params) if self._filter_params else {}
 
-        # 2. Stream rows using lightweight geometry-first query
-        # Use a transaction context to keep the connection open for both the read and count queries.
+        # Stream rows using cursor pagination to avoid deep OFFSET scans
         dir_cache: Dict[Path, Optional[Set[str]]] = {}
 
         def _path_exists(path: Path) -> bool:
             return _cached_path_exists(path, dir_cache)
 
+        first_chunk_size = 20
+        normal_chunk_size = 200
+        total = 0
+        total_calculated = False
+        yielded_count = 0
+        processed_count = 0
+
         with store.transaction():
-            generator = store.read_geometry_only(
-                filter_params=params,
-                sort_by_date=True
-            )
+            cursor_source = CursorQuery(store, filter_params=params)
+            # Use the merger abstraction even for a single source so multi-source aggregation
+            # (e.g. external mounts) can plug in without touching the worker loop.
+            merger = PhotoStreamMerger([cursor_source], page_size=normal_chunk_size)
 
-            chunk: List[Dict[str, object]] = []
-            last_reported = 0
+            while not self._is_cancelled and merger.has_more():
+                target_size = first_chunk_size if yielded_count == 0 else normal_chunk_size
+                rows = merger.fetch_next_batch(target_size)
+                if not rows:
+                    break
 
-            # Priority: Emit first 20 items quickly
-            first_chunk_size = 20
-            normal_chunk_size = 200
+                chunk: List[Dict[str, object]] = []
+                for row in rows:
+                    processed_count += 1
+                    if processed_count % 50 == 0:
+                        QThread.msleep(10)
 
-            total = 0
-            total_calculated = False
-            first_batch_emitted = False
-            yielded_count = 0
+                    if self._is_cancelled:
+                        return
 
-            for position, row in enumerate(generator, start=1):
-                # Yield CPU every 50 items to keep UI responsive
-                if position % 50 == 0:
-                    QThread.msleep(10)
+                    entry = build_asset_entry(
+                        self._root,
+                        row,
+                        self._featured,
+                        store,
+                        path_exists=_path_exists,
+                    )
+                    if entry is not None:
+                        chunk.append(entry)
 
-                if self._is_cancelled:
-                    return
+                if not chunk:
+                    continue
 
-                entry = build_asset_entry(
-                    self._root,
-                    row,
-                    self._featured,
-                    store,
-                    path_exists=_path_exists,
-                )
-
-                if entry is not None:
-                    chunk.append(entry)
-
-                # Determine emission
-                should_flush = False
-
-                if not first_batch_emitted:
-                    if len(chunk) >= first_chunk_size:
-                        should_flush = True
-                        first_batch_emitted = True
-                elif len(chunk) >= normal_chunk_size:
-                    should_flush = True
-
-                if should_flush:
-                    yielded_count += len(chunk)
-                    yield chunk
-                    chunk = []
-
-                    # Perform count after yielding first chunk
-                    if not total_calculated:
-                        try:
-                            total = store.count(filter_hidden=True, filter_params=params)
-                            total_calculated = True
-                        except Exception as exc:
-                            LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)
-                            total = 0  # fallback
-
-                # Update progress periodically
-                # Use >= total to robustly handle concurrent additions where position might exceed original total
-                if total_calculated and (position >= total or position - last_reported >= 50):
-                    last_reported = position
-                    self._signals.progressUpdated.emit(self._root, position, total)
-
-            if chunk:
                 yielded_count += len(chunk)
                 yield chunk
 
-            # Final progress update
-            if not total_calculated:  # If we never flushed (e.g. small album)
+                if not total_calculated:
+                    try:
+                        total = store.count(filter_hidden=True, filter_params=params)
+                        total_calculated = True
+                    except Exception as exc:
+                        LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)
+                        total = 0
+
+                if total_calculated:
+                    reported = min(yielded_count, total) if total else yielded_count
+                    self._signals.progressUpdated.emit(self._root, reported, total)
+
+            if not total_calculated:
                 total = yielded_count
-            self._signals.progressUpdated.emit(self._root, total, total)
+            self._signals.progressUpdated.emit(self._root, yielded_count, total)
 
 class LiveIngestWorker(QRunnable):
     """Process in-memory live scan results on a background thread."""
