@@ -12,6 +12,7 @@ from .. import app as backend
 from ..config import DEFAULT_INCLUDE, DEFAULT_EXCLUDE
 from ..errors import AlbumOperationError, IPhotoError
 from ..models.album import Album
+from ..utils.logging import get_logger
 from .background_task_manager import BackgroundTaskManager
 from .services import (
     AlbumMetadataService,
@@ -44,6 +45,7 @@ class AppFacade(QObject):
 
     def __init__(self) -> None:
         super().__init__()
+        self._logger = get_logger()
         self._current_album: Optional[Album] = None
         self._pending_index_announcements: Set[Path] = set()
         self._library_manager: Optional["LibraryManager"] = None
@@ -319,8 +321,7 @@ class AppFacade(QObject):
             try:
                 self._library_manager.stop_scanning()
             except RuntimeError:
-                # Ignore shutdown-time errors to avoid blocking application exit
-                pass
+                self._logger.warning("Failed to stop active scan during shutdown", exc_info=True)
 
         self._library_update_service.cancel_active_scan()
 
