@@ -25,3 +25,14 @@ def test_photo_stream_merger_orders_sources() -> None:
 
     assert [row["id"] for row in batch] == ["a1", "b1", "a0"]
     assert merger.has_more() is False
+
+
+def test_photo_stream_merger_tiebreak_on_id() -> None:
+    src1 = _FakeSource([[{"id": "a2", "ts": 2}, {"id": "a1", "ts": 2}]])
+    src2 = _FakeSource([[{"id": "b2", "ts": 2}, {"id": "b1", "ts": 1}]])
+
+    merger = PhotoStreamMerger([src1, src2], page_size=4)
+    batch = merger.fetch_next_batch(4)
+
+    # expect deterministic ordering when ts ties (lexicographic by id as implemented)
+    assert [row["id"] for row in batch] == ["a2", "a1", "b2", "b1"]

@@ -134,6 +134,23 @@ def test_read_geometry_page_cursor(store: IndexStore) -> None:
     second_page = store.read_geometry_page(limit=3, cursor=next_cursor, sort_by_date=True)
     assert [r["rel"] for r in second_page] == ["c.jpg", "d.jpg"]
 
+
+def test_read_geometry_page_cursor_null_tail_paginates(store: IndexStore) -> None:
+    rows = [
+        {"rel": "a.jpg", "dt": "2023-01-03T10:00:00Z", "id": "a"},
+        {"rel": "b.jpg", "dt": "2023-01-02T10:00:00Z", "id": "b"},
+        {"rel": "c.jpg", "dt": None, "id": "c"},
+        {"rel": "d.jpg", "dt": None, "id": "d"},
+    ]
+    store.write_rows(rows)
+
+    first_page = store.read_geometry_page(limit=2, sort_by_date=True)
+    assert [r["rel"] for r in first_page] == ["a.jpg", "b.jpg"]
+
+    next_cursor = (first_page[-1]["dt"], first_page[-1]["id"])
+    second_page = store.read_geometry_page(limit=2, cursor=next_cursor, sort_by_date=True)
+    assert [r["rel"] for r in second_page] == ["d.jpg", "c.jpg"]
+
 def test_sync_favorites_non_ascii(store: IndexStore) -> None:
     """Test synchronizing favorites with non-ASCII filenames."""
     rows = [

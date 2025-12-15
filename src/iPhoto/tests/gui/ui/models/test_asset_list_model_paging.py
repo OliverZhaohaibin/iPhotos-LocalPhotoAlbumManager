@@ -2,8 +2,8 @@
 
 from unittest.mock import MagicMock, patch, call
 import pytest
-from PySide6.QtCore import QThread
 from pathlib import Path
+from PySide6.QtCore import QThread, QModelIndex
 
 from iPhoto.gui.ui.models.asset_list_model import AssetListModel
 from iPhoto.gui.ui.tasks.asset_loader_worker import AssetLoaderWorker, LiveIngestWorker, AssetLoaderSignals
@@ -36,6 +36,10 @@ class DummyStateManager:
 
     def clear_reload_pending(self):
         return None
+
+    def clear_rows(self):
+        self.rows = []
+        self.row_lookup = {}
 
 
 class FakeSource:
@@ -75,12 +79,13 @@ class TestAssetListModelPaging:
     def test_fetch_more_uses_page_size(self, model):
         model._data_source = FakeSource([[{"rel": "a"}]])
         model._page_size = 10
-        called = {}
+        captured_limit = {}
+
         def fake_trigger(limit):
-            called["limit"] = limit
+            captured_limit["limit"] = limit
         model._trigger_fetch = fake_trigger
-        model.fetchMore(None)
-        assert called["limit"] == 10
+        model.fetchMore(QModelIndex())
+        assert captured_limit["limit"] == 10
 
     def test_on_page_loaded_appends_and_signals(self, model):
         model._data_source = FakeSource([[{"rel": "b"}]])

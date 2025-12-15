@@ -19,12 +19,11 @@ class CursorQuery:
     ) -> Tuple[List[Dict[str, object]], Optional[Tuple[Optional[str], Optional[str]]]]:
         """Fetch a page of rows and return the next cursor."""
 
-        if cursor is not None:
-            self._cursor = cursor
+        working_cursor = cursor if cursor is not None else self._cursor
 
         rows = self._store.read_geometry_page(
             limit=limit,
-            cursor=self._cursor,
+            cursor=working_cursor,
             filter_params=self._filter_params,
             sort_by_date=True,
         )
@@ -34,7 +33,8 @@ class CursorQuery:
 
         last = rows[-1]
         next_cursor = (last.get("dt"), last.get("id"))
-        self._cursor = next_cursor
+        if cursor is None:
+            self._cursor = next_cursor
         return rows, next_cursor
 
     def reset(self) -> None:
@@ -46,4 +46,3 @@ class CursorQuery:
     @property
     def exhausted(self) -> bool:
         return self._exhausted
-

@@ -27,6 +27,9 @@ class PageFetchWorker(QRunnable):
     def run(self) -> None:  # pragma: no cover - runs in background thread
         try:
             items: List[dict] = self._source.fetch_next(self._limit)
-        except Exception:
+        except Exception as exc:  # pragma: no cover
+            import logging
+
+            logging.getLogger(__name__).exception("PageFetchWorker failed: %s", exc)
             items = []
         self.signals.results_ready.emit(items)

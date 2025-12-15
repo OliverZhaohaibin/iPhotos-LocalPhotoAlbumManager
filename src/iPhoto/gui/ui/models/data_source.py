@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple, Set
 
@@ -8,15 +9,18 @@ from ....core.merger import PhotoStreamMerger
 from ....gui.ui.tasks.asset_loader_worker import build_asset_entry, normalize_featured
 
 
-class AssetDataSource:
+class AssetDataSource(ABC):
+    @abstractmethod
     def fetch_next(self, limit: int) -> List[Dict[str, object]]:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def has_more(self) -> bool:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def reset(self) -> None:
-        raise NotImplementedError
+        ...
 
 
 class SingleAlbumSource(AssetDataSource):
@@ -105,7 +109,7 @@ class MergedAlbumSource(AssetDataSource):
         self._root = root
         self._merger_factory = merger_factory
         self._featured = normalize_featured(featured or [])
-        self._store = IndexStore(root)
+        self._store_cache: Dict[Path, IndexStore] = {}
         self._dir_cache: Dict[Path, Optional[Set[str]]] = {}
         self._merger: PhotoStreamMerger = merger_factory()
         self._check_exists = check_exists
@@ -128,11 +132,13 @@ class MergedAlbumSource(AssetDataSource):
         rows = self._merger.fetch_next_batch(limit)
         entries: List[Dict[str, object]] = []
         for row in rows:
+            album_root = Path(row.pop("_album_root", self._root))
+            store = self._store_cache.setdefault(album_root, IndexStore(album_root))
             entry = build_asset_entry(
-                self._root,
+                album_root,
                 row,
                 self._featured,
-                self._store,
+                store,
                 path_exists=(self._path_exists if self._check_exists else None),
             )
             if entry is not None:
@@ -145,3 +151,4 @@ class MergedAlbumSource(AssetDataSource):
     def reset(self) -> None:
         self._dir_cache.clear()
         self._merger = self._merger_factory()
+        self._store_cache.clear()

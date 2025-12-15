@@ -399,13 +399,11 @@ class AssetLoaderWorker(QRunnable):
 
         with store.transaction():
             cursor_source = CursorQuery(store, filter_params=params)
-            # Use the merger abstraction even for a single source so multi-source aggregation
-            # (e.g. external mounts) can plug in without touching the worker loop.
-            merger = PhotoStreamMerger([cursor_source], page_size=normal_chunk_size)
+            next_cursor: Optional[Tuple[Optional[str], Optional[str]]] = None
 
-            while not self._is_cancelled and merger.has_more():
+            while not self._is_cancelled:
                 target_size = first_chunk_size if yielded_count == 0 else normal_chunk_size
-                rows = merger.fetch_next_batch(target_size)
+                rows, next_cursor = cursor_source.fetch_page(target_size, cursor=next_cursor)
                 if not rows:
                     break
 

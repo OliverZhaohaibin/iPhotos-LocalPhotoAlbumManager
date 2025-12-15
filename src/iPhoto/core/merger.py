@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import heapq
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Protocol
 
 
 def _normalize_timestamp(value: object) -> float:
@@ -26,6 +26,11 @@ def _normalize_timestamp(value: object) -> float:
         except ValueError:
             return float("-inf")
     return float("-inf")
+
+
+class _PagedSource(Protocol):
+    def fetch_page(self, limit: int, cursor=None):
+        ...
 
 
 class PhotoStreamMerger:

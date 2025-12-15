@@ -156,8 +156,6 @@ class IndexStore:
         # Add specific index for descending sort on dt to optimize streaming query
         # We use a composite index on dt and id to match the ORDER BY clause for optimal streaming.
         conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_dt_id_desc ON assets (dt DESC, id DESC)")
-        # Explicit timeline index for cursor pagination seek scans
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_timeline ON assets (dt DESC, id DESC)")
         # Index for timeline grouping (Year/Month headers)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_year_month ON assets(year, month)")
         # Index for timeline optimization (year DESC, month DESC, dt DESC)
@@ -592,16 +590,16 @@ class IndexStore:
                 cursor_dt, cursor_id = cursor
                 # When cursor dt is None we are paginating inside the NULL tail; fall back to id.
                 if cursor_dt is None:
-                    where_clauses.append("dt IS NULL")
                     if cursor_id is not None:
-                        where_clauses.append("id < ?")
+                        where_clauses.append("dt IS NULL AND id < ?")
                         params.append(cursor_id)
+                    else:
+                        where_clauses.append("dt IS NULL")
                 else:
-                    # Seek using composite key (dt DESC, id DESC). The leading OR dt IS NULL
-                    # keeps NULL capture times eligible so they can stream after all dated rows
-                    # have been emitted, while the composite comparison enforces deterministic
-                    # pagination for non-null timestamps.
-                    where_clauses.append("(dt IS NULL OR dt < ? OR (dt = ? AND id < ?))")
+                    # Page through dated rows first, then allow nulls after the dated stream.
+                    where_clauses.append(
+                        "((dt IS NOT NULL AND (dt < ? OR (dt = ? AND id < ?))) OR dt IS NULL)"
+                    )
                     params.extend([cursor_dt, cursor_dt, cursor_id])
 
             if where_clauses:

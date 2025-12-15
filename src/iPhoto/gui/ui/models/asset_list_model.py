@@ -238,12 +238,12 @@ class AssetListModel(QAbstractListModel):
             return 0
         return self._state_manager.row_count()
 
-    def canFetchMore(self, parent: QModelIndex | None = None) -> bool:  # type: ignore[override]
-        if parent is not None and parent.isValid():
+    def canFetchMore(self, parent: QModelIndex = QModelIndex()) -> bool:  # type: ignore[override]
+        if parent.isValid():
             return False
         if not self._data_source:
             return False
-        return self._data_source.has_more() or self._is_fetching
+        return self._data_source.has_more() and not self._is_fetching
 
     def fetchMore(self, parent: QModelIndex | None = None) -> None:  # type: ignore[override]
         if parent is not None and parent.isValid():
@@ -434,9 +434,16 @@ class AssetListModel(QAbstractListModel):
             def _merger_factory():
                 sources = []
                 for node in album_nodes:
-                    sources.append(
-                        CursorQuery(IndexStore(node.path), filter_params=filter_params)
-                    )
+                    node_path = node.path
+
+                    class _TaggedCursor(CursorQuery):
+                        def fetch_page(self_inner, limit, cursor=None, _node_path=node_path):
+                            rows, next_cursor = super().fetch_page(limit, cursor=cursor)
+                            for r in rows:
+                                r["_album_root"] = _node_path
+                            return rows, next_cursor
+
+                    sources.append(_TaggedCursor(IndexStore(node_path), filter_params=filter_params))
                 return PhotoStreamMerger(sources)
 
             data_source: Optional[AssetDataSource] = MergedAlbumSource(
@@ -454,7 +461,12 @@ class AssetListModel(QAbstractListModel):
             )
 
         # Preload first batch before resetting UI to avoid visible empty state
-        initial_items = data_source.fetch_next(self._initial_page_size) if data_source else []
+        initial_items = []
+        if data_source:
+            try:
+                initial_items = data_source.fetch_next(self._initial_page_size)
+            except Exception as e:
+                logger.exception("Failed to fetch initial items from data source: %s", e)
 
         self.beginResetModel()
         self._state_manager.clear_rows()
