@@ -59,7 +59,7 @@ class AssetListModel(QAbstractListModel):
     loadFinished = Signal(Path, bool)
 
     # Tuning constants for streaming updates
-    _STREAM_FLUSH_INTERVAL_MS = 10
+    _STREAM_FLUSH_INTERVAL_MS = 30
     _STREAM_BATCH_SIZE = 20
     _STREAM_FLUSH_THRESHOLD = 100
 
@@ -554,9 +554,7 @@ class AssetListModel(QAbstractListModel):
         # Subsequent chunks: Buffer and throttle
         self._pending_chunks_buffer.extend(chunk)
 
-        if len(self._pending_chunks_buffer) >= self._STREAM_FLUSH_THRESHOLD:
-            self._flush_pending_chunks()
-        elif not self._flush_timer.isActive():
+        if not self._flush_timer.isActive():
             self._flush_timer.start()
 
     def _flush_pending_chunks(self) -> None:
