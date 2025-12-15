@@ -424,10 +424,6 @@ class AssetListModel(QAbstractListModel):
         if self._active_filter:
             filter_params["filter_mode"] = self._active_filter
 
-        # Reset model contents
-        self.beginResetModel()
-        self._state_manager.clear_rows()
-
         # Decide data source: merged view for library root, otherwise single album
         library_root = self._facade.library_manager.root() if self._facade.library_manager else None
         is_library_view = library_root is not None and library_root.resolve() == self._album_root.resolve()
@@ -443,23 +439,28 @@ class AssetListModel(QAbstractListModel):
                     )
                 return PhotoStreamMerger(sources)
 
-            self._data_source = MergedAlbumSource(
+            data_source: Optional[AssetDataSource] = MergedAlbumSource(
                 self._album_root,
                 _merger_factory,
                 featured=featured,
                 check_exists=False,  # trust index for aggregated fast path
             )
         else:
-            self._data_source = SingleAlbumSource(
+            data_source = SingleAlbumSource(
                 self._album_root,
                 filter_params=filter_params,
                 featured=featured,
                 check_exists=False,  # skip fs existence checks for faster initial paint
             )
+
+        # Preload first batch before resetting UI to avoid visible empty state
+        initial_items = data_source.fetch_next(self._initial_page_size) if data_source else []
+
+        self.beginResetModel()
+        self._state_manager.clear_rows()
+        self._data_source = data_source
         self.endResetModel()
 
-        # Load initial page synchronously for instant first paint
-        initial_items = self._data_source.fetch_next(self._initial_page_size) if self._data_source else []
         if initial_items:
             start_row = self._state_manager.row_count()
             end_row = start_row + len(initial_items) - 1
