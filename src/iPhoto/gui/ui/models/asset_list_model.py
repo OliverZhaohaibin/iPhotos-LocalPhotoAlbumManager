@@ -440,7 +440,6 @@ class AssetListModel(QAbstractListModel):
 
         self._pending_chunks_buffer = []
         self._pending_rels.clear()
-        self._pending_rels.clear()
         self._flush_timer.stop()
         self._pending_finish_event = None
         self._is_first_chunk = True
@@ -593,24 +592,18 @@ class AssetListModel(QAbstractListModel):
             else:
                 self._flush_timer.stop()
 
-            if not payload:
-                # If buffer is empty, check if we need to emit finished signal
-                if self._pending_finish_event and not self._pending_chunks_buffer:
-                    self._finalize_loading(*self._pending_finish_event)
-                return
-
-            # Cleanup pending set for committed items
-            for row in payload:
-                rel = row.get("rel")
-                if rel:
-                    self._pending_rels.discard(normalise_rel_value(rel))
-
             start_row = self._state_manager.row_count()
             end_row = start_row + len(payload) - 1
 
             self.beginInsertRows(QModelIndex(), start_row, end_row)
             self._state_manager.append_chunk(payload)
             self.endInsertRows()
+
+            # Cleanup pending set for committed items after successful insertion
+            for row in payload:
+                rel = row.get("rel")
+                if rel:
+                    self._pending_rels.discard(normalise_rel_value(rel))
 
             self._state_manager.on_external_row_inserted(start_row, len(payload))
 
