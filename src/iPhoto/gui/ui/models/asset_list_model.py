@@ -1075,6 +1075,9 @@ class AssetListModel(QAbstractListModel):
 
         self._state_manager.rebuild_lookup()
 
+        if diff.structure_changed and current_rows:
+            self._cache_manager.reset_caches_for_new_rows(current_rows)
+
         # Update data for changed rows
         for replacement in diff.changed_items:
             rel_key = normalise_rel_value(replacement.get("rel"))
