@@ -163,7 +163,14 @@ class IndexStore:
                 try:
                     for row in cursor:
                         try:
-                            salvaged_rows.append(self._db_row_to_dict(row))
+                            row_dict = self._db_row_to_dict(row)
+                            if not row_dict.get("rel"):
+                                logger.warning(
+                                    "Skipping salvaged row missing required 'rel' field: %s",
+                                    row_dict,
+                                )
+                                continue
+                            salvaged_rows.append(row_dict)
                         except sqlite3.DatabaseError as row_exc:
                             logger.warning("Skipping corrupted row during salvage: %s", row_exc)
                 except sqlite3.DatabaseError as scan_exc:
@@ -199,8 +206,8 @@ class IndexStore:
 
         paths = [
             self.path,
-            self.path.with_suffix(self.path.suffix + "-wal"),
-            self.path.with_suffix(self.path.suffix + "-shm"),
+            Path(str(self.path) + "-wal"),
+            Path(str(self.path) + "-shm"),
         ]
         for p in paths:
             try:

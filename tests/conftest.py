@@ -56,7 +56,7 @@ if HAS_PYSIDE6:
 
     # Provide minimal QApplication/QCoreApplication shims when PySide6 QtWidgets is unavailable
     if not HAS_QTWIDGETS:
-        class _DummyApplication:
+        class _MockQApplication:
             _instance = None
 
             def __init__(self, *args, **kwargs):
@@ -69,7 +69,7 @@ if HAS_PYSIDE6:
             def processEvents(self):
                 return None
 
-        QApplication = _DummyApplication  # type: ignore
+        QApplication = _MockQApplication  # type: ignore
 
     # Force-mock QtOpenGLWidgets and QtOpenGL to avoid segmentation faults in headless environment.
     if HAS_QTWIDGETS:
@@ -101,11 +101,11 @@ if HAS_PYSIDE6:
                 def __getattr__(self, name): return MagicMock()
 
             class MockQImage(MockQtClass):
-                def isNull(self): return False
-                def width(self): return 0
-                def height(self): return 0
-                def copy(self, *_args, **_kwargs): return self
-                def save(self, *_args, **_kwargs): return True
+                def isNull(self) -> bool: return False
+                def width(self) -> int: return 0
+                def height(self) -> int: return 0
+                def copy(self, *_args, **_kwargs) -> "MockQImage": return self
+                def save(self, *_args, **_kwargs) -> bool: return True
             class MockQColor(MockQtClass): pass
             class MockQPixmap(MockQtClass): pass
             class MockQIcon(MockQtClass): pass
