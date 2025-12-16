@@ -66,6 +66,8 @@ class AssetListModel(QAbstractListModel):
         self._facade = facade
         self._album_root: Optional[Path] = None
         self._thumb_size = QSize(512, 512)
+        self._fetch_pool = QThreadPool(self)
+        self._fetch_pool.setMaxThreadCount(1)
 
         # Try to acquire library root early if available
         library_root = None
@@ -611,7 +613,7 @@ class AssetListModel(QAbstractListModel):
         worker.signals.results_ready.connect(self._on_page_loaded)
         priority = QThread.HighestPriority.value if hasattr(QThread.HighestPriority, "value") else QThread.HighestPriority
         try:
-            QThreadPool.globalInstance().start(worker, priority)
+            self._fetch_pool.start(worker, priority)
         except Exception:
             # Reset flag so future fetch attempts can proceed if the start failed.
             self._is_fetching = False
