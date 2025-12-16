@@ -247,11 +247,8 @@ class IndexStore:
 
     def _get_conn(self) -> sqlite3.Connection:
         """Return the active connection or create a new one."""
-        if not self._initialized and not self._lazy_init:
+        if not self._initialized:
             self._init_db()
-        elif not self._initialized and self._lazy_init:
-            # Mark as initialized so subsequent calls do not attempt migration work.
-            self._initialized = True
         if self._conn:
             return self._conn
         return sqlite3.connect(self.path)

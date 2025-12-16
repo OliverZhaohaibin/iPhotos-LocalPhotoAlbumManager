@@ -131,9 +131,6 @@ class MergedAlbumSource(AssetDataSource):
         return path.name in names
 
     def fetch_next(self, limit: int) -> List[Dict[str, object]]:
-        if limit <= 0 or not self._merger.has_more():
-            return []
-
         merger = self._ensure_merger()
         if limit <= 0 or not merger.has_more():
             return []
@@ -142,7 +139,9 @@ class MergedAlbumSource(AssetDataSource):
         entries: List[Dict[str, object]] = []
         for row in rows:
             album_root = Path(row.pop("_album_root", self._root))
-            store = self._store_cache.setdefault(album_root, IndexStore(album_root))
+            store = self._store_cache.setdefault(
+                album_root, IndexStore(album_root, lazy_init=True)
+            )
             entry = build_asset_entry(
                 album_root,
                 row,
