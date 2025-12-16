@@ -518,6 +518,12 @@ class AssetListModel(QAbstractListModel):
                 self.loadProgress.emit(self._album_root, current_total, current_total)
 
         self._has_more_rows = self._data_source.has_more() if self._data_source else False
+        if not self._has_more_rows and self._facade.library_manager:
+            try:
+                if self._facade.library_manager.is_scanning_path(self._album_root):
+                    self._has_more_rows = True
+            except Exception:
+                pass
         if self._has_more_rows:
             self._trigger_fetch(self._page_size)
         else:
@@ -624,6 +630,15 @@ class AssetListModel(QAbstractListModel):
         if not self._album_root:
             return
         if not items:
+            scanning = False
+            if self._facade.library_manager:
+                try:
+                    scanning = self._facade.library_manager.is_scanning_path(self._album_root)  # type: ignore[arg-type]
+                except Exception:
+                    scanning = False
+            if scanning:
+                self._has_more_rows = True
+                return
             self._has_more_rows = False
             self.loadFinished.emit(self._album_root, True)
             return
