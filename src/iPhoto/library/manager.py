@@ -152,9 +152,24 @@ class LibraryManager(QObject):
 
         # Check if already scanning the same root (thread-safe)
         locker = QMutexLocker(self._scan_buffer_lock)
-        if self._current_scanner_worker is not None:
-            if self._live_scan_root and self._paths_equal(self._live_scan_root, root):
+        if self._current_scanner_worker is not None and self._live_scan_root:
+            try:
+                current_root = self._live_scan_root.resolve()
+                requested_root = root.resolve()
+            except OSError:
+                current_root = self._live_scan_root
+                requested_root = root
+
+            # Keep scanning when the request targets the same tree (ancestor, descendant or sibling).
+            if requested_root == current_root:
                 return
+            if requested_root in current_root.parents:
+                return
+            if current_root in requested_root.parents:
+                return
+            if self._paths_are_siblings(current_root, requested_root):
+                return
+
             # Cancel the old scan before starting new one (inline to avoid deadlock)
             self._current_scanner_worker.cancel()
             self._current_scanner_worker = None
@@ -310,6 +325,18 @@ class LibraryManager(QObject):
             return p1.resolve() == p2.resolve()
         except OSError:
             return p1 == p2
+
+    def _paths_are_siblings(self, p1: Path, p2: Path) -> bool:
+        """Return True when *p1* and *p2* share the same parent directory."""
+        parent1 = p1.parent
+        parent2 = p2.parent
+        if parent1 == p1 or parent2 == p2:
+            return False
+        if not (parent1 and parent2):
+            return False
+        if p1 in parent2.parents or p2 in parent1.parents:
+            return False
+        return parent1 == parent2
 
     # ------------------------------------------------------------------
     # Asset helpers

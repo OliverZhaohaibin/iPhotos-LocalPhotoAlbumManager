@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
+from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING, Tuple
 
 from PySide6.QtCore import (
     QAbstractListModel,
@@ -318,6 +318,7 @@ class AssetListModel(QAbstractListModel):
         self._cache_manager.reset_for_album(root)
         self._set_deferred_incremental_refresh(None)
         self._data_source = None
+        self._live_store_cache = None
         self._is_fetching = False
 
         self.beginResetModel()
@@ -396,12 +397,6 @@ class AssetListModel(QAbstractListModel):
         # I will focus on the "Hybrid Loading" in `start_load` first as it solves the "missing data" problem
         # regardless of filter direction.
 
-        # Clear data immediately to avoid "ghosting" (showing stale data while the
-        # new filter is being processed asynchronously).
-        self.beginResetModel()
-        self._state_manager.clear_rows()
-        self.endResetModel()
-
         self.start_load()
 
     def active_filter_mode(self) -> Optional[str]:
@@ -420,6 +415,8 @@ class AssetListModel(QAbstractListModel):
 
         manifest = self._facade.current_album.manifest if self._facade.current_album else {}
         featured = manifest.get("featured", []) or []
+        # Recompute for each chunk in case the manifest changed while scanning.
+        featured_set = normalize_featured(featured)
         filter_params: Dict[str, object] = {}
         if self._active_filter:
             filter_params["filter_mode"] = self._active_filter
@@ -468,26 +465,142 @@ class AssetListModel(QAbstractListModel):
             except Exception as e:
                 logger.exception("Failed to fetch initial items from data source: %s", e)
 
+        # Concurrency notes:
+        # - Scan chunks may continue to arrive while start_load runs; live buffer
+        #   prefilling provides a snapshot, while later chunks are merged via signals.
+        # - If the scan finishes during reset, the live snapshot still seeds the model
+        #   and persisted rows will arrive through the data source.
+        # - Items persisted between the live snapshot and the initial fetch are
+        #   deduped on insertion to avoid duplicate rows.
+        live_entries: List[Dict[str, object]] = []
+        if self._facade.library_manager:
+            try:
+                live_buffer = self._facade.library_manager.get_live_scan_results(
+                    relative_to=self._album_root
+                )
+            except Exception as exc:
+                logger.warning("Failed to pull live scan buffer: %s", exc)
+                live_buffer = []
+
+            if live_buffer:
+                live_entries = self._build_entries_from_scan_rows(
+                    self._album_root, live_buffer, featured_set
+                )
+
         self.beginResetModel()
         self._state_manager.clear_rows()
         self._data_source = data_source
         self.endResetModel()
 
-        if initial_items:
+        if live_entries:
             start_row = self._state_manager.row_count()
-            end_row = start_row + len(initial_items) - 1
+            end_row = start_row + len(live_entries) - 1
             self.beginInsertRows(QModelIndex(), start_row, end_row)
-            self._state_manager.append_chunk(initial_items)
+            self._state_manager.append_chunk(live_entries)
             self.endInsertRows()
-            self._state_manager.on_external_row_inserted(start_row, len(initial_items))
+            self._state_manager.on_external_row_inserted(start_row, len(live_entries))
             current_total = self._state_manager.row_count()
             self.loadProgress.emit(self._album_root, current_total, current_total)
+
+        if initial_items:
+            deduped_initial = self._dedupe_items(initial_items)
+            if deduped_initial:
+                start_row = self._state_manager.row_count()
+                end_row = start_row + len(deduped_initial) - 1
+                self.beginInsertRows(QModelIndex(), start_row, end_row)
+                self._state_manager.append_chunk(deduped_initial)
+                self.endInsertRows()
+                self._state_manager.on_external_row_inserted(start_row, len(deduped_initial))
+                current_total = self._state_manager.row_count()
+                self.loadProgress.emit(self._album_root, current_total, current_total)
 
         self._has_more_rows = self._data_source.has_more() if self._data_source else False
         if self._has_more_rows:
             self._trigger_fetch(self._page_size)
         else:
             self.loadFinished.emit(self._album_root, True)
+
+    def _dedupe_items(self, items: List[Dict[str, object]]) -> List[Dict[str, object]]:
+        """Filter out rows that already exist in the model."""
+        deduped: List[Dict[str, object]] = []
+        for item in items:
+            normalized = normalise_rel_value(item.get("rel"))
+            if normalized and normalized in self._state_manager.row_lookup:
+                continue
+            deduped.append(item)
+        return deduped
+
+    def _build_entries_from_scan_rows(
+        self,
+        scan_root: Path,
+        rows: List[Dict[str, object]],
+        featured_set: Set[str],
+    ) -> List[Dict[str, object]]:
+        """Normalize scanner rows relative to the current view, apply filters, and dedupe."""
+
+        if not self._album_root or not rows:
+            return []
+
+        try:
+            scan_root_res = scan_root.resolve()
+            view_root = self._album_root.resolve()
+        except OSError as exc:
+            logger.warning("Failed to resolve paths during scan row normalization: %s", exc)
+            return []
+
+        is_direct_match = (scan_root_res == view_root)
+        is_scan_parent_of_view = (scan_root_res in view_root.parents)
+
+        if not (is_direct_match or is_scan_parent_of_view):
+            return []
+
+        entries: List[Dict[str, object]] = []
+        store = getattr(self, "_live_store_cache", None)
+        if store is None:
+            try:
+                store = IndexStore(view_root)
+                self._live_store_cache = store
+            except Exception:
+                store = None
+        for row in rows:
+            raw_rel = row.get("rel")
+            if not raw_rel:
+                continue
+
+            full_path = scan_root_res / raw_rel
+
+            try:
+                view_rel = full_path.relative_to(view_root).as_posix()
+            except ValueError:
+                continue
+            except OSError as e:
+                logger.error(
+                    "OSError while checking if %s is relative to %s: %s",
+                    full_path, view_root, e
+                )
+                continue
+
+            adjusted_row = row.copy()
+            adjusted_row["rel"] = view_rel
+
+            # Live buffer rows are transient; location caching is still allowed through the store.
+            entry = build_asset_entry(
+                view_root, adjusted_row, featured_set, store=store
+            )
+
+            if entry is None:
+                continue
+
+            if self._active_filter == "videos" and not entry.get("is_video"):
+                continue
+            if self._active_filter == "live" and not entry.get("is_live"):
+                continue
+            if self._active_filter == "favorites" and not entry.get("featured"):
+                continue
+
+            entries.append(entry)
+
+        return self._dedupe_items(entries)
 
     def _trigger_fetch(self, limit: int) -> None:
         if self._is_fetching or not self._data_source or not self._data_source.has_more():
@@ -506,12 +619,20 @@ class AssetListModel(QAbstractListModel):
             self.loadFinished.emit(self._album_root, True)
             return
 
+        filtered_items = self._dedupe_items(items)
+
+        if not filtered_items:
+            self._has_more_rows = self._data_source.has_more() if self._data_source else False
+            if not self._has_more_rows:
+                self.loadFinished.emit(self._album_root, True)
+            return
+
         start_row = self._state_manager.row_count()
-        end_row = start_row + len(items) - 1
+        end_row = start_row + len(filtered_items) - 1
         self.beginInsertRows(QModelIndex(), start_row, end_row)
-        self._state_manager.append_chunk(items)
+        self._state_manager.append_chunk(filtered_items)
         self.endInsertRows()
-        self._state_manager.on_external_row_inserted(start_row, len(items))
+        self._state_manager.on_external_row_inserted(start_row, len(filtered_items))
 
         current_total = self._state_manager.row_count()
         self.loadProgress.emit(self._album_root, current_total, current_total)
@@ -525,78 +646,24 @@ class AssetListModel(QAbstractListModel):
         if not self._album_root or not chunk:
             return
 
-        # Ensure asset paths are correctly interpreted relative to the current album view.
-        # If the scan root and album root differ, re-base or filter asset paths so that
-        # they are relative to the album root as expected by AssetListModel.
-        try:
-            scan_root = root.resolve()
-            view_root = self._album_root.resolve()
-        except OSError as exc:
-            logger.warning("Failed to resolve paths during scan chunk processing: %s", exc)
-            return
-
-        is_direct_match = (scan_root == view_root)
-        is_scan_parent_of_view = (scan_root in view_root.parents)
-
-        if not (is_direct_match or is_scan_parent_of_view):
-            return
-
         manifest = self._facade.current_album.manifest if self._facade.current_album else {}
         featured = manifest.get("featured", []) or []
         featured_set = normalize_featured(featured)
 
-        entries: List[Dict[str, object]] = []
-        for row in chunk:
-            # `row['rel']` is relative to `scan_root`
-            raw_rel = row.get("rel")
-            if not raw_rel:
-                continue
-
-            full_path = scan_root / raw_rel
-
-            # Check if file is inside view_root
-            try:
-                view_rel = full_path.relative_to(view_root).as_posix()
-            except ValueError:
-                # File not inside current view
-                continue
-            except OSError as e:
-                logger.error(
-                    "OSError while checking if %s is relative to %s: %s",
-                    full_path, view_root, e
-                )
-                continue
-
-            # Re-check uniqueness using the VIEW relative path
-            if normalise_rel_value(view_rel) in self._state_manager.row_lookup:
-                continue
-
-            # Re-base the row's 'rel' path to be relative to the current view root.
-            # Creates a shallow copy to avoid modifying the original row dict.
-            adjusted_row = row.copy()
-            adjusted_row['rel'] = view_rel
-
-            entry = build_asset_entry(
-                view_root, adjusted_row, featured_set
-            )
-
-            if entry is not None:
-                if self._active_filter == "videos" and not entry.get("is_video"):
-                    continue
-                if self._active_filter == "live" and not entry.get("is_live"):
-                    continue
-                if self._active_filter == "favorites" and not entry.get("featured"):
-                    continue
-
-                entries.append(entry)
+        entries = self._build_entries_from_scan_rows(root, chunk, featured_set)
 
         if entries:
-            start_row = self._state_manager.row_count()
-            end_row = start_row + len(entries) - 1
-            self.beginInsertRows(QModelIndex(), start_row, end_row)
-            self._state_manager.append_chunk(entries)
-            self.endInsertRows()
-            self._state_manager.on_external_row_inserted(start_row, len(entries))
+            batch_size = 200
+            offset = 0
+            while offset < len(entries):
+                batch = entries[offset : offset + batch_size]
+                start_row = self._state_manager.row_count()
+                end_row = start_row + len(batch) - 1
+                self.beginInsertRows(QModelIndex(), start_row, end_row)
+                self._state_manager.append_chunk(batch)
+                self.endInsertRows()
+                self._state_manager.on_external_row_inserted(start_row, len(batch))
+                offset += batch_size
 
     def _on_loader_progress(self, root: Path, current: int, total: int) -> None:
         if not self._album_root or root != self._album_root:
