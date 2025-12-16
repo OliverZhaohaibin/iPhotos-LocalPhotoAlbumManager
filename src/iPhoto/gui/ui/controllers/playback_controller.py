@@ -317,10 +317,7 @@ class PlaybackController:
             return
 
         rel = str(index.data(Roles.REL) or "")
-        abs_raw = index.data(Roles.ABS)
-        abs_path = None
-        if isinstance(abs_raw, (str, Path)) and str(abs_raw):
-            abs_path = Path(abs_raw)
+        abs_path = self._abs_path_from_index(index)
         if not rel and abs_path is None:
             return
 
@@ -394,3 +391,11 @@ class PlaybackController:
         """Ensure scrub-related state does not leak across transitions."""
 
         self._resume_playback_after_scrub = False
+
+    def _abs_path_from_index(self, index: QModelIndex) -> Path | None:
+        """Return absolute path from the given model index if available."""
+
+        abs_raw = index.data(Roles.ABS)
+        if isinstance(abs_raw, (str, Path)) and str(abs_raw):
+            return Path(abs_raw)
+        return None

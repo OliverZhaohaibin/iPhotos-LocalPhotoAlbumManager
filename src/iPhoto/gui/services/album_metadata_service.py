@@ -144,9 +144,11 @@ class AlbumMetadataService(QObject):
                     alb.add_featured(r)
 
         if primary_success:
-            ui_key = ui_ref or primary_rel
-            if ui_key:
-                self._asset_list_model_provider().update_featured_status(ui_key, desired_state)
+            asset_key_for_ui_update = ui_ref or primary_rel
+            if asset_key_for_ui_update:
+                self._asset_list_model_provider().update_featured_status(
+                    asset_key_for_ui_update, desired_state
+                )
             return desired_state
 
         return was_featured

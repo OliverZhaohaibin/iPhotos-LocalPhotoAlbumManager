@@ -348,7 +348,11 @@ def test_toggle_featured_uses_abs_path_for_library_view(
     tmp_path: Path,
     qapp: QApplication,
 ) -> None:
-    """Library view rels lacking subfolder context should still update the physical album."""
+    """
+    Verifies that toggling a photo as featured via the library view with an absolute path
+    updates both the library root and the physical album manifests and sets the favorite
+    status in both IndexStores, even when the rel lacks subfolder context.
+    """
 
     library_root = tmp_path / "Library"
     album_root = library_root / "Trip"
