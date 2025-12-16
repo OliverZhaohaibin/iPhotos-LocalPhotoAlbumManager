@@ -23,6 +23,8 @@ from ..tasks.thumbnail_loader import ThumbnailLoader
 from ..tasks.asset_loader_worker import (
     build_asset_entry,
     normalize_featured,
+    AssetLoaderSignals,
+    LiveIngestWorker,
 )
 from ..tasks.page_fetch_worker import PageFetchWorker
 from ..tasks.incremental_refresh_worker import IncrementalRefreshSignals, IncrementalRefreshWorker
@@ -91,6 +93,7 @@ class AssetListModel(QAbstractListModel):
         self._incremental_signals: Optional[IncrementalRefreshSignals] = None
         self._refresh_lock = QMutex()
         self._has_more_rows: bool = False
+        self._live_ingest_signals: Optional[AssetLoaderSignals] = None
 
         self._facade.linksUpdated.connect(self.handle_links_updated)
         self._facade.assetUpdated.connect(self.handle_asset_updated)
@@ -486,6 +489,7 @@ class AssetListModel(QAbstractListModel):
         # - Items persisted between the live snapshot and the initial fetch are
         #   deduped on insertion to avoid duplicate rows.
         live_entries: List[Dict[str, object]] = []
+        live_worker_started = False
         if self._facade.library_manager:
             try:
                 live_buffer = self._facade.library_manager.get_live_scan_results(
@@ -496,9 +500,13 @@ class AssetListModel(QAbstractListModel):
                 live_buffer = []
 
             if live_buffer:
-                live_entries = self._build_entries_from_scan_rows(
-                    self._album_root, live_buffer, featured_set
-                )
+                # Offload potentially heavy disk checks to background thread
+                self._live_ingest_signals = AssetLoaderSignals(self)
+                self._live_ingest_signals.chunkReady.connect(self._on_live_ingest_chunk)
+                self._live_ingest_signals.finished.connect(self._on_live_ingest_finished)
+                worker = LiveIngestWorker(self._album_root, live_buffer, featured_set, self._live_ingest_signals)
+                QThreadPool.globalInstance().start(worker)
+                live_worker_started = True
 
         self.beginResetModel()
         self._state_manager.clear_rows()
@@ -530,7 +538,7 @@ class AssetListModel(QAbstractListModel):
         self._has_more_rows = self._data_source.has_more() if self._data_source else False
         if self._has_more_rows:
             self._trigger_fetch(self._page_size)
-        else:
+        elif not live_worker_started:
             self.loadFinished.emit(self._album_root, True)
 
     def _dedupe_items(self, items: List[Dict[str, object]]) -> List[Dict[str, object]]:
@@ -677,6 +685,30 @@ class AssetListModel(QAbstractListModel):
                 self.endInsertRows()
                 self._state_manager.on_external_row_inserted(start_row, len(batch))
                 offset += batch_size
+
+    def _on_live_ingest_chunk(self, root: Path, chunk: List[Dict[str, object]]) -> None:
+        if not self._album_root or root != self._album_root or not chunk:
+            return
+
+        filtered = self._dedupe_items(chunk)
+        if not filtered:
+            return
+
+        start_row = self._state_manager.row_count()
+        end_row = start_row + len(filtered) - 1
+        self.beginInsertRows(QModelIndex(), start_row, end_row)
+        self._state_manager.append_chunk(filtered)
+        self.endInsertRows()
+        self._state_manager.on_external_row_inserted(start_row, len(filtered))
+        current_total = self._state_manager.row_count()
+        self.loadProgress.emit(self._album_root, current_total, current_total)
+
+    def _on_live_ingest_finished(self, root: Path, success: bool) -> None:
+        if not self._album_root or root != self._album_root:
+            return
+        self._live_ingest_signals = None
+        if not self._has_more_rows:
+            self.loadFinished.emit(self._album_root, success)
 
     def _on_loader_progress(self, root: Path, current: int, total: int) -> None:
         if not self._album_root or root != self._album_root:
