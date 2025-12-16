@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import heapq
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence, Tuple, Protocol
+from typing import Dict, List, Optional, Sequence, Tuple, Protocol, Any
 
 
 def _normalize_timestamp(value: object) -> float:
@@ -29,7 +29,7 @@ def _normalize_timestamp(value: object) -> float:
 
 
 class _PagedSource(Protocol):
-    def fetch_page(self, limit: int, cursor=None):
+    def fetch_page(self, limit: int, cursor=None) -> Tuple[List[Dict[str, object]], Any]:
         ...
 
 
@@ -45,6 +45,7 @@ class PhotoStreamMerger:
         self._sources = list(sources)
         self._page_size = page_size
         self._buffers: Dict[int, List[Dict[str, object]]] = {}
+        self._cursors: List[Any] = [None] * len(self._sources)
         self._exhausted = [False for _ in self._sources]
         self._active_indices = {idx for idx in range(len(self._sources))}
         self._heap: List[Tuple[float, str, int, Dict[str, object]]] = []
@@ -71,8 +72,10 @@ class PhotoStreamMerger:
         if self._exhausted[src_idx]:
             return None
 
-        # Sources expose fetch_page(limit) -> (rows, next_cursor)
-        rows, _ = self._sources[src_idx].fetch_page(self._page_size)
+        current_cursor = self._cursors[src_idx]
+        rows, next_cursor = self._sources[src_idx].fetch_page(self._page_size, cursor=current_cursor)
+        self._cursors[src_idx] = next_cursor
+
         if not rows:
             self._exhausted[src_idx] = True
             self._active_indices.discard(src_idx)
