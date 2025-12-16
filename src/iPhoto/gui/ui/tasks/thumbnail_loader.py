@@ -638,16 +638,19 @@ class ThumbnailLoader(QObject):
     @staticmethod
     def _normalize_priority(priority: object) -> int:
         """Convert various priority enum types to an int accepted by QThreadPool.start."""
-        candidate = getattr(priority, "value", priority)
+        if isinstance(priority, int):
+            return priority
+
+        value = getattr(priority, "value", None)
+        if isinstance(value, int):
+            return value
+
         try:
-            return int(candidate)
+            return int(priority)
         except (TypeError, ValueError):
             default_priority = getattr(QThread, "NormalPriority", 0)
             fallback = getattr(default_priority, "value", default_priority)
-            try:
-                return int(fallback)
-            except (TypeError, ValueError):
-                return 0
+            return fallback if isinstance(fallback, int) else 0
 
     def _schedule_job(self, key: Tuple[str, str, int, int], job: ThumbnailJob, priority: int) -> None:
         # Enforce queue limit by removing the oldest pending jobs
