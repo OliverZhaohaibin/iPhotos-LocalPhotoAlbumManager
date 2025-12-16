@@ -653,12 +653,17 @@ class AssetListModel(QAbstractListModel):
         entries = self._build_entries_from_scan_rows(root, chunk, featured_set)
 
         if entries:
-            start_row = self._state_manager.row_count()
-            end_row = start_row + len(entries) - 1
-            self.beginInsertRows(QModelIndex(), start_row, end_row)
-            self._state_manager.append_chunk(entries)
-            self.endInsertRows()
-            self._state_manager.on_external_row_inserted(start_row, len(entries))
+            batch_size = 200
+            offset = 0
+            while offset < len(entries):
+                batch = entries[offset : offset + batch_size]
+                start_row = self._state_manager.row_count()
+                end_row = start_row + len(batch) - 1
+                self.beginInsertRows(QModelIndex(), start_row, end_row)
+                self._state_manager.append_chunk(batch)
+                self.endInsertRows()
+                self._state_manager.on_external_row_inserted(start_row, len(batch))
+                offset += batch_size
 
     def _on_loader_progress(self, root: Path, current: int, total: int) -> None:
         if not self._album_root or root != self._album_root:
