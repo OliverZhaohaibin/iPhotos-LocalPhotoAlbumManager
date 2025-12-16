@@ -674,6 +674,11 @@ class AssetListModel(QAbstractListModel):
                 self._state_manager.on_external_row_inserted(start_row, len(batch))
                 offset += batch_size
 
+            # If scanning resumed after pagination marked exhausted, reopen paging.
+            if isinstance(self._data_source, SingleAlbumSource):
+                self._data_source.hint_new_rows()
+            self._has_more_rows = True
+
     def _on_loader_progress(self, root: Path, current: int, total: int) -> None:
         if not self._album_root or root != self._album_root:
             return

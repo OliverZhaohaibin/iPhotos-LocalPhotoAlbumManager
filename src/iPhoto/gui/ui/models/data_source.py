@@ -94,6 +94,10 @@ class SingleAlbumSource(AssetDataSource):
         self._exhausted = False
         self._dir_cache.clear()
 
+    def hint_new_rows(self) -> None:
+        """Called when external scanning adds rows; allow further paging."""
+        self._exhausted = False
+
 
 class MergedAlbumSource(AssetDataSource):
     """Data source backed by a PhotoStreamMerger (e.g., aggregated albums)."""
