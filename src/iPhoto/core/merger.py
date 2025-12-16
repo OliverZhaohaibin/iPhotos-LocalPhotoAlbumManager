@@ -74,7 +74,13 @@ class PhotoStreamMerger:
 
         current_cursor = self._cursors[src_idx]
         rows, next_cursor = self._sources[src_idx].fetch_page(self._page_size, cursor=current_cursor)
-        self._cursors[src_idx] = next_cursor
+        # If the source signals exhaustion (next_cursor is None) after returning rows,
+        # mark it exhausted to avoid re-reading from the start.
+        if next_cursor is None:
+            self._exhausted[src_idx] = True
+            self._active_indices.discard(src_idx)
+        else:
+            self._cursors[src_idx] = next_cursor
 
         if not rows:
             self._exhausted[src_idx] = True
