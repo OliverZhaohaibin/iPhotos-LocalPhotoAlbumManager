@@ -20,6 +20,7 @@ from PySide6.QtCore import (
     QObject,
     QRunnable,
     QSize,
+    QThread,
     QThreadPool,
     Qt,
     Signal,
@@ -657,7 +658,7 @@ class ThumbnailLoader(QObject):
         key: Tuple[str, str, int, int],
     ) -> None:
         self._active_jobs_count += 1
-        self._pool.start(job)
+        self._pool.start(job, QThread.LowestPriority)
 
     def _base_key(self, rel: str, size: QSize) -> Tuple[str, str, int, int]:
         assert self._album_root_str is not None
