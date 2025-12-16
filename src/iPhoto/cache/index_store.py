@@ -32,15 +32,41 @@ class IndexStore:
        its own instance to avoid race conditions on the shared transaction connection.
     """
 
+    # Whitelist of allowed filter modes to prevent injection and logic errors
+    _VALID_FILTER_MODES = frozenset({"videos", "live", "favorites"})
+
+    # Standard columns needed for grid display - used by read_geometry_only and read_geometry_paginated
+    _GEOMETRY_COLUMNS = [
+        "id",
+        "rel",
+        "aspect_ratio",
+        "media_type",
+        "live_partner_rel",
+        "dur",
+        "year",
+        "month",
+        "dt",
+        "ts",
+        "content_id",  # needed for live photo pairing logic if needed
+        "bytes",  # needed for panorama detection logic
+        "mime",  # needed for classifier
+        "w",  # needed for panorama detection logic
+        "h",  # needed for panorama detection logic
+        "original_rel_path",  # needed for trash restore logic
+        "original_album_id",
+        "original_album_subpath",
+        "is_favorite",
+        "location",
+        "gps",
+        "micro_thumbnail"
+    ]
+
     def __init__(self, album_root: Path):
         self.album_root = album_root
         self.path = album_root / WORK_DIR_NAME / "index.db"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: Optional[sqlite3.Connection] = None
         self._init_db()
-
-    # Whitelist of allowed filter modes to prevent injection and logic errors
-    _VALID_FILTER_MODES = frozenset({"videos", "live", "favorites"})
 
     def _init_db(self) -> None:
         """Initialize the database schema."""
@@ -481,32 +507,6 @@ class IndexStore:
             if not is_nested:
                 conn.close()
 
-    # Standard columns needed for grid display
-    _GEOMETRY_COLUMNS = [
-        "id",
-        "rel",
-        "aspect_ratio",
-        "media_type",
-        "live_partner_rel",
-        "dur",
-        "year",
-        "month",
-        "dt",
-        "ts",
-        "content_id",  # needed for live photo pairing logic if needed
-        "bytes",  # needed for panorama detection logic
-        "mime",  # needed for classifier
-        "w",  # needed for panorama detection logic
-        "h",  # needed for panorama detection logic
-        "original_rel_path",  # needed for trash restore logic
-        "original_album_id",
-        "original_album_subpath",
-        "is_favorite",
-        "location",
-        "gps",
-        "micro_thumbnail"
-    ]
-
     def read_geometry_only(
         self,
         filter_params: Optional[Dict[str, Any]] = None,
@@ -599,8 +599,10 @@ class IndexStore:
             if sort_by_date:
                 query += " ORDER BY dt DESC NULLS LAST, id DESC"
 
-            # Request one extra row to determine if more data exists
-            query += f" LIMIT ? OFFSET ?"
+            # Pagination strategy: Fetch limit+1 rows to check if more data exists
+            # without requiring a separate COUNT query. If we get more rows than
+            # requested, we know there's more data beyond this page.
+            query += " LIMIT ? OFFSET ?"
             params.extend([limit + 1, offset])
 
             conn.row_factory = sqlite3.Row
@@ -618,7 +620,8 @@ class IndexStore:
                         d["gps"] = None
                 rows.append(d)
 
-            # Check if we got more than limit (indicating more data exists)
+            # If we received more than 'limit' rows, the extra row confirms more data exists.
+            # We discard the extra row and return only the requested 'limit' rows.
             has_more = len(rows) > limit
             if has_more:
                 rows = rows[:limit]

@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import logging
-import xxhash
-from datetime import datetime, timezone
 import copy
+import logging
 import os
+import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
+import xxhash
 from PySide6.QtCore import QObject, QRunnable, Signal, QThread
 
 from ....cache.index_store import IndexStore
@@ -317,6 +318,12 @@ class AssetLoaderSignals(QObject):
 class AssetLoaderWorker(QRunnable):
     """Load album assets on a background thread."""
 
+    # Page sizes for cursor-based pagination
+    # First page is smaller to show content immediately
+    FIRST_PAGE_SIZE = 50
+    # Subsequent pages are larger for efficiency
+    NORMAL_PAGE_SIZE = 500
+
     def __init__(
         self,
         root: Path,
@@ -390,11 +397,6 @@ class AssetLoaderWorker(QRunnable):
         # Use paginated loading for better initial responsiveness
         # This avoids loading ALL rows at once and instead fetches in batches
 
-        # First page: Small batch for instant UI response
-        first_page_size = 50
-        # Subsequent pages: Larger batches for efficiency
-        normal_page_size = 500
-
         offset = 0
         yielded_count = 0
         total = 0
@@ -407,7 +409,9 @@ class AssetLoaderWorker(QRunnable):
                     return
 
                 # Determine page size based on whether we've emitted first batch
-                page_size = first_page_size if not first_batch_emitted else normal_page_size
+                page_size = (
+                    self.FIRST_PAGE_SIZE if not first_batch_emitted else self.NORMAL_PAGE_SIZE
+                )
 
                 # Fetch a page of rows using SQL LIMIT/OFFSET
                 rows, has_more = store.read_geometry_paginated(
@@ -425,7 +429,7 @@ class AssetLoaderWorker(QRunnable):
                     try:
                         total = store.count(filter_hidden=True, filter_params=params)
                         total_calculated = True
-                    except Exception as exc:
+                    except (sqlite3.DatabaseError, OSError) as exc:
                         LOGGER.warning("Failed to count assets in database: %s", exc, exc_info=True)
                         total = 0
 
