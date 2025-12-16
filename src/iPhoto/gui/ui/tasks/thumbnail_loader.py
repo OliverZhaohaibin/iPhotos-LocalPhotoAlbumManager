@@ -642,6 +642,9 @@ class ThumbnailLoader(QObject):
         try:
             return int(candidate)
         except (TypeError, ValueError):
+            default_priority = getattr(QThread, "NormalPriority", None)
+            if default_priority is not None:
+                return getattr(default_priority, "value", 0)
             return 0
 
     def _schedule_job(self, key: Tuple[str, str, int, int], job: ThumbnailJob, priority: int) -> None:
@@ -671,10 +674,10 @@ class ThumbnailLoader(QObject):
         self._active_jobs_count += 1
         try:
             self._pool.start(job, priority)
-        except TypeError:
+        except TypeError as exc:
             self._active_jobs_count = max(0, self._active_jobs_count - 1)
             self._pending_keys.discard(key)
-            raise
+            raise TypeError(f"Failed to start thumbnail job with priority {priority}: {exc}") from exc
 
     def _base_key(self, rel: str, size: QSize) -> Tuple[str, str, int, int]:
         assert self._album_root_str is not None
