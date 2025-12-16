@@ -317,10 +317,14 @@ class PlaybackController:
             return
 
         rel = str(index.data(Roles.REL) or "")
-        if not rel:
+        abs_raw = index.data(Roles.ABS)
+        abs_path = None
+        if isinstance(abs_raw, (str, Path)) and str(abs_raw):
+            abs_path = Path(abs_raw)
+        if not rel and abs_path is None:
             return
 
-        is_featured = self._facade.toggle_featured(rel)
+        is_featured = self._facade.toggle_featured(rel, abs_path=abs_path)
         self._detail_ui.update_favorite_button(current_row, is_featured=is_featured)
 
     # ------------------------------------------------------------------
