@@ -672,10 +672,9 @@ class ThumbnailLoader(QObject):
         priority: int,
     ) -> None:
         self._active_jobs_count += 1
-        priority_value = self._normalize_priority(priority)
         try:
-            self._pool.start(job, priority_value)
-        except Exception:
+            self._pool.start(job, priority)
+        except TypeError:
             self._active_jobs_count = max(0, self._active_jobs_count - 1)
             self._pending_keys.discard(key)
             raise
