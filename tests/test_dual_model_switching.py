@@ -1,6 +1,8 @@
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -100,3 +102,43 @@ def test_dual_model_switching(tmp_path: Path, qapp: QApplication) -> None:
 
     facade.open_album(root)
     assert facade.asset_list_model == facade._album_list_model
+
+
+def test_library_switch_reuses_cached_model(tmp_path: Path, qapp: QApplication) -> None:
+    library_root = tmp_path / "Library"
+    library_root.mkdir()
+
+    dummy_album = SimpleNamespace(root=library_root, manifest={})
+
+    with patch("src.iPhoto.gui.facade.backend.open_album", return_value=dummy_album), patch(
+        "src.iPhoto.gui.facade.backend.IndexStore"
+    ) as MockStore:
+        mock_store = MockStore.return_value
+        mock_store.read_all.return_value = iter([{"rel": "seed"}])
+
+        facade = AppFacade()
+
+        library_manager = MagicMock()
+        library_manager.root.return_value = library_root
+        library_manager.list_albums.return_value = []
+        library_manager.is_scanning_path.return_value = False
+
+        facade._library_manager = library_manager
+        facade._library_switches_from_album = 0
+        facade._library_update_service.consume_forced_reload = MagicMock(return_value=False)
+
+        library_model = facade._library_list_model
+        library_model._album_root = library_root
+        library_model._data_source = object()
+        library_model._state_manager.set_rows([{"rel": "seed"}])
+
+        facade._active_model = facade._album_list_model
+
+        with patch.object(library_model, "prepare_for_album") as prep, patch.object(
+            facade, "_restart_asset_load"
+        ) as restart:
+            facade.open_album(library_root)
+
+        prep.assert_not_called()
+        restart.assert_not_called()
+        assert facade.asset_list_model is library_model
