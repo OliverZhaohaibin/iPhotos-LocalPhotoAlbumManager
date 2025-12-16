@@ -524,6 +524,7 @@ class ThumbnailLoader(QObject):
         self._max_memory_items = 500
 
         self._pending_deque: deque[Tuple[Tuple[str, str, int, int], ThumbnailJob]] = deque()
+        self._max_pending_jobs = 200  # Cap pending jobs to prevent queue explosion
         self._pending_keys: Set[Tuple[str, str, int, int]] = set()
 
         self._failures: Set[Tuple[str, str, int, int]] = set()
@@ -633,6 +634,11 @@ class ThumbnailLoader(QObject):
         return retval
 
     def _schedule_job(self, key: Tuple[str, str, int, int], job: ThumbnailJob) -> None:
+        # Enforce queue limit by removing the oldest pending jobs
+        while len(self._pending_deque) >= self._max_pending_jobs:
+            old_key, _ = self._pending_deque.popleft()
+            self._pending_keys.discard(old_key)
+
         self._pending_deque.append((key, job))
         self._pending_keys.add(key)
         self._drain_queue()
