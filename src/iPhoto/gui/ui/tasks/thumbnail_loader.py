@@ -642,10 +642,12 @@ class ThumbnailLoader(QObject):
         try:
             return int(candidate)
         except (TypeError, ValueError):
-            default_priority = getattr(QThread, "NormalPriority", None)
-            if default_priority is not None:
-                return getattr(default_priority, "value", 0)
-            return 0
+            default_priority = getattr(QThread, "NormalPriority", 0)
+            fallback = getattr(default_priority, "value", default_priority)
+            try:
+                return int(fallback)
+            except (TypeError, ValueError):
+                return 0
 
     def _schedule_job(self, key: Tuple[str, str, int, int], job: ThumbnailJob, priority: int) -> None:
         # Enforce queue limit by removing the oldest pending jobs
@@ -675,7 +677,7 @@ class ThumbnailLoader(QObject):
         try:
             self._pool.start(job, priority)
         except TypeError as exc:
-            self._active_jobs_count = max(0, self._active_jobs_count - 1)
+            self._active_jobs_count -= 1
             self._pending_keys.discard(key)
             raise TypeError(f"Failed to start thumbnail job with priority {priority}: {exc}") from exc
 
