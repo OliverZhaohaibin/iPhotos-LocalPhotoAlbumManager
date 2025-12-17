@@ -757,7 +757,13 @@ class IndexStore:
             if not is_nested:
                 conn.close()
 
-    def count(self, filter_hidden: bool = False, filter_params: Optional[Dict[str, Any]] = None) -> int:
+    def count(
+        self,
+        filter_hidden: bool = False,
+        filter_params: Optional[Dict[str, Any]] = None,
+        album_path: Optional[str] = None,
+        include_subalbums: bool = True,
+    ) -> int:
         """
         Return the total number of assets in the index, optionally filtered by criteria.
 
@@ -771,6 +777,10 @@ class IndexStore:
                 - 'media_type': Filter by media type (e.g., 'image', 'movie').
                 - Additional keys may be supported as defined in `_build_filter_clauses`.
             These filters restrict the count to assets matching the specified criteria.
+        album_path : str, optional
+            If provided, filter to assets in this album path.
+        include_subalbums : bool, optional
+            If True, include assets from sub-albums (default True).
 
         Returns
         -------
@@ -783,11 +793,28 @@ class IndexStore:
         try:
             query = "SELECT COUNT(*) FROM assets"
 
-            base_where = []
+            base_where: List[str] = []
+            params: List[Any] = []
+
+            # Album path filtering
+            if album_path is not None:
+                if include_subalbums:
+                    # Match exact album or any sub-album
+                    base_where.append(
+                        "(parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\')"
+                    )
+                    params.append(album_path)
+                    escaped_path = escape_like_pattern(album_path)
+                    params.append(f"{escaped_path}/%")
+                else:
+                    base_where.append("parent_album_path = ?")
+                    params.append(album_path)
+
             if filter_hidden:
                 base_where.append("live_role = 0")
 
-            filter_where, params = self._build_filter_clauses(filter_params)
+            filter_where, filter_params_list = self._build_filter_clauses(filter_params)
+            params.extend(filter_params_list)
             where_clauses = base_where + filter_where
 
             if where_clauses:

@@ -7,7 +7,12 @@ from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, QTimer
 
-from ..tasks.asset_loader_worker import AssetLoaderSignals, AssetLoaderWorker, compute_asset_rows
+from ..tasks.asset_loader_worker import (
+    AssetLoaderSignals,
+    AssetLoaderWorker,
+    compute_album_path,
+    compute_asset_rows,
+)
 from ....cache.index_store import IndexStore
 from ....config import WORK_DIR_NAME
 
@@ -84,12 +89,18 @@ class AssetDataLoader(QObject):
             synchronously, or None if it should be loaded asynchronously instead.
         """
 
-        # Use library_root for IndexStore if available
-        effective_index_root = self._library_root if self._library_root else root
+        # Use helper to compute effective index root and album path
+        effective_index_root, album_path = compute_album_path(root, self._library_root)
 
         try:
             # We use row count from SQLite instead of file size.
-            count = IndexStore(effective_index_root).count(filter_hidden=True, filter_params=filter_params)
+            # Include album_path filtering to count only assets in the current album
+            count = IndexStore(effective_index_root).count(
+                filter_hidden=True,
+                filter_params=filter_params,
+                album_path=album_path,
+                include_subalbums=True,
+            )
         except Exception:
             count = 0
 

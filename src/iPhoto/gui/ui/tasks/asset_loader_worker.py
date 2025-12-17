@@ -27,6 +27,46 @@ MEDIA_TYPE_IMAGE = 0
 MEDIA_TYPE_VIDEO = 1
 
 
+def compute_album_path(
+    root: Path, library_root: Optional[Path]
+) -> Tuple[Path, Optional[str]]:
+    """Compute the effective index root and album path for global index filtering.
+
+    When a library_root is provided, this function determines:
+    1. The effective index root (library_root for global index, or root as fallback)
+    2. The album_path relative to library_root for filtering assets
+
+    Args:
+        root: The album root directory being loaded.
+        library_root: The library root where the global index resides, or None.
+
+    Returns:
+        A tuple of (effective_index_root, album_path) where:
+        - effective_index_root: The path to use for IndexStore initialization
+        - album_path: The relative path for filtering, or None for the library root
+    """
+    if not library_root:
+        return root, None
+
+    # Ensure work dir exists at library root
+    ensure_work_dir(library_root, WORK_DIR_NAME)
+
+    try:
+        root_resolved = root.resolve()
+        library_resolved = library_root.resolve()
+
+        if root_resolved == library_resolved:
+            # Viewing the library root itself - no album filtering needed
+            return library_root, None
+
+        # Compute album path relative to library root
+        album_path = root_resolved.relative_to(library_resolved).as_posix()
+        return library_root, album_path
+    except (ValueError, OSError):
+        # If root is not under library_root, fall back to using root as index
+        return root, None
+
+
 def normalize_featured(featured: Iterable[str]) -> Set[str]:
     return {str(entry) for entry in featured}
 
@@ -291,20 +331,8 @@ def compute_asset_rows(
     params = copy.deepcopy(filter_params) if filter_params else {}
     featured_set = normalize_featured(featured)
 
-    # Determine the effective index root and album filter
-    effective_index_root = library_root if library_root else root
-    album_path: Optional[str] = None
-
-    if library_root:
-        # Ensure work dir exists at library root
-        ensure_work_dir(library_root, WORK_DIR_NAME)
-        # Compute album path relative to library root for filtering
-        try:
-            if root.resolve() != library_root.resolve():
-                album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
-        except (ValueError, OSError):
-            # If root is not under library_root, fall back to using root as index
-            effective_index_root = root
+    # Determine the effective index root and album filter using helper
+    effective_index_root, album_path = compute_album_path(root, library_root)
 
     store = IndexStore(effective_index_root)
     dir_cache: Dict[Path, Optional[Set[str]]] = {}
@@ -403,20 +431,8 @@ class AssetLoaderWorker(QRunnable):
     def _build_payload_chunks(self) -> Iterable[List[Dict[str, object]]]:
         ensure_work_dir(self._root, WORK_DIR_NAME)
 
-        # Determine the effective index root and album path for filtering
-        effective_index_root = self._library_root if self._library_root else self._root
-        album_path: Optional[str] = None
-
-        if self._library_root:
-            # Ensure work dir exists at library root
-            ensure_work_dir(self._library_root, WORK_DIR_NAME)
-            # Compute album path relative to library root for filtering
-            try:
-                if self._root.resolve() != self._library_root.resolve():
-                    album_path = self._root.resolve().relative_to(self._library_root.resolve()).as_posix()
-            except (ValueError, OSError):
-                # If root is not under library_root, fall back to using root as index
-                effective_index_root = self._root
+        # Determine the effective index root and album path using helper
+        effective_index_root, album_path = compute_album_path(self._root, self._library_root)
 
         store = IndexStore(effective_index_root)
 
