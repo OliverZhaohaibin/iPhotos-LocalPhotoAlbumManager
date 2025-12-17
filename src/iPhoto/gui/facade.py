@@ -188,10 +188,15 @@ class AppFacade(QObject):
         """Open *root* and trigger background work as needed."""
 
         try:
-            album = backend.open_album(root, autoscan=False)
+            # Skip synchronous maintenance (pairing, favorites sync) to ensure immediate UI responsiveness.
+            # We will trigger the maintenance asynchronously below.
+            album = backend.open_album(root, autoscan=False, maintenance=False)
         except IPhotoError as exc:
             self.errorRaised.emit(str(exc))
             return None
+
+        # Trigger async maintenance (live pairing, favorites sync)
+        self._library_update_service.schedule_maintenance(album)
 
         # Dual-Model Switching Strategy:
         # Determine whether to use the persistent library model or the transient album model.

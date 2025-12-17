@@ -24,10 +24,25 @@ from .utils.logging import get_logger
 LOGGER = get_logger()
 
 
-def open_album(root: Path, autoscan: bool = True) -> Album:
-    """Open an album directory, scanning and pairing as required."""
+def open_album(root: Path, autoscan: bool = True, maintenance: bool = True) -> Album:
+    """Open an album directory, scanning and pairing as required.
+
+    :param maintenance: If True, perform synchronous index verification, live photo pairing,
+                        and favorites synchronization. If False, return the Album object
+                        immediately (useful for GUI responsiveness).
+    """
 
     album = Album.open(root)
+    if maintenance:
+        maintain_album(root, album, autoscan)
+    return album
+
+
+def maintain_album(root: Path, album: Optional[Album] = None, autoscan: bool = True) -> None:
+    """Perform index maintenance: scanning (if empty), live photo pairing, and favorites sync."""
+    if album is None:
+        album = Album.open(root)
+
     store = IndexStore(root)
     rows = list(store.read_all())
     if not rows and autoscan:
@@ -39,7 +54,6 @@ def open_album(root: Path, autoscan: bool = True) -> Album:
         store.write_rows(rows)
     _ensure_links(root, rows)
     store.sync_favorites(album.manifest.get("featured", []))
-    return album
 
 
 def _ensure_links(root: Path, rows: List[dict]) -> None:

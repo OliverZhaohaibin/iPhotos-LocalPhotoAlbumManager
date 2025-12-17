@@ -15,6 +15,7 @@ from ..background_task_manager import BackgroundTaskManager
 # Updated imports to new location
 from ...library.workers.rescan_worker import RescanSignals, RescanWorker
 from ...library.workers.scanner_worker import ScannerSignals, ScannerWorker
+from ..ui.tasks.maintenance_worker import MaintenanceWorker, MaintenanceSignals
 
 if TYPE_CHECKING:
     from ...library.manager import LibraryManager
@@ -141,6 +142,31 @@ class LibraryUpdateService(QObject):
         """Return ``True`` if *root* was marked for a forced reload."""
 
         return self._consume_forced_reload(root)
+
+    def schedule_maintenance(self, album: "Album") -> None:
+        """Schedule background maintenance (pairing, favorites sync) for *album*."""
+        signals = MaintenanceSignals()
+        signals.finished.connect(lambda r: self._on_maintenance_finished(r))
+        signals.error.connect(lambda r, msg: self.errorRaised.emit(f"Maintenance failed for {r}: {msg}"))
+
+        worker = MaintenanceWorker(album.root, signals)
+        self._task_manager.submit_task(
+            task_id=f"maintenance:{album.root}",
+            worker=worker,
+            finished=signals.finished,
+            error=signals.error,
+            pause_watcher=False,
+            result_payload=lambda r: r,
+        )
+
+    def _on_maintenance_finished(self, root: Path) -> None:
+        """Handle completion of background maintenance."""
+        self.linksUpdated.emit(root)
+        self.indexUpdated.emit(root)
+        # We don't need to force a full reload since maintenance mostly updates sidecar/db state
+        # that models might pick up on next refresh or via the signals above.
+        # However, if live grouping changed significantly, we might want to ensure the view reflects it.
+        # For now, rely on linksUpdated/indexUpdated which trigger incremental refresh in AssetListModel.
 
     def reset_cache(self) -> None:
         """Drop cached album resolution results after library re-binding."""
