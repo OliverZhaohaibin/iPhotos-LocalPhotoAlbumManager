@@ -22,6 +22,10 @@ from ....utils.image_loader import qimage_from_bytes
 
 LOGGER = logging.getLogger(__name__)
 
+# Media type constants (matching IndexStore schema and scanner.py)
+MEDIA_TYPE_IMAGE = 0
+MEDIA_TYPE_VIDEO = 1
+
 
 def normalize_featured(featured: Iterable[str]) -> Set[str]:
     return {str(entry) for entry in featured}
@@ -474,6 +478,7 @@ class LiveIngestWorker(QRunnable):
         items: List[Dict[str, object]],
         featured: Iterable[str],
         signals: AssetLoaderSignals,
+        filter_params: Optional[Dict[str, object]] = None,
     ) -> None:
         super().__init__()
         self.setAutoDelete(True)
@@ -481,11 +486,40 @@ class LiveIngestWorker(QRunnable):
         self._items = items
         self._featured = normalize_featured(featured)
         self._signals = signals
+        self._filter_params = filter_params or {}
         self._is_cancelled = False
         self._dir_cache: Dict[Path, Optional[Set[str]]] = {}
 
     def _path_exists(self, path: Path) -> bool:
         return _cached_path_exists(path, self._dir_cache)
+
+    def _should_include_row(self, row: Dict[str, object]) -> bool:
+        """Check if a row should be included based on filter_params.
+
+        This applies the same filter semantics as IndexStore._build_filter_clauses
+        but operates on in-memory row dictionaries instead of SQL.
+
+        Key differences from the database filter:
+        - For 'favorites': Also checks the featured set, since live scan items
+          may not yet have is_favorite persisted in the database.
+        """
+        filter_mode = self._filter_params.get("filter_mode")
+        if not filter_mode:
+            return True
+
+        if filter_mode == "videos":
+            return row.get("media_type") == MEDIA_TYPE_VIDEO
+        elif filter_mode == "live":
+            # Live photos have a live_partner_rel set
+            return row.get("live_partner_rel") is not None
+        elif filter_mode == "favorites":
+            # Check the featured set since live items may not have is_favorite set yet
+            rel = row.get("rel")
+            if rel and rel in self._featured:
+                return True
+            return bool(row.get("is_favorite"))
+
+        return True
 
     def cancel(self) -> None:
         """Cancel the current ingest operation."""
@@ -509,6 +543,10 @@ class LiveIngestWorker(QRunnable):
 
                 if self._is_cancelled:
                     break
+
+                # Apply filter before processing (skip non-matching items early)
+                if not self._should_include_row(row):
+                    continue
 
                 # Process the potentially expensive metadata build in the background
                 entry = build_asset_entry(self._root, row, self._featured, path_exists=self._path_exists)

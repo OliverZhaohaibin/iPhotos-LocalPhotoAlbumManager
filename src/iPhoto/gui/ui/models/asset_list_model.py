@@ -489,7 +489,8 @@ class AssetListModel(QAbstractListModel):
                             self._album_root,
                             live_items,
                             featured,
-                            live_signals
+                            live_signals,
+                            filter_params=filter_params,
                         )
                         self._current_live_worker = worker
                         QThreadPool.globalInstance().start(worker)
