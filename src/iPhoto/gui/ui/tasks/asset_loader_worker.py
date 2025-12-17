@@ -22,6 +22,81 @@ from ....utils.image_loader import qimage_from_bytes
 
 LOGGER = logging.getLogger(__name__)
 
+# Media type constants (matching IndexStore schema and scanner.py)
+MEDIA_TYPE_IMAGE = 0
+MEDIA_TYPE_VIDEO = 1
+
+
+def compute_album_path(
+    root: Path, library_root: Optional[Path]
+) -> Tuple[Path, Optional[str]]:
+    """Compute the effective index root and album path for global index filtering.
+
+    When a library_root is provided, this function determines:
+    1. The effective index root (library_root for global index, or root as fallback)
+    2. The album_path relative to library_root for filtering assets
+
+    Args:
+        root: The album root directory being loaded.
+        library_root: The library root where the global index resides, or None.
+
+    Returns:
+        A tuple of (effective_index_root, album_path) where:
+        - effective_index_root: The path to use for IndexStore initialization
+        - album_path: The relative path for filtering, or None for the library root
+    """
+    if not library_root:
+        return root, None
+
+    # Ensure work dir exists at library root
+    ensure_work_dir(library_root, WORK_DIR_NAME)
+
+    try:
+        root_resolved = root.resolve()
+        library_resolved = library_root.resolve()
+
+        if root_resolved == library_resolved:
+            # Viewing the library root itself - no album filtering needed
+            return library_root, None
+
+        # Compute album path relative to library root
+        album_path = root_resolved.relative_to(library_resolved).as_posix()
+        return library_root, album_path
+    except (ValueError, OSError):
+        # If root is not under library_root, fall back to using root as index
+        return root, None
+
+
+def adjust_rel_for_album(row: Dict[str, object], album_path: Optional[str]) -> Dict[str, object]:
+    """Adjust the rel path in a row to be relative to the album root.
+
+    When loading assets from the global index with album filtering, the rel paths
+    are library-relative (e.g., "Album1/photo.jpg"). This function strips the
+    album_path prefix to make them relative to the album root (e.g., "photo.jpg").
+
+    Args:
+        row: The asset row from the database.
+        album_path: The album path prefix to strip, or None if no adjustment needed.
+
+    Returns:
+        The original row if no adjustment needed, or a copy with adjusted rel path.
+    """
+    if not album_path:
+        return row
+
+    rel = row.get("rel")
+    if not rel:
+        return row
+
+    rel_str = str(rel)
+    prefix = album_path + "/"
+    if rel_str.startswith(prefix):
+        adjusted_row = dict(row)  # Don't modify original row
+        adjusted_row["rel"] = rel_str[len(prefix):]
+        return adjusted_row
+
+    return row
+
 
 def normalize_featured(featured: Iterable[str]) -> Set[str]:
     return {str(entry) for entry in featured}
@@ -253,6 +328,7 @@ def compute_asset_rows(
     root: Path,
     featured: Iterable[str],
     filter_params: Optional[Dict[str, object]] = None,
+    library_root: Optional[Path] = None,
 ) -> Tuple[List[Dict[str, object]], int]:
     """
     Assemble asset entries for grid views, applying optional filtering.
@@ -270,6 +346,9 @@ def compute_asset_rows(
               Determines which asset types are included.
             - Additional keys may be supported by the index store for filtering.
         If None or empty, no filtering is applied.
+    library_root : Optional[Path], optional
+        The root directory of the library. If provided, uses the global index at
+        library_root and filters by album path. If None, uses root for the index.
 
     Returns
     -------
@@ -283,20 +362,28 @@ def compute_asset_rows(
     params = copy.deepcopy(filter_params) if filter_params else {}
     featured_set = normalize_featured(featured)
 
-    store = IndexStore(root)
+    # Determine the effective index root and album filter using helper
+    effective_index_root, album_path = compute_album_path(root, library_root)
+
+    store = IndexStore(effective_index_root)
     dir_cache: Dict[Path, Optional[Set[str]]] = {}
 
     def _path_exists(path: Path) -> bool:
         return _cached_path_exists(path, dir_cache)
+
     index_rows = list(store.read_geometry_only(
         filter_params=params,
-        sort_by_date=True
+        sort_by_date=True,
+        album_path=album_path,
+        include_subalbums=True,
     ))
     entries: List[Dict[str, object]] = []
     # Filtering for videos, live photos, and favorites is now performed at the database query level
     # via filter_params in store.read_geometry_only, so no post-processing is needed here.
     for row in index_rows:
-        entry = build_asset_entry(root, row, featured_set, store, path_exists=_path_exists)
+        # Adjust rel path to be relative to the album root
+        adjusted_row = adjust_rel_for_album(row, album_path)
+        entry = build_asset_entry(root, adjusted_row, featured_set, store, path_exists=_path_exists)
         if entry is not None:
             entries.append(entry)
     return entries, len(entries)
@@ -323,6 +410,7 @@ class AssetLoaderWorker(QRunnable):
         featured: Iterable[str],
         signals: AssetLoaderSignals,
         filter_params: Optional[Dict[str, object]] = None,
+        library_root: Optional[Path] = None,
     ) -> None:
         super().__init__()
         self.setAutoDelete(True)
@@ -331,6 +419,7 @@ class AssetLoaderWorker(QRunnable):
         self._signals = signals
         self._is_cancelled = False
         self._filter_params = filter_params
+        self._library_root = library_root
 
     @property
     def root(self) -> Path:
@@ -374,7 +463,11 @@ class AssetLoaderWorker(QRunnable):
     # ------------------------------------------------------------------
     def _build_payload_chunks(self) -> Iterable[List[Dict[str, object]]]:
         ensure_work_dir(self._root, WORK_DIR_NAME)
-        store = IndexStore(self._root)
+
+        # Determine the effective index root and album path using helper
+        effective_index_root, album_path = compute_album_path(self._root, self._library_root)
+
+        store = IndexStore(effective_index_root)
 
         # Emit indeterminate progress initially
         self._signals.progressUpdated.emit(self._root, 0, 0)
@@ -392,7 +485,9 @@ class AssetLoaderWorker(QRunnable):
         with store.transaction():
             generator = store.read_geometry_only(
                 filter_params=params,
-                sort_by_date=True
+                sort_by_date=True,
+                album_path=album_path,
+                include_subalbums=True,
             )
 
             chunk: List[Dict[str, object]] = []
@@ -415,9 +510,12 @@ class AssetLoaderWorker(QRunnable):
                 if self._is_cancelled:
                     return
 
+                # Adjust rel path to be relative to the album root
+                adjusted_row = adjust_rel_for_album(row, album_path)
+
                 entry = build_asset_entry(
                     self._root,
-                    row,
+                    adjusted_row,
                     self._featured,
                     store,
                     path_exists=_path_exists,
@@ -474,6 +572,7 @@ class LiveIngestWorker(QRunnable):
         items: List[Dict[str, object]],
         featured: Iterable[str],
         signals: AssetLoaderSignals,
+        filter_params: Optional[Dict[str, object]] = None,
     ) -> None:
         super().__init__()
         self.setAutoDelete(True)
@@ -481,11 +580,40 @@ class LiveIngestWorker(QRunnable):
         self._items = items
         self._featured = normalize_featured(featured)
         self._signals = signals
+        self._filter_params = filter_params or {}
         self._is_cancelled = False
         self._dir_cache: Dict[Path, Optional[Set[str]]] = {}
 
     def _path_exists(self, path: Path) -> bool:
         return _cached_path_exists(path, self._dir_cache)
+
+    def _should_include_row(self, row: Dict[str, object]) -> bool:
+        """Check if a row should be included based on filter_params.
+
+        This applies the same filter semantics as IndexStore._build_filter_clauses
+        but operates on in-memory row dictionaries instead of SQL.
+
+        Key differences from the database filter:
+        - For 'favorites': Also checks the featured set, since live scan items
+          may not yet have is_favorite persisted in the database.
+        """
+        filter_mode = self._filter_params.get("filter_mode")
+        if not filter_mode:
+            return True
+
+        if filter_mode == "videos":
+            return row.get("media_type") == MEDIA_TYPE_VIDEO
+        elif filter_mode == "live":
+            # Live photos have a live_partner_rel set
+            return row.get("live_partner_rel") is not None
+        elif filter_mode == "favorites":
+            # Check the featured set since live items may not have is_favorite set yet
+            rel = row.get("rel")
+            if rel and rel in self._featured:
+                return True
+            return bool(row.get("is_favorite"))
+
+        return True
 
     def cancel(self) -> None:
         """Cancel the current ingest operation."""
@@ -509,6 +637,10 @@ class LiveIngestWorker(QRunnable):
 
                 if self._is_cancelled:
                     break
+
+                # Apply filter before processing (skip non-matching items early)
+                if not self._should_include_row(row):
+                    continue
 
                 # Process the potentially expensive metadata build in the background
                 entry = build_asset_entry(self._root, row, self._featured, path_exists=self._path_exists)

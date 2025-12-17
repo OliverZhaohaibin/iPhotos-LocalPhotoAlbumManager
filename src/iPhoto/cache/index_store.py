@@ -1,10 +1,20 @@
 """
 Persistent storage for album index rows.
 
-This module provides read/write access to the album index, which was previously
-stored as a JSON Lines file (`index.jsonl`). The index is now stored in an
-SQLite database (`index.db`) for improved performance, reliability, and
-concurrency.
+This module provides read/write access to the global asset index. The index is
+stored in an SQLite database (`global_index.db`) located at the library root
+under `.iphoto/`. This centralized architecture replaces the previous per-album
+`index.db` design, enabling:
+
+1. **Flat Storage with Path Indexing**: A single `assets` table stores all media
+   files with their library-relative paths (`rel` column) and parent album
+   paths (`parent_album_path`) for hierarchical queries.
+
+2. **K-Way Merge via SQLite**: Composite indexes on `(parent_album_path, dt, id)`
+   allow the database engine to perform efficient sorted retrieval across albums.
+
+3. **Cursor-Based Pagination**: Seek pagination using `(dt, id) < (?, ?)` avoids
+   the O(N) cost of OFFSET-based pagination for large datasets.
 
 The `IndexStore` class manages the creation, reading, updating, and deletion
 of asset records in the SQLite database.
@@ -23,18 +33,61 @@ from ..utils.logging import get_logger
 
 logger = get_logger()
 
+# Database filename for the global index
+GLOBAL_INDEX_DB_NAME = "global_index.db"
+
+
+def normalize_path(path_str: str) -> str:
+    """Normalize a path string to use forward slashes (POSIX style).
+
+    This ensures consistent path representation across Windows/Mac/Linux.
+    """
+    return Path(path_str).as_posix()
+
+
+def escape_like_pattern(path: str) -> str:
+    """Escape special characters in a path for use in SQL LIKE patterns.
+
+    SQLite's LIKE operator treats '%' and '_' as wildcards. This function
+    escapes those characters (and backslashes) so they match literally when
+    used with 'ESCAPE \\'.
+
+    Args:
+        path: The path string to escape.
+
+    Returns:
+        The escaped path suitable for use in a LIKE pattern.
+    """
+    return path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 class IndexStore:
-    """Read/write helper for ``index.db`` SQLite database.
+    """Read/write helper for the global ``global_index.db`` SQLite database.
+
+    The global index stores all assets across the entire library in a single
+    database, using ``rel`` (library-relative path) as the primary key
+    and ``parent_album_path`` for album-based queries.
 
     .. note::
        Instances of this class are not thread-safe. Each thread should create
        its own instance to avoid race conditions on the shared transaction connection.
     """
 
-    def __init__(self, album_root: Path):
+    def __init__(self, album_root: Path, use_global_index: bool = True):
+        """Initialize the IndexStore.
+
+        Args:
+            album_root: The root directory of the library or album.
+            use_global_index: If True, use the global `global_index.db` at the
+                root. If False, use a per-album `index.db` for backward
+                compatibility during migration.
+        """
         self.album_root = album_root
-        self.path = album_root / WORK_DIR_NAME / "index.db"
+        if use_global_index:
+            self.path = album_root / WORK_DIR_NAME / GLOBAL_INDEX_DB_NAME
+        else:
+            # Legacy per-album database path
+            self.path = album_root / WORK_DIR_NAME / "index.db"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: Optional[sqlite3.Connection] = None
         self._init_db()
@@ -61,10 +114,16 @@ class IndexStore:
             pass
         conn.execute("PRAGMA synchronous=NORMAL;")
 
+        # Create the assets table with support for global library indexing.
+        # Key columns:
+        # - rel: Library-relative path (primary key, e.g., "2023/Trip/img.jpg")
+        # - parent_album_path: Parent directory path prefix for album queries
+        #   (e.g., "2023/Trip" for "2023/Trip/img.jpg")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS assets (
                 rel TEXT PRIMARY KEY,
                 id TEXT,
+                parent_album_path TEXT,
                 dt TEXT,
                 ts INTEGER,
                 bytes INTEGER,
@@ -123,6 +182,9 @@ class IndexStore:
             conn.execute("ALTER TABLE assets ADD COLUMN is_favorite INTEGER DEFAULT 0")
         if "location" not in columns:
             conn.execute("ALTER TABLE assets ADD COLUMN location TEXT")
+        # New column for global index: parent album path
+        if "parent_album_path" not in columns:
+            conn.execute("ALTER TABLE assets ADD COLUMN parent_album_path TEXT")
 
         # Create indices for common sort/filter operations if needed.
         # 'dt' is used for sorting.
@@ -138,8 +200,23 @@ class IndexStore:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_timeline_optimization ON assets(year DESC, month DESC, dt DESC)")
         # Index for media type filtering (Photos/Videos)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_media_type ON assets(media_type)")
-        # 'gps' index might help if we have huge datasets, but IS NOT NULL scan is usually fast enough
-        # unless we add partial index. For now, full table scan with filtering is better than loading all to Python.
+
+        # --- New indexes for K-Way Merge and Cursor Pagination ---
+        # Core index for album-scoped pagination (covers album views with date sorting)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_assets_pagination "
+            "ON assets (parent_album_path, dt DESC, id DESC)"
+        )
+        # Global view index (all photos sorted by date, no album filter)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_assets_global_sort "
+            "ON assets (dt DESC, id DESC)"
+        )
+        # Index for album prefix queries (for sub-album filtering with LIKE)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parent_album_path "
+            "ON assets (parent_album_path)"
+        )
 
     def _recover_database(self) -> None:
         """Attempt graded recovery from a corrupted database."""
@@ -277,7 +354,7 @@ class IndexStore:
             return
 
         columns = [
-            "rel", "id", "dt", "ts", "bytes", "mime", "make", "model", "lens",
+            "rel", "id", "parent_album_path", "dt", "ts", "bytes", "mime", "make", "model", "lens",
             "iso", "f_number", "exposure_time", "exposure_compensation", "focal_length",
             "w", "h", "gps", "content_id", "frame_rate", "codec",
             "still_image_time", "dur", "original_rel_path",
@@ -296,9 +373,19 @@ class IndexStore:
         gps_val = row.get("gps")
         gps_str = json.dumps(gps_val) if gps_val is not None else None
 
+        # Compute parent_album_path from rel if not provided
+        rel = row.get("rel")
+        parent_album_path = row.get("parent_album_path")
+        if parent_album_path is None and rel:
+            # Extract the parent directory from the relative path
+            rel_path = Path(rel)
+            parent = rel_path.parent
+            parent_album_path = parent.as_posix() if parent != Path(".") else ""
+
         return [
-            row.get("rel"),
+            rel,
             row.get("id"),
+            parent_album_path,
             row.get("dt"),
             row.get("ts"),
             row.get("bytes"),
@@ -484,7 +571,9 @@ class IndexStore:
     def read_geometry_only(
         self,
         filter_params: Optional[Dict[str, Any]] = None,
-        sort_by_date: bool = True
+        sort_by_date: bool = True,
+        album_path: Optional[str] = None,
+        include_subalbums: bool = True,
     ) -> Iterator[Dict[str, Any]]:
         """Yield lightweight asset rows (geometry & core metadata) for fast grid layout.
 
@@ -500,6 +589,8 @@ class IndexStore:
                                 - 'media_type' (int): Filter by media type.
                                 - 'filter_mode' (str): Filter mode, accepts "videos", "live", or "favorites".
         :param sort_by_date: If True, sort results by date descending.
+        :param album_path: If provided, filter to assets in this album path.
+        :param include_subalbums: If True, include assets from sub-albums (default True).
         """
         conn = self._get_conn()
         should_close = (conn != self._conn)
@@ -534,8 +625,24 @@ class IndexStore:
 
             # Always filter hidden assets (live photo components) in grid view
             base_where = ["live_role = 0"]
+            params: List[Any] = []
 
-            filter_where, params = self._build_filter_clauses(filter_params)
+            # Album path filtering
+            if album_path is not None:
+                if include_subalbums:
+                    # Match exact album or any sub-album
+                    base_where.append(
+                        "(parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\')"
+                    )
+                    params.append(album_path)
+                    escaped_path = escape_like_pattern(album_path)
+                    params.append(f"{escaped_path}/%")
+                else:
+                    base_where.append("parent_album_path = ?")
+                    params.append(album_path)
+
+            filter_where, filter_params_list = self._build_filter_clauses(filter_params)
+            params.extend(filter_params_list)
             where_clauses = base_where + filter_where
 
             if where_clauses:
@@ -650,7 +757,13 @@ class IndexStore:
             if not is_nested:
                 conn.close()
 
-    def count(self, filter_hidden: bool = False, filter_params: Optional[Dict[str, Any]] = None) -> int:
+    def count(
+        self,
+        filter_hidden: bool = False,
+        filter_params: Optional[Dict[str, Any]] = None,
+        album_path: Optional[str] = None,
+        include_subalbums: bool = True,
+    ) -> int:
         """
         Return the total number of assets in the index, optionally filtered by criteria.
 
@@ -664,6 +777,10 @@ class IndexStore:
                 - 'media_type': Filter by media type (e.g., 'image', 'movie').
                 - Additional keys may be supported as defined in `_build_filter_clauses`.
             These filters restrict the count to assets matching the specified criteria.
+        album_path : str, optional
+            If provided, filter to assets in this album path.
+        include_subalbums : bool, optional
+            If True, include assets from sub-albums (default True).
 
         Returns
         -------
@@ -676,11 +793,28 @@ class IndexStore:
         try:
             query = "SELECT COUNT(*) FROM assets"
 
-            base_where = []
+            base_where: List[str] = []
+            params: List[Any] = []
+
+            # Album path filtering
+            if album_path is not None:
+                if include_subalbums:
+                    # Match exact album or any sub-album
+                    base_where.append(
+                        "(parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\')"
+                    )
+                    params.append(album_path)
+                    escaped_path = escape_like_pattern(album_path)
+                    params.append(f"{escaped_path}/%")
+                else:
+                    base_where.append("parent_album_path = ?")
+                    params.append(album_path)
+
             if filter_hidden:
                 base_where.append("live_role = 0")
 
-            filter_where, params = self._build_filter_clauses(filter_params)
+            filter_where, filter_params_list = self._build_filter_clauses(filter_params)
+            params.extend(filter_params_list)
             where_clauses = base_where + filter_where
 
             if where_clauses:
@@ -735,4 +869,229 @@ class IndexStore:
                     conn.executemany(query, params)
         finally:
             if not is_nested:
+                conn.close()
+
+    # -------------------------------------------------------------------------
+    # Cursor-Based Pagination (Seek Pagination)
+    # -------------------------------------------------------------------------
+
+    def get_assets_page(
+        self,
+        cursor_dt: Optional[str] = None,
+        cursor_id: Optional[str] = None,
+        limit: int = 100,
+        album_path: Optional[str] = None,
+        include_subalbums: bool = False,
+        filter_hidden: bool = True,
+        filter_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch a page of assets using cursor-based pagination.
+
+        This method uses Seek Pagination (keyset pagination) for efficient
+        retrieval of large datasets. Instead of using OFFSET, it uses the
+        `(dt, id) < (?, ?)` pattern to skip directly to the next page.
+
+        Args:
+            cursor_dt: The timestamp of the last item from the previous page.
+                If None, starts from the beginning.
+            cursor_id: The ID of the last item from the previous page.
+                Required if cursor_dt is provided for deterministic ordering.
+            limit: Maximum number of items to return (default: 100).
+            album_path: If provided, filter to assets in this album path.
+                Uses exact match unless include_subalbums is True.
+            include_subalbums: If True, include assets from sub-albums
+                (uses LIKE 'album_path/%' pattern).
+            filter_hidden: If True, exclude hidden assets (live photo motion
+                components). Default is True.
+            filter_params: Additional filter parameters (e.g., media_type,
+                filter_mode).
+
+        Returns:
+            A list of asset dictionaries for the requested page.
+        """
+        conn = self._get_conn()
+        should_close = (conn != self._conn)
+
+        try:
+            where_clauses: List[str] = []
+            params: List[Any] = []
+
+            # Cursor condition for seek pagination
+            if cursor_dt is not None and cursor_id is not None:
+                # Row value comparison for efficient seeking
+                where_clauses.append("(dt, id) < (?, ?)")
+                params.extend([cursor_dt, cursor_id])
+
+            # Album path filtering
+            if album_path is not None:
+                if include_subalbums:
+                    # Match exact album or any sub-album
+                    # Use ESCAPE clause for proper handling of % and _ in paths
+                    where_clauses.append(
+                        "(parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\')"
+                    )
+                    params.append(album_path)
+                    escaped_path = escape_like_pattern(album_path)
+                    params.append(f"{escaped_path}/%")
+                else:
+                    where_clauses.append("parent_album_path = ?")
+                    params.append(album_path)
+
+            # Filter hidden assets
+            if filter_hidden:
+                where_clauses.append("live_role = 0")
+
+            # Additional filters
+            if filter_params:
+                filter_where, filter_params_list = self._build_filter_clauses(filter_params)
+                where_clauses.extend(filter_where)
+                params.extend(filter_params_list)
+
+            query = "SELECT * FROM assets"
+            if where_clauses:
+                query += " WHERE " + " AND ".join(where_clauses)
+
+            query += " ORDER BY dt DESC NULLS LAST, id DESC LIMIT ?"
+            params.append(limit)
+
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+
+            results = []
+            for row in cursor:
+                results.append(self._db_row_to_dict(row))
+            return results
+        finally:
+            if should_close:
+                conn.close()
+
+    def read_album_assets(
+        self,
+        album_path: str,
+        include_subalbums: bool = False,
+        sort_by_date: bool = True,
+        filter_hidden: bool = True,
+        filter_params: Optional[Dict[str, Any]] = None,
+    ) -> Iterator[Dict[str, Any]]:
+        """Yield assets belonging to a specific album.
+
+        This method provides album-scoped queries using the `parent_album_path`
+        column for efficient filtering.
+
+        Args:
+            album_path: The album path to filter (e.g., "2023/Trip").
+            include_subalbums: If True, include assets from sub-albums.
+            sort_by_date: If True, order results by date descending.
+            filter_hidden: If True, exclude hidden assets.
+            filter_params: Additional filter parameters.
+
+        Yields:
+            Asset dictionaries for the matching album(s).
+        """
+        conn = self._get_conn()
+        should_close = (conn != self._conn)
+
+        try:
+            where_clauses: List[str] = []
+            params: List[Any] = []
+
+            if include_subalbums:
+                # Use ESCAPE clause for proper handling of % and _ in paths
+                where_clauses.append(
+                    "(parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\')"
+                )
+                params.append(album_path)
+                escaped_path = escape_like_pattern(album_path)
+                params.append(f"{escaped_path}/%")
+            else:
+                where_clauses.append("parent_album_path = ?")
+                params.append(album_path)
+
+            if filter_hidden:
+                where_clauses.append("live_role = 0")
+
+            if filter_params:
+                filter_where, filter_params_list = self._build_filter_clauses(filter_params)
+                where_clauses.extend(filter_where)
+                params.extend(filter_params_list)
+
+            query = "SELECT * FROM assets WHERE " + " AND ".join(where_clauses)
+
+            if sort_by_date:
+                query += " ORDER BY dt DESC NULLS LAST, id DESC"
+
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+
+            for row in cursor:
+                yield self._db_row_to_dict(row)
+        finally:
+            if should_close:
+                conn.close()
+
+    def list_albums(self) -> List[str]:
+        """Return a list of distinct album paths in the index.
+
+        This is useful for discovering all albums without walking the filesystem.
+        """
+        conn = self._get_conn()
+        should_close = (conn != self._conn)
+
+        try:
+            cursor = conn.execute(
+                "SELECT DISTINCT parent_album_path FROM assets "
+                "WHERE parent_album_path IS NOT NULL "
+                "ORDER BY parent_album_path"
+            )
+            return [row[0] for row in cursor if row[0]]
+        finally:
+            if should_close:
+                conn.close()
+
+    def count_album_assets(
+        self,
+        album_path: str,
+        include_subalbums: bool = False,
+        filter_hidden: bool = True,
+    ) -> int:
+        """Return the count of assets in a specific album.
+
+        Args:
+            album_path: The album path to count.
+            include_subalbums: If True, include assets from sub-albums.
+            filter_hidden: If True, exclude hidden assets.
+
+        Returns:
+            The number of assets matching the criteria.
+        """
+        conn = self._get_conn()
+        should_close = (conn != self._conn)
+
+        try:
+            where_clauses: List[str] = []
+            params: List[Any] = []
+
+            if include_subalbums:
+                # Use ESCAPE clause for proper handling of % and _ in paths
+                where_clauses.append(
+                    "(parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\')"
+                )
+                params.append(album_path)
+                escaped_path = escape_like_pattern(album_path)
+                params.append(f"{escaped_path}/%")
+            else:
+                where_clauses.append("parent_album_path = ?")
+                params.append(album_path)
+
+            if filter_hidden:
+                where_clauses.append("live_role = 0")
+
+            query = "SELECT COUNT(*) FROM assets WHERE " + " AND ".join(where_clauses)
+            cursor = conn.execute(query, params)
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        finally:
+            if should_close:
                 conn.close()

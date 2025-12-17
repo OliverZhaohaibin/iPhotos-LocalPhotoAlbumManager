@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 import pytest
-from src.iPhoto.cache.index_store import IndexStore
+from src.iPhoto.cache.index_store import IndexStore, GLOBAL_INDEX_DB_NAME
 from src.iPhoto.config import WORK_DIR_NAME
 
 @pytest.fixture
@@ -11,7 +11,7 @@ def store(tmp_path: Path) -> IndexStore:
     return IndexStore(tmp_path)
 
 def test_init_creates_db(store: IndexStore, tmp_path: Path) -> None:
-    db_path = tmp_path / WORK_DIR_NAME / "index.db"
+    db_path = tmp_path / WORK_DIR_NAME / GLOBAL_INDEX_DB_NAME
     assert db_path.exists()
 
     with sqlite3.connect(db_path) as conn:
@@ -21,7 +21,7 @@ def test_init_creates_db(store: IndexStore, tmp_path: Path) -> None:
 def test_wal_mode_enabled(store: IndexStore, tmp_path: Path) -> None:
     # Check if journal_mode is WAL
     # Using a new connection because IndexStore manages its own connections transiently
-    db_path = tmp_path / WORK_DIR_NAME / "index.db"
+    db_path = tmp_path / WORK_DIR_NAME / GLOBAL_INDEX_DB_NAME
 
     # We must invoke an operation on store to ensure _init_db runs and sets the mode
     # (actually __init__ runs it, so it should be set)
@@ -230,3 +230,175 @@ def test_count_filtered(store: IndexStore) -> None:
 
     assert store.count(filter_hidden=False) == 2
     assert store.count(filter_hidden=True) == 1
+
+
+# --------------------------------------------------------------------------
+# Tests for new global index features
+# --------------------------------------------------------------------------
+
+def test_parent_album_path_computed(store: IndexStore) -> None:
+    """Verify parent_album_path is computed from rel if not provided."""
+    rows = [
+        {"rel": "2023/Trip/photo1.jpg", "id": "1"},
+        {"rel": "2023/Trip/photo2.jpg", "id": "2"},
+        {"rel": "2024/Summer/img.jpg", "id": "3"},
+        {"rel": "root_photo.jpg", "id": "4"},  # File at root, no parent
+    ]
+    store.write_rows(rows)
+
+    read_rows = {r["rel"]: r for r in store.read_all()}
+    assert read_rows["2023/Trip/photo1.jpg"]["parent_album_path"] == "2023/Trip"
+    assert read_rows["2023/Trip/photo2.jpg"]["parent_album_path"] == "2023/Trip"
+    assert read_rows["2024/Summer/img.jpg"]["parent_album_path"] == "2024/Summer"
+    assert read_rows["root_photo.jpg"]["parent_album_path"] == ""
+
+
+def test_get_assets_page_basic(store: IndexStore) -> None:
+    """Test basic cursor-based pagination."""
+    # Create test data with explicit dates
+    rows = [
+        {"rel": "a.jpg", "id": "1", "dt": "2023-01-01T10:00:00Z"},
+        {"rel": "b.jpg", "id": "2", "dt": "2023-01-02T10:00:00Z"},
+        {"rel": "c.jpg", "id": "3", "dt": "2023-01-03T10:00:00Z"},
+        {"rel": "d.jpg", "id": "4", "dt": "2023-01-04T10:00:00Z"},
+    ]
+    store.write_rows(rows)
+
+    # First page (limit 2)
+    page1 = store.get_assets_page(limit=2)
+    assert len(page1) == 2
+    assert page1[0]["rel"] == "d.jpg"  # Newest first
+    assert page1[1]["rel"] == "c.jpg"
+
+    # Second page using cursor from first page
+    cursor_dt = page1[-1]["dt"]
+    cursor_id = page1[-1]["id"]
+    page2 = store.get_assets_page(cursor_dt=cursor_dt, cursor_id=cursor_id, limit=2)
+    assert len(page2) == 2
+    assert page2[0]["rel"] == "b.jpg"
+    assert page2[1]["rel"] == "a.jpg"
+
+
+def test_get_assets_page_with_album_filter(store: IndexStore) -> None:
+    """Test pagination with album path filtering."""
+    rows = [
+        {"rel": "2023/Trip/a.jpg", "id": "1", "dt": "2023-01-01T10:00:00Z"},
+        {"rel": "2023/Trip/b.jpg", "id": "2", "dt": "2023-01-02T10:00:00Z"},
+        {"rel": "2024/Summer/c.jpg", "id": "3", "dt": "2023-01-03T10:00:00Z"},
+    ]
+    store.write_rows(rows)
+
+    # Get only 2023/Trip photos
+    results = store.get_assets_page(album_path="2023/Trip", limit=10)
+    assert len(results) == 2
+    rels = {r["rel"] for r in results}
+    assert "2023/Trip/a.jpg" in rels
+    assert "2023/Trip/b.jpg" in rels
+
+
+def test_get_assets_page_with_subalbums(store: IndexStore) -> None:
+    """Test pagination including sub-albums."""
+    rows = [
+        {"rel": "2023/Trip/a.jpg", "id": "1", "dt": "2023-01-01T10:00:00Z"},
+        {"rel": "2023/Trip/Day1/b.jpg", "id": "2", "dt": "2023-01-02T10:00:00Z"},
+        {"rel": "2023/Trip/Day2/c.jpg", "id": "3", "dt": "2023-01-03T10:00:00Z"},
+        {"rel": "2024/Other/d.jpg", "id": "4", "dt": "2023-01-04T10:00:00Z"},
+    ]
+    store.write_rows(rows)
+
+    # Get 2023/Trip and all sub-albums
+    results = store.get_assets_page(album_path="2023/Trip", include_subalbums=True, limit=10)
+    assert len(results) == 3
+    rels = {r["rel"] for r in results}
+    assert "2023/Trip/a.jpg" in rels
+    assert "2023/Trip/Day1/b.jpg" in rels
+    assert "2023/Trip/Day2/c.jpg" in rels
+    assert "2024/Other/d.jpg" not in rels
+
+
+def test_read_album_assets(store: IndexStore) -> None:
+    """Test album-scoped asset retrieval."""
+    rows = [
+        {"rel": "Albums/Vacation/img1.jpg", "id": "1", "dt": "2023-06-01T10:00:00Z"},
+        {"rel": "Albums/Vacation/img2.jpg", "id": "2", "dt": "2023-06-02T10:00:00Z"},
+        {"rel": "Albums/Work/doc.jpg", "id": "3", "dt": "2023-07-01T10:00:00Z"},
+    ]
+    store.write_rows(rows)
+
+    # Read only Vacation album
+    vacation_assets = list(store.read_album_assets("Albums/Vacation"))
+    assert len(vacation_assets) == 2
+    rels = {r["rel"] for r in vacation_assets}
+    assert "Albums/Vacation/img1.jpg" in rels
+    assert "Albums/Vacation/img2.jpg" in rels
+
+
+def test_list_albums(store: IndexStore) -> None:
+    """Test listing distinct album paths."""
+    rows = [
+        {"rel": "2023/Trip/a.jpg", "id": "1"},
+        {"rel": "2023/Trip/b.jpg", "id": "2"},
+        {"rel": "2024/Summer/c.jpg", "id": "3"},
+        {"rel": "root.jpg", "id": "4"},  # Root level
+    ]
+    store.write_rows(rows)
+
+    albums = store.list_albums()
+    assert "2023/Trip" in albums
+    assert "2024/Summer" in albums
+    # Empty string (root) should not be in list since we filter it
+    # (files at root have parent_album_path = "")
+
+
+def test_count_album_assets(store: IndexStore) -> None:
+    """Test counting assets in a specific album."""
+    rows = [
+        {"rel": "Album1/a.jpg", "id": "1"},
+        {"rel": "Album1/b.jpg", "id": "2"},
+        {"rel": "Album1/Sub/c.jpg", "id": "3"},
+        {"rel": "Album2/d.jpg", "id": "4"},
+    ]
+    store.write_rows(rows)
+
+    # Count without sub-albums
+    assert store.count_album_assets("Album1", include_subalbums=False) == 2
+
+    # Count with sub-albums
+    assert store.count_album_assets("Album1", include_subalbums=True) == 3
+
+
+def test_album_path_with_special_chars(store: IndexStore) -> None:
+    """Test that album paths containing SQL LIKE wildcards are handled correctly."""
+    rows = [
+        # Album with % in name
+        {"rel": "100%_complete/photo.jpg", "id": "1"},
+        {"rel": "100%_complete/sub/photo2.jpg", "id": "2"},
+        # Album with _ in name
+        {"rel": "my_album/photo.jpg", "id": "3"},
+        {"rel": "my_album/sub_dir/photo2.jpg", "id": "4"},
+        # Decoy album that would match if escaping is broken
+        {"rel": "100X_complete/photo.jpg", "id": "5"},  # X instead of %
+        {"rel": "myXalbum/photo.jpg", "id": "6"},  # X instead of _
+    ]
+    store.write_rows(rows)
+
+    # Test exact match with % in path
+    results = store.get_assets_page(album_path="100%_complete", include_subalbums=False, limit=10)
+    assert len(results) == 1
+    assert results[0]["rel"] == "100%_complete/photo.jpg"
+
+    # Test subalbums with % in path
+    results = store.get_assets_page(album_path="100%_complete", include_subalbums=True, limit=10)
+    assert len(results) == 2
+    rels = {r["rel"] for r in results}
+    assert "100%_complete/photo.jpg" in rels
+    assert "100%_complete/sub/photo2.jpg" in rels
+    # Decoy should NOT be included
+    assert "100X_complete/photo.jpg" not in rels
+
+    # Test with _ in path
+    results = store.get_assets_page(album_path="my_album", include_subalbums=True, limit=10)
+    assert len(results) == 2
+    # Decoy should NOT be included
+    rels = {r["rel"] for r in results}
+    assert "myXalbum/photo.jpg" not in rels
