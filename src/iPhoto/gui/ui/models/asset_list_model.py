@@ -26,6 +26,7 @@ from ..tasks.asset_loader_worker import (
     LiveIngestWorker,
     AssetLoaderSignals,
 )
+from ..tasks.page_loader_worker import PageLoaderWorker, PageLoaderSignals
 from ..tasks.incremental_refresh_worker import IncrementalRefreshSignals, IncrementalRefreshWorker
 from .asset_cache_manager import AssetCacheManager
 from .asset_data_loader import AssetDataLoader
@@ -103,6 +104,9 @@ class AssetListModel(QAbstractListModel):
         self._deferred_incremental_refresh: Optional[Path] = None
         self._active_filter: Optional[str] = None
         self._ignore_incoming_chunks: bool = False
+
+        self._total_count = 0  # Total assets in DB (for pagination)
+        self._is_fetching_page = False  # Lock for pagination
 
         self._incremental_worker: Optional[IncrementalRefreshWorker] = None
         self._incremental_signals: Optional[IncrementalRefreshSignals] = None
@@ -251,6 +255,34 @@ class AssetListModel(QAbstractListModel):
     # ------------------------------------------------------------------
     # Qt model implementation
     # ------------------------------------------------------------------
+    def canFetchMore(self, parent: QModelIndex | None) -> bool:
+        """Return True if there are more items in the DB than currently loaded."""
+        if parent is not None and parent.isValid():
+            return False
+        return self._state_manager.row_count() < self._total_count
+
+    def fetchMore(self, parent: QModelIndex | None) -> None:
+        """Load the next page of assets."""
+        if parent is not None and parent.isValid():
+            return
+        if self._is_fetching_page or self._ignore_incoming_chunks:
+            return
+
+        rows = self._state_manager.rows
+        if not rows:
+            # Should not happen if fetchMore is called correctly, but safeguard
+            return
+
+        last_row = rows[-1]
+        cursor_dt = last_row.get("dt")
+        cursor_id = last_row.get("id")
+
+        if cursor_dt is None or cursor_id is None:
+            # Cannot paginate without cursor
+            return
+
+        self._fetch_next_page(cursor_dt, cursor_id)
+
     def rowCount(self, parent: QModelIndex | None = None) -> int:  # type: ignore[override]
         if parent is not None and parent.isValid():  # pragma: no cover - tree fallback
             return 0
@@ -433,14 +465,9 @@ class AssetListModel(QAbstractListModel):
             return
         if self._data_loader.is_running():
             self._data_loader.cancel()
-            self._ignore_incoming_chunks = True
-            # Clear buffer immediately to avoid committing stale chunks if logic leaks
-            self._pending_chunks_buffer = []
-            self._flush_timer.stop()
-            self._is_first_chunk = True
-            self._state_manager.mark_reload_pending()
-            return
 
+        # Reset state
+        self._ignore_incoming_chunks = False
         self._pending_chunks_buffer = []
         self._pending_rels.clear()
         self._pending_abs.clear()
@@ -448,6 +475,8 @@ class AssetListModel(QAbstractListModel):
         self._pending_finish_event = None
         self._is_first_chunk = True
         self._is_flushing = False
+        self._total_count = 0
+        self._is_fetching_page = False
 
         self._cache_manager.clear_recently_removed()
 
@@ -463,8 +492,8 @@ class AssetListModel(QAbstractListModel):
             filter_params["filter_mode"] = self._active_filter
 
         try:
-            self._data_loader.start(self._album_root, featured, filter_params=filter_params)
-            self._ignore_incoming_chunks = False
+            # Start initial page load instead of full data loader
+            self._fetch_next_page(None, None, fetch_total=True)
 
             # Inject any live (recently scanned but not yet persisted) items.
             # CRITICAL OPTIMIZATION: Process these items in a background thread.
@@ -504,6 +533,59 @@ class AssetListModel(QAbstractListModel):
             return
 
         self._state_manager.clear_reload_pending()
+
+    def _fetch_next_page(self, cursor_dt: Optional[str], cursor_id: Optional[str], fetch_total: bool = False) -> None:
+        """Spawn a worker to fetch the next page of assets."""
+        if not self._album_root:
+            return
+
+        self._is_fetching_page = True
+
+        manifest = self._facade.current_album.manifest if self._facade.current_album else {}
+        featured = manifest.get("featured", []) or []
+
+        filter_params = {}
+        if self._active_filter:
+            filter_params["filter_mode"] = self._active_filter
+
+        signals = PageLoaderSignals()
+        signals.pageReady.connect(self._on_page_ready)
+        signals.error.connect(self._on_loader_error)
+
+        library_root = None
+        if self._facade.library_manager:
+            library_root = self._facade.library_manager.root()
+
+        worker = PageLoaderWorker(
+            self._album_root,
+            featured,
+            signals,
+            cursor=(cursor_dt, cursor_id) if cursor_dt and cursor_id else None,
+            limit=100,
+            filter_params=filter_params,
+            library_root=library_root,
+            fetch_total=fetch_total
+        )
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_page_ready(self, root: Path, chunk: List[Dict[str, object]], total_count: int) -> None:
+        """Handle incoming page data."""
+        self._is_fetching_page = False
+
+        if total_count >= 0:
+            self._total_count = total_count
+
+        # Delegate to existing chunk handler for buffering and insertion
+        self._on_loader_chunk_ready(root, chunk)
+
+        # If this was the first page and we finished loading it, mark as finished
+        # Note: fetchMore doesn't emit loadFinished, but start_load (first page) should.
+        # Logic: If pending_finish_event is not set, maybe we should set it?
+        # Actually, for pagination, 'loadFinished' is a bit ambiguous.
+        # Typically it means "initial load done".
+        if self._is_first_chunk is False and total_count >= 0:
+             # This was the initial load
+             self.loadFinished.emit(root, True)
 
     def _on_loader_chunk_ready(self, root: Path, chunk: List[Dict[str, object]]) -> None:
         if self._ignore_incoming_chunks:
