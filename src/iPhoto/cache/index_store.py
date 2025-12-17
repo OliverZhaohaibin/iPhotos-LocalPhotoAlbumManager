@@ -7,7 +7,7 @@ under `.iphoto/`. This centralized architecture replaces the previous per-album
 `index.db` design, enabling:
 
 1. **Flat Storage with Path Indexing**: A single `assets` table stores all media
-   files with their library-relative paths (`lib_rel_path`) and parent album
+   files with their library-relative paths (`rel` column) and parent album
    paths (`parent_album_path`) for hierarchical queries.
 
 2. **K-Way Merge via SQLite**: Composite indexes on `(parent_album_path, dt, id)`
@@ -49,8 +49,8 @@ class IndexStore:
     """Read/write helper for the global ``global_index.db`` SQLite database.
 
     The global index stores all assets across the entire library in a single
-    database, using `lib_rel_path` (library-relative path) as the primary key
-    and `parent_album_path` for album-based queries.
+    database, using ``rel`` (library-relative path) as the primary key
+    and ``parent_album_path`` for album-based queries.
 
     .. note::
        Instances of this class are not thread-safe. Each thread should create
@@ -863,12 +863,13 @@ class IndexStore:
             if album_path is not None:
                 if include_subalbums:
                     # Match exact album or any sub-album
+                    # Use ESCAPE clause for proper handling of % and _ in paths
                     where_clauses.append(
-                        "(parent_album_path = ? OR parent_album_path LIKE ?)"
+                        "(parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\')"
                     )
                     params.append(album_path)
-                    # Escape % and _ in the path for LIKE pattern
-                    escaped_path = album_path.replace("%", r"\%").replace("_", r"\_")
+                    # Escape \ first, then % and _ for LIKE pattern
+                    escaped_path = album_path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                     params.append(f"{escaped_path}/%")
                 else:
                     where_clauses.append("parent_album_path = ?")
@@ -934,11 +935,13 @@ class IndexStore:
             params: List[Any] = []
 
             if include_subalbums:
+                # Use ESCAPE clause for proper handling of % and _ in paths
                 where_clauses.append(
-                    "(parent_album_path = ? OR parent_album_path LIKE ?)"
+                    "(parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\')"
                 )
                 params.append(album_path)
-                escaped_path = album_path.replace("%", r"\%").replace("_", r"\_")
+                # Escape \ first, then % and _ for LIKE pattern
+                escaped_path = album_path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 params.append(f"{escaped_path}/%")
             else:
                 where_clauses.append("parent_album_path = ?")
@@ -1010,11 +1013,13 @@ class IndexStore:
             params: List[Any] = []
 
             if include_subalbums:
+                # Use ESCAPE clause for proper handling of % and _ in paths
                 where_clauses.append(
-                    "(parent_album_path = ? OR parent_album_path LIKE ?)"
+                    "(parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\')"
                 )
                 params.append(album_path)
-                escaped_path = album_path.replace("%", r"\%").replace("_", r"\_")
+                # Escape \ first, then % and _ for LIKE pattern
+                escaped_path = album_path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 params.append(f"{escaped_path}/%")
             else:
                 where_clauses.append("parent_album_path = ?")

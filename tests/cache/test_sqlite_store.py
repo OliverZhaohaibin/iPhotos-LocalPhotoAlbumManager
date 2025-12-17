@@ -365,3 +365,40 @@ def test_count_album_assets(store: IndexStore) -> None:
 
     # Count with sub-albums
     assert store.count_album_assets("Album1", include_subalbums=True) == 3
+
+
+def test_album_path_with_special_chars(store: IndexStore) -> None:
+    """Test that album paths containing SQL LIKE wildcards are handled correctly."""
+    rows = [
+        # Album with % in name
+        {"rel": "100%_complete/photo.jpg", "id": "1"},
+        {"rel": "100%_complete/sub/photo2.jpg", "id": "2"},
+        # Album with _ in name
+        {"rel": "my_album/photo.jpg", "id": "3"},
+        {"rel": "my_album/sub_dir/photo2.jpg", "id": "4"},
+        # Decoy album that would match if escaping is broken
+        {"rel": "100X_complete/photo.jpg", "id": "5"},  # X instead of %
+        {"rel": "myXalbum/photo.jpg", "id": "6"},  # X instead of _
+    ]
+    store.write_rows(rows)
+
+    # Test exact match with % in path
+    results = store.get_assets_page(album_path="100%_complete", include_subalbums=False, limit=10)
+    assert len(results) == 1
+    assert results[0]["rel"] == "100%_complete/photo.jpg"
+
+    # Test subalbums with % in path
+    results = store.get_assets_page(album_path="100%_complete", include_subalbums=True, limit=10)
+    assert len(results) == 2
+    rels = {r["rel"] for r in results}
+    assert "100%_complete/photo.jpg" in rels
+    assert "100%_complete/sub/photo2.jpg" in rels
+    # Decoy should NOT be included
+    assert "100X_complete/photo.jpg" not in rels
+
+    # Test with _ in path
+    results = store.get_assets_page(album_path="my_album", include_subalbums=True, limit=10)
+    assert len(results) == 2
+    # Decoy should NOT be included
+    rels = {r["rel"] for r in results}
+    assert "myXalbum/photo.jpg" not in rels
