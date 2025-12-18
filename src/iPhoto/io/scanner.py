@@ -251,6 +251,11 @@ def _process_path_stream(
             if existing_index:
                 rel = path.relative_to(root).as_posix()
                 existing_record = existing_index.get(rel)
+                if not existing_record:
+                    existing_record = existing_index.get(unicodedata.normalize('NFC', rel))
+                if not existing_record:
+                    existing_record = existing_index.get(unicodedata.normalize('NFD', rel))
+
                 if existing_record:
                     stat = path.stat()
                     cached_ts = existing_record.get("ts")
