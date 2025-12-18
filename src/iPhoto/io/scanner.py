@@ -8,6 +8,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
+import unicodedata
 
 from ..config import EXPORT_DIR_NAME, WORK_DIR_NAME
 from ..errors import ExternalToolError, IPhotoError
@@ -192,6 +193,9 @@ def _process_path_stream(
             metadata_payloads = []
 
         metadata_lookup: Dict[Path, Dict[str, Any]] = {}
+        # Also maintain a string-based lookup for reliability
+        metadata_lookup_str: Dict[str, Dict[str, Any]] = {}
+
         for payload in metadata_payloads:
             if not isinstance(payload, dict):
                 continue
@@ -199,12 +203,31 @@ def _process_path_stream(
             if isinstance(source, str):
                 source_path = Path(source)
                 metadata_lookup[source_path] = payload
-                metadata_lookup[source_path.resolve()] = payload
+                try:
+                    metadata_lookup[source_path.resolve()] = payload
+                except OSError:
+                    pass
+
+                metadata_lookup_str[source] = payload
+                # Add normalized variants for string lookup
+                metadata_lookup_str[unicodedata.normalize('NFC', source)] = payload
+                metadata_lookup_str[unicodedata.normalize('NFD', source)] = payload
+
 
         for path in batch:
             try:
                 resolved = path.resolve()
                 metadata = metadata_lookup.get(resolved) or metadata_lookup.get(path)
+
+                # Fallback to string lookup using as_posix() which was sent to exiftool
+                if metadata is None:
+                    posix_path = path.as_posix()
+                    metadata = metadata_lookup_str.get(posix_path)
+                    if metadata is None:
+                        metadata = metadata_lookup_str.get(unicodedata.normalize('NFC', posix_path))
+                    if metadata is None:
+                        metadata = metadata_lookup_str.get(unicodedata.normalize('NFD', posix_path))
+
                 yield _build_row(root, path, metadata)
                 processed_count += 1
             except (IPhotoError, OSError) as exc:
@@ -228,6 +251,11 @@ def _process_path_stream(
             if existing_index:
                 rel = path.relative_to(root).as_posix()
                 existing_record = existing_index.get(rel)
+                if not existing_record:
+                    existing_record = existing_index.get(unicodedata.normalize('NFC', rel))
+                if not existing_record:
+                    existing_record = existing_index.get(unicodedata.normalize('NFD', rel))
+
                 if existing_record:
                     stat = path.stat()
                     cached_ts = existing_record.get("ts")
