@@ -5,19 +5,23 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
+from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Iterator, Optional
+from typing import Iterable, Tuple, Optional
 
 
-def _expand(pattern: str) -> Iterator[str]:
+@lru_cache(maxsize=1024)
+def _expand(pattern: str) -> Tuple[str, ...]:
     match = re.search(r"\{([^{}]*,[^{}]*)\}", pattern)
     if not match:
-        yield pattern
-        return
+        return (pattern,)
     prefix = pattern[: match.start()]
     suffix = pattern[match.end() :]
+
+    results = []
     for option in match.group(1).split(","):
-        yield from _expand(prefix + option + suffix)
+        results.extend(_expand(prefix + option + suffix))
+    return tuple(results)
 
 
 def is_excluded(path: Path, globs: Iterable[str], *, root: Path) -> bool:

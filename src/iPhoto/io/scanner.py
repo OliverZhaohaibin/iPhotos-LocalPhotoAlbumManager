@@ -15,7 +15,7 @@ from ..errors import ExternalToolError, IPhotoError
 from ..utils.exiftool import get_metadata_batch
 from ..utils.hashutils import file_xxh3, compute_file_id
 from ..utils.logging import get_logger
-from ..utils.pathutils import ensure_work_dir, is_excluded, should_include
+from ..utils.pathutils import ensure_work_dir, is_excluded, should_include, _expand
 from .metadata import read_image_meta_with_exiftool, read_video_meta
 from ..utils.image_loader import generate_micro_thumbnail
 
@@ -37,8 +37,17 @@ class FileDiscoverer(threading.Thread):
     ) -> None:
         super().__init__(name=f"ScannerDiscovery-{root.name}")
         self._root = root
-        self._include_globs = list(include_globs)
-        self._exclude_globs = list(exclude_globs)
+
+        # Pre-expand globs to avoid repetitive expansion during scanning.
+        # This significantly speeds up is_excluded checks.
+        self._include_globs = []
+        for g in include_globs:
+            self._include_globs.extend(_expand(g))
+
+        self._exclude_globs = []
+        for g in exclude_globs:
+            self._exclude_globs.extend(_expand(g))
+
         self._queue = queue_obj
         self._total_found = 0
         self._lock = threading.Lock()
