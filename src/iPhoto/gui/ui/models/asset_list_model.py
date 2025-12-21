@@ -297,49 +297,12 @@ class AssetListModel(QAbstractListModel):
             return None
         return rows[row_index]
 
-    def get_assets_in_path(self, target_root: Path) -> List[Dict[str, object]]:
-        """Return all assets that are descendants of *target_root*.
-
-        This is used to instantly populate sub-albums from the library model.
-        """
-        rows = self._state_manager.rows
-        if not rows:
-            return []
-
-        # Assuming self._album_root (library root) is set.
-        current_root = self._album_root
-        if not current_root:
-            return []
-
-        results = []
-        target_root_resolved = target_root.resolve()
-
-        # Optimization: string comparison might be faster if paths are normalized
-        # But we need accuracy.
-
-        # We can iterate and check if each item's absolute path starts with target_root.
-        # But items might only have 'rel'.
-        # 'rel' is relative to current_root.
-        # So full_path = current_root / rel
-
-        for row in rows:
-            rel = row.get("rel")
-            if not rel:
-                continue
-
-            # If we have 'abs', use it (faster?)
-            # Usually 'abs' is not stored in row to save memory, only 'rel'.
-            # Wait, scanner produces 'rel'.
-
-            full_path = current_root / rel
-            try:
-                # Check if descendant
-                full_path.relative_to(target_root_resolved)
-                results.append(row)
-            except (ValueError, OSError):
-                continue
-
-        return results
+    def get_entry_by_rel(self, rel: str) -> Optional[Dict[str, object]]:
+        """Return the full processed entry for a given relative path (O(1))."""
+        index = self._state_manager.row_lookup.get(normalise_rel_value(rel))
+        if index is not None and 0 <= index < len(self._state_manager.rows):
+            return self._state_manager.rows[index]
+        return None
 
     def invalidate_thumbnail(self, rel: str) -> Optional[QModelIndex]:
         """Remove cached thumbnails and notify views for *rel*.

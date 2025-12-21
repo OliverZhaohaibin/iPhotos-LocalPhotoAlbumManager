@@ -21,6 +21,7 @@ from .services import (
     LibraryUpdateService,
 )
 from .ui.tasks.index_persist_worker import IndexPersistWorker
+from .ui.tasks.asset_loader_worker import compute_album_path
 
 if TYPE_CHECKING:
     from ..library.manager import LibraryManager
@@ -266,9 +267,26 @@ class AppFacade(QObject):
         hybrid_loaded = False
         if not has_assets and target_model is self._album_list_model:
             # Check if Library Model has data for this album
-            if self._library_list_model.rowCount() > 0:
+            if self._library_list_model.rowCount() > 0 and self._library_manager:
                 try:
-                    preloaded_assets = self._library_list_model.get_assets_in_path(album_root)
+                    # Optimized lookup: Use Global Index to find relevant RELs, then fetch full entries from RAM.
+                    # This avoids iterating thousands of paths on the main thread (which caused freezing).
+                    library_root = self._library_manager.root()
+                    effective_index_root, album_rel_path = compute_album_path(album_root, library_root)
+
+                    preloaded_assets = []
+                    if album_rel_path:
+                        # Use SQL index to find assets in this folder (fast)
+                        store = backend.IndexStore(effective_index_root)
+                        # We iterate the result cursor. Since it's filtered by album, it should be small for sub-albums.
+                        for row in store.read_album_assets(album_rel_path, include_subalbums=True):
+                            rel = row.get("rel")
+                            if rel:
+                                # O(1) lookup in the already-loaded library model
+                                entry = self._library_list_model.get_entry_by_rel(str(rel))
+                                if entry:
+                                    preloaded_assets.append(entry)
+
                     if preloaded_assets:
                         self._logger.info("Hybrid Loading: Injected %d assets from library model into %s", len(preloaded_assets), album_root)
                         # Inject into model immediately
