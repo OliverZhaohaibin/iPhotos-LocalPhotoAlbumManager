@@ -724,13 +724,26 @@ class AssetListModel(QAbstractListModel):
         if not self._album_root or root != self._album_root:
             return
 
-        if entries:
-            start_row = self._state_manager.row_count()
-            end_row = start_row + len(entries) - 1
-            self.beginInsertRows(QModelIndex(), start_row, end_row)
-            self._state_manager.append_chunk(entries)
-            self.endInsertRows()
-            self._state_manager.on_external_row_inserted(start_row, len(entries))
+        if not entries:
+            return
+
+        # Add to pending sets to maintain consistency and duplicate protection
+        for row in entries:
+            rel = row.get("rel")
+            if rel:
+                self._pending_rels.add(normalise_rel_value(rel))
+            abs_val = row.get("abs")
+            if abs_val:
+                self._pending_abs.add(str(abs_val))
+
+        # Use buffering to prevent UI freeze.
+        # Direct insertion of many small chunks causes View layout thrashing.
+        self._pending_chunks_buffer.extend(entries)
+
+        if len(self._pending_chunks_buffer) >= self._STREAM_FLUSH_THRESHOLD:
+            self._flush_pending_chunks()
+        elif not self._flush_timer.isActive():
+            self._flush_timer.start()
 
     def _on_loader_progress(self, root: Path, current: int, total: int) -> None:
         if not self._album_root or root != self._album_root:
