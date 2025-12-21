@@ -304,6 +304,13 @@ class AppFacade(QObject):
                             if album_rel_path and isinstance(live_rel, str) and live_rel.startswith(album_rel_path + "/"):
                                 new_entry["live_partner_rel"] = live_rel[len(album_rel_path) + 1:]
 
+                            # Remove 'parent_album_path' so that the local IndexStore re-calculates it based on the
+                            # new local 'rel'. The global 'parent_album_path' (e.g. "2023/Trip") is invalid
+                            # in the context of the local album root (where it should be "" or relative to root).
+                            # This prevents the local index from hiding assets under incorrect parent paths.
+                            if "parent_album_path" in new_entry:
+                                del new_entry["parent_album_path"]
+
                             adjusted_assets.append(new_entry)
 
                         self._logger.info("Hybrid Loading: Injected %d assets from library model into %s", len(adjusted_assets), album_root)

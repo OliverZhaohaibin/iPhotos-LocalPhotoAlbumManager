@@ -23,10 +23,9 @@ class IndexPersistWorker(QRunnable):
             return
 
         try:
-            # User requirement: "copy database to folder's database".
-            # We assume this means the legacy/local per-album index.db.
-            # Passing use_global_index=False forces local index creation/update.
-            store = backend.IndexStore(self._album_root, use_global_index=False)
+            # Persist to the standard index.db (global_index.db) format.
+            # We align with the system default to ensure the View and Scanner use the same database.
+            store = backend.IndexStore(self._album_root)
             store.append_rows(self._entries)
             logger.info("Persisted %d entries to local index for %s", len(self._entries), self._album_root)
         except Exception as e:
