@@ -21,7 +21,7 @@ from .services import (
     LibraryUpdateService,
 )
 from .ui.tasks.index_persist_worker import IndexPersistWorker
-from .ui.tasks.asset_loader_worker import compute_album_path
+from .ui.tasks.asset_loader_worker import compute_album_path, adjust_rel_for_album
 
 if TYPE_CHECKING:
     from ..library.manager import LibraryManager
@@ -288,21 +288,36 @@ class AppFacade(QObject):
                                     preloaded_assets.append(entry)
 
                     if preloaded_assets:
-                        self._logger.info("Hybrid Loading: Injected %d assets from library model into %s", len(preloaded_assets), album_root)
-                        # Inject into model immediately
-                        target_model.ingest_existing_items(preloaded_assets)
-                        # Persist to local DB in background
-                        worker = IndexPersistWorker(album_root, preloaded_assets)
+                        # Adjust paths to be relative to the album root before using them.
+                        # The global index stores paths relative to the Library Root (e.g. "2023/Trip/img.jpg").
+                        # The local album index/model expects paths relative to the Album Root (e.g. "img.jpg").
+                        # We must adjust both 'rel' and 'live_partner_rel' to avoid logic conflicts and failed lookups
+                        # in the local context.
+                        adjusted_assets = []
+                        for entry in preloaded_assets:
+                            # Adjust 'rel' using the standard helper
+                            new_entry = adjust_rel_for_album(entry, album_rel_path)
+
+                            # Manually adjust 'live_partner_rel' if present, as the helper only handles 'rel'.
+                            # Live partners in the global index are also library-relative.
+                            live_rel = new_entry.get("live_partner_rel")
+                            if album_rel_path and isinstance(live_rel, str) and live_rel.startswith(album_rel_path + "/"):
+                                new_entry["live_partner_rel"] = live_rel[len(album_rel_path) + 1:]
+
+                            adjusted_assets.append(new_entry)
+
+                        self._logger.info("Hybrid Loading: Injected %d assets from library model into %s", len(adjusted_assets), album_root)
+
+                        # Inject adjusted entries into model immediately
+                        target_model.ingest_existing_items(adjusted_assets)
+
+                        # Persist adjusted entries to local DB in background
+                        # This is crucial: The local index.db must contain album-relative paths.
+                        worker = IndexPersistWorker(album_root, adjusted_assets)
                         self._task_manager.start(worker)
+
                         hybrid_loaded = True
-                        has_assets = True # Treat as having assets to potentially skip rescan?
-                        # If we hybrid loaded, we still might want to scan to catch NEW files,
-                        # but we can do it less aggressively or let the standard logic handle it.
-                        # The standard logic below checks `if not has_assets`.
-                        # Since we set `has_assets = True`, we skip `rescan_current_async()`.
-                        # This prevents the "Rescan" storm the user complained about.
-                        # The user said "solidify database in background".
-                        # IndexPersistWorker does exactly that.
+                        has_assets = True # Skip redundant rescan as we have valid data
                 except Exception as e:
                     self._logger.error("Hybrid loading failed: %s", e)
 
