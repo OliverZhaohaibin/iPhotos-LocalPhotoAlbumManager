@@ -109,9 +109,6 @@ class AssetListModel(QAbstractListModel):
         self._refresh_lock = QMutex()
         self._current_live_worker: Optional[LiveIngestWorker] = None
 
-        # State tracking for inactive models
-        self._is_stale: bool = False
-
         # Serialized scan processing state
         self._scan_backlog_items: List[Dict[str, object]] = []
         self._is_processing_scan: bool = False
@@ -124,11 +121,6 @@ class AssetListModel(QAbstractListModel):
         """Update the centralized library root for thumbnail generation and index access."""
         self._cache_manager.set_library_root(root)
         self._data_loader.set_library_root(root)
-
-    @property
-    def is_stale(self) -> bool:
-        """Return ``True`` if the model missed updates while inactive."""
-        return self._is_stale
 
     def album_root(self) -> Optional[Path]:
         """Return the path of the currently open album, if any."""
@@ -305,6 +297,50 @@ class AssetListModel(QAbstractListModel):
             return None
         return rows[row_index]
 
+    def get_assets_in_path(self, target_root: Path) -> List[Dict[str, object]]:
+        """Return all assets that are descendants of *target_root*.
+
+        This is used to instantly populate sub-albums from the library model.
+        """
+        rows = self._state_manager.rows
+        if not rows:
+            return []
+
+        # Assuming self._album_root (library root) is set.
+        current_root = self._album_root
+        if not current_root:
+            return []
+
+        results = []
+        target_root_resolved = target_root.resolve()
+
+        # Optimization: string comparison might be faster if paths are normalized
+        # But we need accuracy.
+
+        # We can iterate and check if each item's absolute path starts with target_root.
+        # But items might only have 'rel'.
+        # 'rel' is relative to current_root.
+        # So full_path = current_root / rel
+
+        for row in rows:
+            rel = row.get("rel")
+            if not rel:
+                continue
+
+            # If we have 'abs', use it (faster?)
+            # Usually 'abs' is not stored in row to save memory, only 'rel'.
+            # Wait, scanner produces 'rel'.
+
+            full_path = current_root / rel
+            try:
+                # Check if descendant
+                full_path.relative_to(target_root_resolved)
+                results.append(row)
+            except (ValueError, OSError):
+                continue
+
+        return results
+
     def invalidate_thumbnail(self, rel: str) -> Optional[QModelIndex]:
         """Remove cached thumbnails and notify views for *rel*.
 
@@ -358,7 +394,6 @@ class AssetListModel(QAbstractListModel):
         self._pending_loader_root = None
         self._scan_backlog_items = []
         self._is_processing_scan = False
-        self._is_stale = False
 
     def update_featured_status(self, rel: str, is_featured: bool) -> None:
         """Update the cached ``featured`` flag for the asset identified by *rel*."""
@@ -652,15 +687,69 @@ class AssetListModel(QAbstractListModel):
         finally:
             self._is_flushing = False
 
+    def ingest_existing_items(self, items: List[Dict[str, object]]) -> None:
+        """Inject existing items (e.g. from Library index) directly into the model."""
+        if not items or not self._album_root:
+            return
+
+        # Treat as a processed chunk (deduplication will happen in _on_loader_chunk_ready logic)
+        # But we need to bypass the chunk processing queue if we want instant result.
+        # Actually, _on_loader_chunk_ready handles buffering and thread safety.
+        # Let's use it.
+        # We need to simulate the chunk format.
+
+        # We assume items are already relative to the album root if they came from filter.
+        # But if they came from global index, 'rel' might be relative to Library Root.
+        # We need to re-base them.
+
+        # Wait, the caller (Facade) should probably handle path relativization?
+        # Or we do it here.
+        # Let's do it here if we know the library root.
+
+        library_root = self._cache_manager.library_root
+        if not library_root:
+             # Fallback: assume items are compatible or caller handled it.
+             self._on_loader_chunk_ready(self._album_root, items)
+             return
+
+        rebased_items = []
+        album_root = self._album_root
+
+        for item in items:
+            # We need 'abs' or full path to re-base.
+            # If 'abs' is missing, construct from library_root + rel?
+            # Global index usually has 'rel' relative to Library Root.
+            # Local index needs 'rel' relative to Album Root.
+
+            rel = item.get("rel")
+            if not rel:
+                continue
+
+            # If item has 'abs', use it.
+            # If not, try to reconstruct.
+            if "abs" in item:
+                 abs_path = Path(item["abs"])
+            else:
+                 abs_path = library_root / rel
+
+            try:
+                new_rel = abs_path.relative_to(album_root).as_posix()
+                new_item = item.copy()
+                new_item["rel"] = new_rel
+                # Update 'abs' if it was missing
+                if "abs" not in new_item:
+                    new_item["abs"] = str(abs_path)
+                rebased_items.append(new_item)
+            except ValueError:
+                # Not inside this album
+                continue
+
+        if rebased_items:
+             self._on_loader_chunk_ready(self._album_root, rebased_items)
+
+
     def _on_scan_chunk_ready(self, root: Path, chunk: List[Dict[str, object]]) -> None:
         """Integrate fresh rows from the scanner into the live view."""
-
-        # If this model is not the active one (e.g. "All Photos" while viewing a subfolder),
-        # ignore live updates to prevent main-thread contention and UI freezes.
-        # The model will refresh from the DB when it becomes active again.
-        if self._facade.asset_list_model is not self:
-            self._is_stale = True
-            return
 
         if not self._album_root or not chunk:
             return
@@ -935,10 +1024,6 @@ class AssetListModel(QAbstractListModel):
     def handle_asset_updated(self, path: Path) -> None:
         """Refresh the thumbnail and view when an asset is modified."""
 
-        if self._facade.asset_list_model is not self:
-            self._is_stale = True
-            return
-
         metadata = self.metadata_for_absolute_path(path)
         if metadata is None:
             return
@@ -952,10 +1037,6 @@ class AssetListModel(QAbstractListModel):
     @Slot(Path)
     def handle_links_updated(self, root: Path) -> None:
         """React to :mod:`links.json` refreshes triggered by the backend."""
-
-        if self._facade.asset_list_model is not self:
-            self._is_stale = True
-            return
 
         if not self._album_root:
             logger.debug(

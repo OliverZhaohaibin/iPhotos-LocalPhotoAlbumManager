@@ -20,6 +20,7 @@ from .services import (
     AssetMoveService,
     LibraryUpdateService,
 )
+from .ui.tasks.index_persist_worker import IndexPersistWorker
 
 if TYPE_CHECKING:
     from ..library.manager import LibraryManager
@@ -223,7 +224,6 @@ class AppFacade(QObject):
                 and existing_root is not None
                 and self._paths_equal(existing_root, album_root)
                 and getattr(target_model, "is_valid", lambda: False)()
-                and not getattr(target_model, "is_stale", False)
             ):
                 should_prepare = False
 
@@ -260,6 +260,33 @@ class AppFacade(QObject):
         is_already_scanning = False
         if self._library_manager and self._library_manager.is_scanning_path(album_root):
             is_already_scanning = True
+
+        # Hybrid Loading: If local index is empty but we have data in the library model, use it.
+        # This provides "instant" view and we persist it to the local DB in the background.
+        hybrid_loaded = False
+        if not has_assets and target_model is self._album_list_model:
+            # Check if Library Model has data for this album
+            if self._library_list_model.rowCount() > 0:
+                try:
+                    preloaded_assets = self._library_list_model.get_assets_in_path(album_root)
+                    if preloaded_assets:
+                        self._logger.info("Hybrid Loading: Injected %d assets from library model into %s", len(preloaded_assets), album_root)
+                        # Inject into model immediately
+                        target_model.ingest_existing_items(preloaded_assets)
+                        # Persist to local DB in background
+                        worker = IndexPersistWorker(album_root, preloaded_assets)
+                        self._task_manager.start(worker)
+                        hybrid_loaded = True
+                        has_assets = True # Treat as having assets to potentially skip rescan?
+                        # If we hybrid loaded, we still might want to scan to catch NEW files,
+                        # but we can do it less aggressively or let the standard logic handle it.
+                        # The standard logic below checks `if not has_assets`.
+                        # Since we set `has_assets = True`, we skip `rescan_current_async()`.
+                        # This prevents the "Rescan" storm the user complained about.
+                        # The user said "solidify database in background".
+                        # IndexPersistWorker does exactly that.
+                except Exception as e:
+                    self._logger.error("Hybrid loading failed: %s", e)
 
         if not has_assets and not is_already_scanning:
             self.rescan_current_async()
