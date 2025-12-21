@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import queue
 import threading
 from datetime import datetime, timezone
@@ -58,36 +59,38 @@ class FileDiscoverer(threading.Thread):
     def run(self) -> None:
         """Walk the directory and push valid paths to the queue."""
         try:
-            for candidate in self._root.rglob("*"):
+            for dirpath, dirnames, filenames in os.walk(self._root):
                 if self._stop_event.is_set():
                     break
 
-                if not candidate.is_file():
-                    continue
-                # Simple optimization: check path parts before costly globs
-                parts = candidate.parts
-                if WORK_DIR_NAME in parts or EXPORT_DIR_NAME in parts:
-                    continue
+                # Prune directories to skip
+                dirnames[:] = [d for d in dirnames if d != WORK_DIR_NAME and d != EXPORT_DIR_NAME]
 
-                if is_excluded(candidate, self._exclude_globs, root=self._root):
-                    continue
-                if not should_include(candidate, self._include_globs, self._exclude_globs, root=self._root):
-                    continue
+                for name in filenames:
+                    if self._stop_event.is_set():
+                        break
 
-                suffix = candidate.suffix.lower()
-                if suffix in _IMAGE_EXTENSIONS or suffix in _VIDEO_EXTENSIONS:
-                    # Use a timeout so we can periodically check the stop event
-                    # if the queue is full and blocking
-                    while not self._stop_event.is_set():
-                        try:
-                            # Put the candidate into the queue, then increment total_found.
-                            self._queue.put(candidate, timeout=0.1)
-                            with self._lock:
-                                self._total_found += 1
-                            break
-                        except queue.Full:
-                            # If queue is full, back off and loop to check stop event
-                            continue
+                    candidate = Path(dirpath) / name
+
+                    if is_excluded(candidate, self._exclude_globs, root=self._root):
+                        continue
+                    if not should_include(candidate, self._include_globs, self._exclude_globs, root=self._root):
+                        continue
+
+                    suffix = candidate.suffix.lower()
+                    if suffix in _IMAGE_EXTENSIONS or suffix in _VIDEO_EXTENSIONS:
+                        # Use a timeout so we can periodically check the stop event
+                        # if the queue is full and blocking
+                        while not self._stop_event.is_set():
+                            try:
+                                # Put the candidate into the queue, then increment total_found.
+                                self._queue.put(candidate, timeout=0.1)
+                                with self._lock:
+                                    self._total_found += 1
+                                break
+                            except queue.Full:
+                                # If queue is full, back off and loop to check stop event
+                                continue
 
         except Exception as exc:
             LOGGER.error("File discovery failed: %s", exc)
@@ -114,23 +117,23 @@ def gather_media_paths(
     image_paths: List[Path] = []
     video_paths: List[Path] = []
 
-    for candidate in root.rglob("*"):
-        if not candidate.is_file():
-            continue
-        if WORK_DIR_NAME in candidate.parts:
-            continue
-        if EXPORT_DIR_NAME in candidate.parts:
-            continue
-        if is_excluded(candidate, exclude_globs, root=root):
-            continue
-        if not should_include(candidate, include_globs, exclude_globs, root=root):
-            continue
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Prune directories to skip
+        dirnames[:] = [d for d in dirnames if d != WORK_DIR_NAME and d != EXPORT_DIR_NAME]
 
-        suffix = candidate.suffix.lower()
-        if suffix in _IMAGE_EXTENSIONS:
-            image_paths.append(candidate)
-        elif suffix in _VIDEO_EXTENSIONS:
-            video_paths.append(candidate)
+        for name in filenames:
+            candidate = Path(dirpath) / name
+
+            if is_excluded(candidate, exclude_globs, root=root):
+                continue
+            if not should_include(candidate, include_globs, exclude_globs, root=root):
+                continue
+
+            suffix = candidate.suffix.lower()
+            if suffix in _IMAGE_EXTENSIONS:
+                image_paths.append(candidate)
+            elif suffix in _VIDEO_EXTENSIONS:
+                video_paths.append(candidate)
 
     return image_paths, video_paths
 
