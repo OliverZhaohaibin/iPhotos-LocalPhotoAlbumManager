@@ -296,6 +296,14 @@ class AssetListModel(QAbstractListModel):
     def thumbnail_loader(self) -> ThumbnailLoader:
         return self._cache_manager.thumbnail_loader()
 
+    def get_cached_thumbnail(self, rel: str) -> Optional[QPixmap]:
+        """Return the cached thumbnail for *rel* if available in memory."""
+        return self._cache_manager.thumbnail_for(rel)
+
+    def inject_cached_thumbnail(self, rel: str, pixmap: QPixmap) -> None:
+        """Inject a pre-loaded thumbnail into the cache."""
+        self._cache_manager.set_thumbnail(rel, pixmap)
+
     def get_internal_row(self, row_index: int) -> Optional[Dict[str, object]]:
         """Return the raw dictionary for *row_index* to bypass the Qt role API."""
 

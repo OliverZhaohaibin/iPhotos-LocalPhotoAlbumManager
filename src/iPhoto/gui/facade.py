@@ -313,6 +313,14 @@ class AppFacade(QObject):
 
                             adjusted_assets.append(new_entry)
 
+                            # Also transfer in-memory thumbnails if available to ensure instant display
+                            # The library model uses the global 'rel' (e.g. "2023/Trip/img.jpg")
+                            # The local model needs the thumbnail keyed by local 'rel' (e.g. "img.jpg")
+                            if rel:
+                                cached_thumb = self._library_list_model.get_cached_thumbnail(str(rel))
+                                if cached_thumb:
+                                    target_model.inject_cached_thumbnail(str(new_entry["rel"]), cached_thumb)
+
                         self._logger.info("Hybrid Loading: Injected %d assets from library model into %s", len(adjusted_assets), album_root)
 
                         # Inject adjusted entries into model immediately
