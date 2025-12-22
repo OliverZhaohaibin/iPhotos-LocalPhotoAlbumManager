@@ -25,7 +25,6 @@ from ..tasks.asset_loader_worker import (
     normalize_featured,
     LiveIngestWorker,
     AssetLoaderSignals,
-    adjust_rel_for_album,
 )
 from ..tasks.incremental_refresh_worker import IncrementalRefreshSignals, IncrementalRefreshWorker
 from .asset_cache_manager import AssetCacheManager
@@ -98,14 +97,6 @@ class AssetListModel(QAbstractListModel):
         self._flush_timer.timeout.connect(self._flush_pending_chunks)
         self._is_first_chunk = True
         self._is_flushing = False
-
-        # State for batched ingestion of existing items
-        self._ingest_queue: List[Dict[str, object]] = []
-        self._ingest_album_rel_path: Optional[str] = None
-        self._ingest_timer = QTimer(self)
-        self._ingest_timer.setInterval(0) # Process next batch ASAP but yield to event loop
-        self._ingest_timer.setSingleShot(True)
-        self._ingest_timer.timeout.connect(self._process_next_ingest_batch)
 
         self._pending_finish_event: Optional[Tuple[Path, bool]] = None
         self._pending_loader_root: Optional[Path] = None
@@ -362,8 +353,6 @@ class AssetListModel(QAbstractListModel):
         self._pending_rels.clear()
         self._pending_abs.clear()
         self._flush_timer.stop()
-        self._ingest_timer.stop()
-        self._ingest_queue = []
         self._pending_finish_event = None
         self._is_flushing = False
 
@@ -668,60 +657,6 @@ class AssetListModel(QAbstractListModel):
 
         finally:
             self._is_flushing = False
-
-    def ingest_existing_items(self, items: List[Dict[str, object]], album_rel_path: Optional[str] = None) -> None:
-        """Inject existing items (e.g. from Library index) directly into the model.
-
-        This method batches the processing to avoid freezing the UI when injecting
-        thousands of items. It also performs path adjustment (relativization)
-        incrementally to keep the main thread responsive.
-        """
-        if not items or not self._album_root:
-            return
-
-        # Stop any pending ingestion
-        self._ingest_timer.stop()
-        self._ingest_queue = list(items) # Copy list to avoid external mutation
-        self._ingest_album_rel_path = album_rel_path
-
-        # Start processing immediately
-        self._process_next_ingest_batch()
-
-    def _process_next_ingest_batch(self) -> None:
-        """Process a small batch of items from the ingest queue."""
-        if not self._ingest_queue or not self._album_root:
-            return
-
-        batch_size = 500
-        raw_chunk = self._ingest_queue[:batch_size]
-        self._ingest_queue = self._ingest_queue[batch_size:]
-
-        adjusted_chunk = []
-        album_rel_path = self._ingest_album_rel_path
-
-        for entry in raw_chunk:
-            # Adjust 'rel' using the standard helper. This creates a shallow copy.
-            new_entry = adjust_rel_for_album(entry, album_rel_path)
-
-            # Manually adjust 'live_partner_rel' if present
-            live_rel = new_entry.get("live_partner_rel")
-            if album_rel_path and isinstance(live_rel, str) and live_rel.startswith(album_rel_path + "/"):
-                new_entry["live_partner_rel"] = live_rel[len(album_rel_path) + 1:]
-
-            # Clear 'parent_album_path' so local logic recalculates it
-            if "parent_album_path" in new_entry:
-                del new_entry["parent_album_path"]
-
-            adjusted_chunk.append(new_entry)
-
-        # Push chunk to standard loader logic (handles buffering, deduplication)
-        # Note: _on_loader_chunk_ready handles deduplication on main thread,
-        # so keeping batch size small is critical for responsiveness.
-        self._on_loader_chunk_ready(self._album_root, adjusted_chunk)
-
-        if self._ingest_queue:
-            self._ingest_timer.start()
-
 
     def _on_scan_chunk_ready(self, root: Path, chunk: List[Dict[str, object]]) -> None:
         """Integrate fresh rows from the scanner into the live view."""

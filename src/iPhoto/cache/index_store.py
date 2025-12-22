@@ -827,6 +827,99 @@ class IndexStore:
             if should_close:
                 conn.close()
 
+    def merge_from_global_db(self, global_db_path: Path, album_rel_path: str) -> None:
+        """Import index rows from the global database, adjusting paths for the local context.
+
+        This performs a fast database-level migration (ATTACH/INSERT SELECT) which is significantly
+        faster than scanning files or iterating in Python. It adjusts 'rel' and 'live_partner_rel'
+        to be relative to the local album root.
+
+        Args:
+            global_db_path: Path to the global index database file.
+            album_rel_path: The relative path of this album within the library (e.g. "2023/Trip").
+        """
+        if not global_db_path.exists():
+            return
+
+        conn = self._get_conn()
+        is_nested = (conn == self._conn)
+
+        # We need the prefix length to slice the paths.
+        # album_rel_path = "A/B". Prefix = "A/B/". Length = len + 1.
+        # SQLite SUBSTR is 1-based. So we want start index = len + 2.
+        prefix_len = len(album_rel_path)
+        substr_start = prefix_len + 2
+
+        # Prepare the like pattern for the album prefix
+        album_prefix_pattern = f"{escape_like_pattern(album_rel_path)}/%"
+
+        try:
+            # We must use a transaction for safety
+            if is_nested:
+                # Assuming outer transaction handle commits
+                conn.execute("ATTACH DATABASE ? AS global_db", (str(global_db_path),))
+                try:
+                    self._execute_merge_sql(conn, album_rel_path, album_prefix_pattern, substr_start)
+                finally:
+                    conn.execute("DETACH DATABASE global_db")
+            else:
+                with conn:
+                    conn.execute("ATTACH DATABASE ? AS global_db", (str(global_db_path),))
+                    try:
+                        self._execute_merge_sql(conn, album_rel_path, album_prefix_pattern, substr_start)
+                    finally:
+                        conn.execute("DETACH DATABASE global_db")
+        finally:
+            if not is_nested:
+                conn.close()
+
+    def _execute_merge_sql(self, conn: sqlite3.Connection, album_rel_path: str, album_prefix_pattern: str, substr_start: int) -> None:
+        """Internal helper to run the migration SQL."""
+        # We select rows that belong to this album (parent_album_path match or prefix match)
+        # We rewrite 'rel' by stripping the album prefix.
+        # We rewrite 'live_partner_rel' similarly if it starts with the prefix.
+        # We clear 'parent_album_path' (set to empty) for the local index.
+
+        query = f"""
+            INSERT OR REPLACE INTO main.assets (
+                rel, id, parent_album_path, dt, ts, bytes, mime, make, model, lens,
+                iso, f_number, exposure_time, exposure_compensation, focal_length,
+                w, h, gps, content_id, frame_rate, codec,
+                still_image_time, dur, original_rel_path,
+                original_album_id, original_album_subpath,
+                live_role, live_partner_rel,
+                aspect_ratio, year, month, media_type, is_favorite,
+                location, micro_thumbnail
+            )
+            SELECT
+                SUBSTR(rel, ?),
+                id,
+                '', -- Local index parent_album_path is root
+                dt, ts, bytes, mime, make, model, lens,
+                iso, f_number, exposure_time, exposure_compensation, focal_length,
+                w, h, gps, content_id, frame_rate, codec,
+                still_image_time, dur, original_rel_path,
+                original_album_id, original_album_subpath,
+                live_role,
+                CASE
+                    WHEN live_partner_rel LIKE ? THEN SUBSTR(live_partner_rel, ?)
+                    ELSE live_partner_rel
+                END,
+                aspect_ratio, year, month, media_type, is_favorite,
+                location, micro_thumbnail
+            FROM global_db.assets
+            WHERE parent_album_path = ? OR parent_album_path LIKE ? ESCAPE '\\'
+        """
+
+        # Params:
+        # 1. substr_start (for rel)
+        # 2. album_prefix_pattern (for live_partner_rel check)
+        # 3. substr_start (for live_partner_rel)
+        # 4. album_rel_path (exact match parent)
+        # 5. album_prefix_pattern (sub-albums parent)
+
+        conn.execute(query, (substr_start, album_prefix_pattern, substr_start, album_rel_path, album_prefix_pattern))
+
     def apply_live_role_updates(self, updates: List[Tuple[str, int, Optional[str]]]) -> None:
         """Update live_role and live_partner_rel for a batch of assets.
 

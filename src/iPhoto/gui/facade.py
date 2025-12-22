@@ -20,8 +20,9 @@ from .services import (
     AssetMoveService,
     LibraryUpdateService,
 )
-from .ui.tasks.index_persist_worker import IndexPersistWorker
-from .ui.tasks.asset_loader_worker import compute_album_path, adjust_rel_for_album
+from ..cache.index_store import GLOBAL_INDEX_DB_NAME
+from ..config import WORK_DIR_NAME
+from .ui.tasks.asset_loader_worker import compute_album_path
 
 if TYPE_CHECKING:
     from ..library.manager import LibraryManager
@@ -262,73 +263,40 @@ class AppFacade(QObject):
         if self._library_manager and self._library_manager.is_scanning_path(album_root):
             is_already_scanning = True
 
-        # Hybrid Loading: If local index is empty but we have data in the library model, use it.
-        # This provides "instant" view and we persist it to the local DB in the background.
-        hybrid_loaded = False
+        # Database Migration: If local index is empty but we have data in the global library, migrate it.
+        # This provides "instant" view by populating the local DB immediately via SQL, then standard loading picks it up.
+        # This is faster than file scanning and avoids logic conflicts between in-memory injection and disk loading.
         if not has_assets and target_model is self._album_list_model:
-            # Check if Library Model has data for this album
-            if self._library_list_model.rowCount() > 0 and self._library_manager:
+            # Check if Library Manager is available
+            if self._library_manager:
                 try:
-                    # Optimized lookup: Use Global Index to find relevant RELs, then fetch full entries from RAM.
-                    # This avoids iterating thousands of paths on the main thread (which caused freezing).
                     library_root = self._library_manager.root()
                     effective_index_root, album_rel_path = compute_album_path(album_root, library_root)
 
-                    preloaded_assets = []
                     if album_rel_path:
-                        # Use SQL index to find assets in this folder (fast)
-                        store = backend.IndexStore(effective_index_root)
-                        # We iterate the result cursor. Since it's filtered by album, it should be small for sub-albums.
-                        for row in store.read_album_assets(album_rel_path, include_subalbums=True):
-                            rel = row.get("rel")
-                            if rel:
-                                # O(1) lookup in the already-loaded library model
-                                entry = self._library_list_model.get_entry_by_rel(str(rel))
-                                if entry:
-                                    preloaded_assets.append(entry)
+                        global_db_path = effective_index_root / WORK_DIR_NAME / GLOBAL_INDEX_DB_NAME
 
-                    if preloaded_assets:
-                        # Optimization: Pass raw entries and album_rel_path to model and worker.
-                        # Path adjustment (rel, live_rel, parent) is performed incrementally/background
-                        # to avoid freezing the UI with a large O(N) synchronous loop here.
+                        # Use SQL-level migration for speed and correctness
+                        self._logger.info("Migrating index for %s from global database...", album_root)
+                        local_store = backend.IndexStore(album_root) # Uses default global_index.db locally
+                        local_store.merge_from_global_db(global_db_path, album_rel_path)
 
-                        # Transfer thumbnails first (requires Library-Relative REL which we have in preloaded_assets)
-                        # We do this here because we have access to _library_list_model.
-                        # Note: We need the Adjusted (Local) REL to key the target cache.
-                        # Since we are deferring adjustment, we must compute local REL for thumbnails on the fly.
-                        # This is a small O(N) loop but much faster than full dict copying/adjustment.
-                        if album_rel_path:
-                            prefix_len = len(album_rel_path) + 1
-                            for entry in preloaded_assets:
-                                lib_rel = str(entry.get("rel"))
-                                if lib_rel:
-                                    cached_thumb = self._library_list_model.get_cached_thumbnail(lib_rel)
+                        # Transfer thumbnails to local cache manager to ensure instant visuals
+                        # We iterate the newly populated local store to get RELs, then fetch from Library Model
+                        # This is O(N) but typically fast for sub-albums, and critical for UX.
+                        if self._library_list_model.rowCount() > 0:
+                            for row in local_store.read_geometry_only():
+                                local_rel = row.get("rel")
+                                if local_rel:
+                                    # Reconstruct global rel for lookup
+                                    global_rel = f"{album_rel_path}/{local_rel}"
+                                    cached_thumb = self._library_list_model.get_cached_thumbnail(global_rel)
                                     if cached_thumb:
-                                        # Simple string slice for speed, assumes valid prefix from query
-                                        local_rel = lib_rel[prefix_len:] if len(lib_rel) > prefix_len else lib_rel
-                                        target_model.inject_cached_thumbnail(local_rel, cached_thumb)
-                        else:
-                            # Library Root (no adjustment needed), just copy thumbs
-                            for entry in preloaded_assets:
-                                rel = str(entry.get("rel"))
-                                if rel:
-                                    cached_thumb = self._library_list_model.get_cached_thumbnail(rel)
-                                    if cached_thumb:
-                                        target_model.inject_cached_thumbnail(rel, cached_thumb)
+                                        target_model.inject_cached_thumbnail(str(local_rel), cached_thumb)
 
-                        self._logger.info("Hybrid Loading: Injected %d assets from library model into %s", len(preloaded_assets), album_root)
-
-                        # Inject raw entries; model will adjust paths incrementally
-                        target_model.ingest_existing_items(preloaded_assets, album_rel_path)
-
-                        # Persist raw entries; worker will adjust paths in background
-                        worker = IndexPersistWorker(album_root, preloaded_assets, album_rel_path)
-                        self._task_manager.start(worker)
-
-                        hybrid_loaded = True
-                        has_assets = True # Skip redundant rescan as we have valid data
+                        has_assets = True # Skip rescan
                 except Exception as e:
-                    self._logger.error("Hybrid loading failed: %s", e)
+                    self._logger.error("Database migration failed: %s", e)
 
         if not has_assets and not is_already_scanning:
             self.rescan_current_async()
@@ -337,9 +305,7 @@ class AppFacade(QObject):
 
         # If we skipped preparation (cached library model), we also skip the load restart
         # unless a force reload was requested.
-        # CRITICAL: If hybrid loading succeeded, we MUST skip _restart_asset_load because
-        # start_load() clears the model, which would wipe the data we just injected from RAM.
-        if (should_prepare or force_reload) and not hybrid_loaded:
+        if should_prepare or force_reload:
             self._restart_asset_load(
                 album_root,
                 announce_index=True,
