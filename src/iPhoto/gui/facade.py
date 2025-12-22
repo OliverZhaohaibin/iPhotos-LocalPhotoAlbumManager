@@ -288,47 +288,41 @@ class AppFacade(QObject):
                                     preloaded_assets.append(entry)
 
                     if preloaded_assets:
-                        # Adjust paths to be relative to the album root before using them.
-                        # The global index stores paths relative to the Library Root (e.g. "2023/Trip/img.jpg").
-                        # The local album index/model expects paths relative to the Album Root (e.g. "img.jpg").
-                        # We must adjust both 'rel' and 'live_partner_rel' to avoid logic conflicts and failed lookups
-                        # in the local context.
-                        adjusted_assets = []
-                        for entry in preloaded_assets:
-                            # Adjust 'rel' using the standard helper
-                            new_entry = adjust_rel_for_album(entry, album_rel_path)
+                        # Optimization: Pass raw entries and album_rel_path to model and worker.
+                        # Path adjustment (rel, live_rel, parent) is performed incrementally/background
+                        # to avoid freezing the UI with a large O(N) synchronous loop here.
 
-                            # Manually adjust 'live_partner_rel' if present, as the helper only handles 'rel'.
-                            # Live partners in the global index are also library-relative.
-                            live_rel = new_entry.get("live_partner_rel")
-                            if album_rel_path and isinstance(live_rel, str) and live_rel.startswith(album_rel_path + "/"):
-                                new_entry["live_partner_rel"] = live_rel[len(album_rel_path) + 1:]
+                        # Transfer thumbnails first (requires Library-Relative REL which we have in preloaded_assets)
+                        # We do this here because we have access to _library_list_model.
+                        # Note: We need the Adjusted (Local) REL to key the target cache.
+                        # Since we are deferring adjustment, we must compute local REL for thumbnails on the fly.
+                        # This is a small O(N) loop but much faster than full dict copying/adjustment.
+                        if album_rel_path:
+                            prefix_len = len(album_rel_path) + 1
+                            for entry in preloaded_assets:
+                                lib_rel = str(entry.get("rel"))
+                                if lib_rel:
+                                    cached_thumb = self._library_list_model.get_cached_thumbnail(lib_rel)
+                                    if cached_thumb:
+                                        # Simple string slice for speed, assumes valid prefix from query
+                                        local_rel = lib_rel[prefix_len:] if len(lib_rel) > prefix_len else lib_rel
+                                        target_model.inject_cached_thumbnail(local_rel, cached_thumb)
+                        else:
+                            # Library Root (no adjustment needed), just copy thumbs
+                            for entry in preloaded_assets:
+                                rel = str(entry.get("rel"))
+                                if rel:
+                                    cached_thumb = self._library_list_model.get_cached_thumbnail(rel)
+                                    if cached_thumb:
+                                        target_model.inject_cached_thumbnail(rel, cached_thumb)
 
-                            # Remove 'parent_album_path' so that the local IndexStore re-calculates it based on the
-                            # new local 'rel'. The global 'parent_album_path' (e.g. "2023/Trip") is invalid
-                            # in the context of the local album root (where it should be "" or relative to root).
-                            # This prevents the local index from hiding assets under incorrect parent paths.
-                            if "parent_album_path" in new_entry:
-                                del new_entry["parent_album_path"]
+                        self._logger.info("Hybrid Loading: Injected %d assets from library model into %s", len(preloaded_assets), album_root)
 
-                            adjusted_assets.append(new_entry)
+                        # Inject raw entries; model will adjust paths incrementally
+                        target_model.ingest_existing_items(preloaded_assets, album_rel_path)
 
-                            # Also transfer in-memory thumbnails if available to ensure instant display
-                            # The library model uses the global 'rel' (e.g. "2023/Trip/img.jpg")
-                            # The local model needs the thumbnail keyed by local 'rel' (e.g. "img.jpg")
-                            if rel:
-                                cached_thumb = self._library_list_model.get_cached_thumbnail(str(rel))
-                                if cached_thumb:
-                                    target_model.inject_cached_thumbnail(str(new_entry["rel"]), cached_thumb)
-
-                        self._logger.info("Hybrid Loading: Injected %d assets from library model into %s", len(adjusted_assets), album_root)
-
-                        # Inject adjusted entries into model immediately
-                        target_model.ingest_existing_items(adjusted_assets)
-
-                        # Persist adjusted entries to local DB in background
-                        # This is crucial: The local index.db must contain album-relative paths.
-                        worker = IndexPersistWorker(album_root, adjusted_assets)
+                        # Persist raw entries; worker will adjust paths in background
+                        worker = IndexPersistWorker(album_root, preloaded_assets, album_rel_path)
                         self._task_manager.start(worker)
 
                         hybrid_loaded = True
