@@ -58,6 +58,7 @@ class AssetDataOrchestrator(QObject):
         self,
         data_loader: "AssetDataLoader",
         filter_handler: ModelFilterHandler,
+        state_manager: "AssetListStateManager",
         parent: Optional[QObject] = None,
     ):
         """Initialize the orchestrator.
@@ -65,11 +66,13 @@ class AssetDataOrchestrator(QObject):
         Args:
             data_loader: The AssetDataLoader instance to manage.
             filter_handler: Filter handler for applying filters to chunks.
+            state_manager: State manager for checking existing assets.
             parent: Parent QObject.
         """
         super().__init__(parent)
         self._data_loader = data_loader
         self._filter_handler = filter_handler
+        self._state_manager = state_manager
         
         # Streaming buffer for throttled updates
         self._stream_buffer = AssetStreamBuffer(
@@ -201,18 +204,18 @@ class AssetDataOrchestrator(QObject):
         
         # Delegate to stream buffer (which will call _on_batch_ready)
         # Note: The buffer needs access to existing rows for deduplication
-        # This will be handled by the callback
         if self._stream_buffer.is_first_chunk():
             # Signal the model to decide on reset vs append
             # based on whether it already has rows
             self.firstChunkReady.emit(chunk, True)
             self._stream_buffer.mark_first_chunk_processed()
         else:
-            # Add to buffer - deduplication happens in the model
-            # for now since it needs access to row_lookup
-            # This is a simplification for Phase 1
-            # In future, we can improve this
-            pass
+            # Add to buffer with deduplication against existing model rows
+            self._stream_buffer.add_chunk(
+                chunk,
+                self._state_manager.row_lookup.keys(),
+                self._state_manager.get_index_by_abs
+            )
     
     def add_chunk_to_buffer(
         self,
@@ -221,7 +224,7 @@ class AssetDataOrchestrator(QObject):
         existing_abs_lookup: Any,
     ) -> None:
         """Add a chunk to the streaming buffer after deduplication."""
-        unique_chunk = self._stream_buffer.add_chunk(
+        self._stream_buffer.add_chunk(
             chunk, existing_rels, existing_abs_lookup
         )
     
