@@ -98,6 +98,7 @@ class AssetListController(QObject):
         self._pending_loader_root: Optional[Path] = None
         self._deferred_incremental_refresh: Optional[Path] = None
         self._ignore_incoming_chunks: bool = False
+        self._reload_pending: bool = False
 
         # Facade connections
         self._facade.scanChunkReady.connect(self._on_scan_chunk_ready)
@@ -113,6 +114,9 @@ class AssetListController(QObject):
             self._ignore_incoming_chunks = True
         else:
             self._ignore_incoming_chunks = False
+
+        # When preparing for a new album, we should drop any pending reloads for the old one.
+        self._reload_pending = False
 
         self._album_root = root
         self._set_deferred_incremental_refresh(None)
@@ -146,12 +150,14 @@ class AssetListController(QObject):
             return
 
         if self._data_loader.is_running():
+            self._reload_pending = True
             self._data_loader.cancel()
             self._ignore_incoming_chunks = True
             self._reset_buffers()
             self._is_first_chunk = True
             return
 
+        self._reload_pending = False
         self._reset_buffers()
         self._is_first_chunk = True
 
@@ -382,9 +388,17 @@ class AssetListController(QObject):
             self._pending_loader_root = None
             self._reset_buffers()
             self.loadFinished.emit(root, success)
+
+            if self._reload_pending:
+                self._reload_pending = False
+                QTimer.singleShot(0, self.start_load)
             return
 
         if not self._album_root or root != self._album_root:
+            # Stale load
+            if self._reload_pending:
+                self._reload_pending = False
+                QTimer.singleShot(0, self.start_load)
             return
 
         if not self._pending_chunks_buffer:
@@ -392,6 +406,11 @@ class AssetListController(QObject):
         else:
             self._pending_finish_event = (root, success)
             self._flush_pending_chunks()
+
+        # In case we finished a load but a reload was queued during it (though start_load normally cancels)
+        # This handles edge cases where running was False but we queued somehow?
+        # Mostly defensive, but `start_load` sets `_reload_pending` ONLY if running.
+        # If we finished naturally, `_reload_pending` should be False, unless set externally.
 
     def _finalize_loading(self, root: Path, success: bool) -> None:
         self._pending_finish_event = None
@@ -416,12 +435,19 @@ class AssetListController(QObject):
     def _on_loader_error(self, root: Path, message: str) -> None:
         if not self._album_root or root != self._album_root:
             self.loadFinished.emit(root, False)
+            if self._reload_pending:
+                self._reload_pending = False
+                QTimer.singleShot(0, self.start_load)
             return
 
         self.error.emit(root, message)
         self.loadFinished.emit(root, False)
         self._reset_buffers()
         self._pending_loader_root = None
+
+        if self._reload_pending:
+            self._reload_pending = False
+            QTimer.singleShot(0, self.start_load)
 
     def handle_links_updated(
         self, root: Path, current_album_root: Optional[Path]
