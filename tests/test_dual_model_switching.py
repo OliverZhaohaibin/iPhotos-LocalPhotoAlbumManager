@@ -48,13 +48,16 @@ def test_dual_model_switching(tmp_path: Path, qapp: QApplication) -> None:
     assert library_model is not None
     assert facade._active_model == facade._library_list_model
 
-    # 2. Open Sub-Album
+    # 2. Open Sub-Album - NEW BEHAVIOR: Should also use library_list_model
+    # This is the key optimization - subfolders within the library reuse
+    # the library model to avoid duplicate indexing and model reset
     facade.open_album(album_dir)
     qapp.processEvents()
     album_model = facade.asset_list_model
     assert album_model is not None
-    assert album_model != library_model
-    assert facade._active_model == facade._album_list_model
+    # NEW: Sub-album within library now uses library_list_model
+    assert album_model == library_model
+    assert facade._active_model == facade._library_list_model
 
     # 3. Switch back to Library Root
     facade.open_album(root)
@@ -67,29 +70,29 @@ def test_dual_model_switching(tmp_path: Path, qapp: QApplication) -> None:
     signaled_models = []
     facade.activeModelChanged.connect(lambda m: signaled_models.append(m))
 
-    # Switch to Album
+    # Switch to Album - NEW: No model change signal since we're staying in library_list_model
     facade.open_album(album_dir)
     qapp.processEvents()
-    assert len(signaled_models) == 1
-    assert signaled_models[0] == album_model
+    # NEW: No signal emitted since model didn't change
+    assert len(signaled_models) == 0
 
     # Re-open same album (should NOT emit signal)
     facade.open_album(album_dir)
     qapp.processEvents()
-    assert len(signaled_models) == 1
+    assert len(signaled_models) == 0
 
-    # Switch to Library
+    # Switch to Library - NEW: No signal since already using library_list_model
     facade.open_album(root)
     qapp.processEvents()
-    assert len(signaled_models) == 2
-    assert signaled_models[1] == library_model
+    # NEW: Still no signal since we never left library_list_model
+    assert len(signaled_models) == 0
 
     # Re-open Library (should NOT emit signal)
     facade.open_album(root)
     qapp.processEvents()
-    assert len(signaled_models) == 2
+    assert len(signaled_models) == 0
 
-    # Rapid switching simulation
+    # Rapid switching simulation - All stay within library_list_model
     facade.open_album(album_dir)
     qapp.processEvents()
     facade.open_album(root)
@@ -97,6 +100,6 @@ def test_dual_model_switching(tmp_path: Path, qapp: QApplication) -> None:
     facade.open_album(album_dir)
     qapp.processEvents()
 
-
+    # Verify final state: still using library_list_model
     facade.open_album(root)
-    assert facade.asset_list_model == facade._album_list_model
+    assert facade.asset_list_model == facade._library_list_model
