@@ -197,36 +197,74 @@ class AppFacade(QObject):
         # Determine whether to use the persistent library model or the transient album model.
         target_model = self._album_list_model
         library_root = self._library_manager.root() if self._library_manager else None
+        is_library_descendant = False
 
         # If the requested root matches the library root, assume we are viewing the
         # aggregated "All Photos" collection (or similar library-wide view).
-        if library_root and self._paths_equal(root, library_root):
-            target_model = self._library_list_model
+        # Also check if root is a subfolder of library - use library model to avoid
+        # duplicate indexing and model reset.
+        if library_root:
+            if self._paths_equal(root, library_root):
+                target_model = self._library_list_model
+                is_library_descendant = True
+            else:
+                # Check if root is a descendant of library_root
+                try:
+                    root_resolved = root.resolve()
+                    library_resolved = library_root.resolve()
+                    # Try to get relative path - if it succeeds, root is under library
+                    root_resolved.relative_to(library_resolved)
+                    # If we get here without ValueError, it's a descendant
+                    target_model = self._library_list_model
+                    is_library_descendant = True
+                except (ValueError, OSError):
+                    # Not a descendant, use separate album model
+                    target_model = self._album_list_model
 
         self._current_album = album
         album_root = album.root
 
         # Optimization: If using the persistent library model and it already has data,
-        # skip the reset/prepare step to keep the switch instant.
+        # we can optimize the switch to avoid unnecessary reset/reload cycles.
+        # This optimization now applies when:
+        # 1. Switching between library root and its subfolders
+        # 2. Switching between different subfolders within the library
         should_prepare = True
-        if target_model is self._library_list_model:
-            # We assume a non-zero row count means the model is populated.
-            # Ideally we would check if it's populated for *this specific root*,
-            # but the library model is dedicated to the library root.
-            #
-            # Note: This check is thread-safe because `AppFacade`, `AssetListModel`,
-            # and `open_album` all run on the main UI thread. Background updates
-            # are marshaled to the main thread via signals before modifying the model.
+        use_lightweight_switch = False
+        
+        if is_library_descendant and target_model is self._library_list_model:
+            # We are using the library model for a library path.
+            # Check if the model already has library data loaded.
             existing_root = target_model.album_root()
+            library_resolved = library_root.resolve() if library_root else None
+            
+            # Use lightweight switching if:
+            # - Model has rows (data is loaded)
+            # - Existing root is within the same library
+            # - Model is valid
             if (
                 target_model.rowCount() > 0
                 and existing_root is not None
-                and self._paths_equal(existing_root, album_root)
+                and library_resolved is not None
                 and getattr(target_model, "is_valid", lambda: False)()
             ):
-                should_prepare = False
+                try:
+                    existing_resolved = existing_root.resolve()
+                    # Check if existing root is library root or its descendant
+                    if (existing_resolved == library_resolved or 
+                        library_resolved in existing_resolved.parents):
+                        # We're already showing library data, just need to update
+                        # the view context for the new subfolder
+                        use_lightweight_switch = True
+                        should_prepare = False
+                except (ValueError, OSError):
+                    pass
 
-        if should_prepare:
+        if use_lightweight_switch:
+            # Lightweight path: update album root without resetting model
+            target_model.update_album_root_lightweight(album_root)
+        elif should_prepare:
+            # Standard path: full model reset and preparation
             target_model.prepare_for_album(album_root)
 
         # If switching models, notify listeners (e.g. DataManager to update the proxy).
@@ -260,9 +298,11 @@ class AppFacade(QObject):
 
         force_reload = self._library_update_service.consume_forced_reload(album_root)
 
-        # If we skipped preparation (cached library model), we also skip the load restart
-        # unless a force reload was requested.
-        if should_prepare or force_reload:
+        # Start data load if:
+        # - We did a full preparation (model was reset)
+        # - We did a lightweight switch (need to reload with new filter)
+        # - Force reload was requested
+        if should_prepare or use_lightweight_switch or force_reload:
             self._restart_asset_load(
                 album_root,
                 announce_index=True,

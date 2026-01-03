@@ -138,6 +138,16 @@ class AssetListController(QObject):
         self._reset_buffers()
         self._pending_loader_root = None
 
+    def prepare_for_album_lightweight(self, root: Path) -> None:
+        """Update album root for lightweight navigation within library.
+        
+        This method is used when switching between the library root and its subfolders,
+        or between different subfolders. It updates the album_root without clearing
+        buffers or canceling workers, allowing for a smoother transition.
+        """
+        self._album_root = root
+        # Note: We don't reset buffers or cancel workers here to allow smooth transition
+
     def _reset_buffers(self) -> None:
         """Clear streaming buffers."""
         self._pending_chunks_buffer = []

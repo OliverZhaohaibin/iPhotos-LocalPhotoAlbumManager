@@ -280,6 +280,18 @@ class AssetListModel(QAbstractListModel):
         self._state_manager.set_virtual_reload_suppressed(False)
         self._state_manager.set_virtual_move_requires_revisit(False)
 
+    def update_album_root_lightweight(self, root: Path) -> None:
+        """Update album root without resetting the model - for library subfolder navigation.
+        
+        This method is used when navigating between the library root and its subfolders,
+        or between different subfolders within the library. It updates the internal
+        album_root tracking without clearing the model data, allowing the data loader
+        to filter the existing library data by path.
+        """
+        self._controller.prepare_for_album_lightweight(root)
+        self._album_root = root
+        self._cache_manager.reset_for_album(root)
+
     def update_featured_status(self, rel: str, is_featured: bool) -> None:
         """Update the cached ``featured`` flag for the asset identified by *rel*."""
         rel_key = str(rel)
