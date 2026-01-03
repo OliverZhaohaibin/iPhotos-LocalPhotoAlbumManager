@@ -29,6 +29,7 @@ from ..tasks.asset_loader_worker import (
 from ..tasks.incremental_refresh_worker import IncrementalRefreshSignals, IncrementalRefreshWorker
 from .asset_cache_manager import AssetCacheManager
 from .asset_data_loader import AssetDataLoader
+from .asset_list import AssetDataOrchestrator
 from .asset_state_manager import AssetListStateManager
 from .asset_row_adapter import AssetRowAdapter
 from .list_diff_calculator import ListDiffCalculator
@@ -643,70 +644,17 @@ class AssetListModel(QAbstractListModel):
         if not self._album_root or not chunk:
             return
 
-        # Ensure asset paths are correctly interpreted relative to the current album view.
-        # If the scan root and album root differ, re-base or filter asset paths so that
-        # they are relative to the album root as expected by AssetListModel.
-        try:
-            scan_root = root.resolve()
-            view_root = self._album_root.resolve()
-        except OSError as exc:
-            logger.warning("Failed to resolve paths during scan chunk processing: %s", exc)
-            return
-
-        is_direct_match = (scan_root == view_root)
-        is_scan_parent_of_view = (scan_root in view_root.parents)
-
-        if not (is_direct_match or is_scan_parent_of_view):
-            return
-
         manifest = self._facade.current_album.manifest if self._facade.current_album else {}
         featured = manifest.get("featured", []) or []
-        featured_set = normalize_featured(featured)
 
-        entries: List[Dict[str, object]] = []
-        for row in chunk:
-            # `row['rel']` is relative to `scan_root`
-            raw_rel = row.get("rel")
-            if not raw_rel:
-                continue
-
-            full_path = scan_root / raw_rel
-
-            # Check if file is inside view_root
-            try:
-                view_rel = full_path.relative_to(view_root).as_posix()
-            except ValueError:
-                # File not inside current view
-                continue
-            except OSError as e:
-                logger.error(
-                    "OSError while checking if %s is relative to %s: %s",
-                    full_path, view_root, e
-                )
-                continue
-
-            # Re-check uniqueness using the VIEW relative path
-            if normalise_rel_value(view_rel) in self._state_manager.row_lookup:
-                continue
-
-            # Re-base the row's 'rel' path to be relative to the current view root.
-            # Creates a shallow copy to avoid modifying the original row dict.
-            adjusted_row = row.copy()
-            adjusted_row['rel'] = view_rel
-
-            entry = build_asset_entry(
-                view_root, adjusted_row, featured_set
-            )
-
-            if entry is not None:
-                if self._active_filter == "videos" and not entry.get("is_video"):
-                    continue
-                if self._active_filter == "live" and not entry.get("is_live"):
-                    continue
-                if self._active_filter == "favorites" and not entry.get("featured"):
-                    continue
-
-                entries.append(entry)
+        entries = AssetDataOrchestrator.process_scan_chunk(
+            root,
+            chunk,
+            self._album_root,
+            self._state_manager,
+            featured=featured,
+            filter_mode=self._active_filter,
+        )
 
         if entries:
             start_row = self._state_manager.row_count()
