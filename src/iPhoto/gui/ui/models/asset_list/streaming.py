@@ -5,7 +5,7 @@ to keep the UI responsive during large data loads.
 """
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QTimer
 
@@ -82,7 +82,7 @@ class AssetStreamBuffer:
     def add_chunk(
         self,
         chunk: List[Dict[str, object]],
-        existing_rels: set[str],
+        existing_rels: Any,
         existing_abs_lookup: Callable[[str], Optional[int]],
     ) -> List[Dict[str, object]]:
         """Add a chunk to the buffer after deduplication.

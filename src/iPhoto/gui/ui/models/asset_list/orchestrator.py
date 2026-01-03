@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
@@ -57,6 +57,7 @@ class AssetDataOrchestrator(QObject):
         self,
         data_loader: "AssetDataLoader",
         filter_handler: ModelFilterHandler,
+        existing_items_provider: Callable[[], tuple[dict[str, int], Callable[[str], Optional[int]]]],
         parent: Optional[QObject] = None,
     ):
         """Initialize the orchestrator.
@@ -64,11 +65,13 @@ class AssetDataOrchestrator(QObject):
         Args:
             data_loader: The AssetDataLoader instance to manage.
             filter_handler: Filter handler for applying filters to chunks.
+            existing_items_provider: Callback returning (row_lookup, abs_lookup_func).
             parent: Parent QObject.
         """
         super().__init__(parent)
         self._data_loader = data_loader
         self._filter_handler = filter_handler
+        self._existing_items_provider = existing_items_provider
         
         # Streaming buffer for throttled updates
         self._stream_buffer = AssetStreamBuffer(
@@ -207,11 +210,9 @@ class AssetDataOrchestrator(QObject):
             self.firstChunkReady.emit(chunk, True)
             self._stream_buffer.mark_first_chunk_processed()
         else:
-            # Add to buffer - deduplication happens in the model
-            # for now since it needs access to row_lookup
-            # This is a simplification for Phase 1
-            # In future, we can improve this
-            pass
+            # Add to buffer with deduplication
+            row_lookup, abs_lookup = self._existing_items_provider()
+            self.add_chunk_to_buffer(chunk, row_lookup, abs_lookup)
     
     def add_chunk_to_buffer(
         self,

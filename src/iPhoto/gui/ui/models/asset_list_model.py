@@ -76,6 +76,10 @@ class AssetListModel(QAbstractListModel):
         self._orchestrator = AssetDataOrchestrator(
             self._data_loader,
             self._filter_handler,
+            existing_items_provider=lambda: (
+                self._state_manager.row_lookup,
+                self._state_manager.get_index_by_abs
+            ),
             parent=self
         )
 
