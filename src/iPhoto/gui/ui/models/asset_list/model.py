@@ -29,7 +29,7 @@ from ...tasks.asset_loader_worker import (
 from ...tasks.incremental_refresh_worker import IncrementalRefreshSignals, IncrementalRefreshWorker
 from ..asset_cache_manager import AssetCacheManager
 from ..asset_data_loader import AssetDataLoader
-from .orchestrator import AssetDataOrchestrator
+from . import AssetDataOrchestrator
 from ..asset_state_manager import AssetListStateManager
 from ..asset_row_adapter import AssetRowAdapter
 from ..list_diff_calculator import ListDiffCalculator
