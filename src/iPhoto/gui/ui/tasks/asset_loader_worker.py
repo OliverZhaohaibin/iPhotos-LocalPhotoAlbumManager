@@ -55,7 +55,7 @@ def compute_album_path(
     # album filters (which would leak All Photos into physical album views).
     try:
         rel = Path(os.path.relpath(root, library_root)).as_posix()
-    except Exception:
+    except (ValueError, OSError):
         rel = None
 
     if rel is None or rel.startswith(".."):
