@@ -49,6 +49,12 @@ def _compute_album_path(root: Path, library_root: Optional[Path]) -> Optional[st
         library_root,
         rel,
     )
+    LOGGER.debug(
+        "Computed album path: root=%s, library_root=%s, rel=%s",
+        root,
+        library_root,
+        rel,
+    )
     return rel
 
 
