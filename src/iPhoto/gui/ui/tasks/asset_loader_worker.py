@@ -67,7 +67,12 @@ def compute_album_path(
         return library_root, None
 
     # Debug trace to diagnose album filtering issues
-    print(f"[debug] asset_loader.compute_album_path root={root} library_root={library_root} album_path={rel}")
+    LOGGER.debug(
+        "asset_loader.compute_album_path root=%s library_root=%s album_path=%s",
+        root,
+        library_root,
+        rel,
+    )
 
     return library_root, rel
 
