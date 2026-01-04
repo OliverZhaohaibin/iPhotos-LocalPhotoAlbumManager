@@ -63,8 +63,20 @@ def compute_album_path(
         album_path = root_resolved.relative_to(library_resolved).as_posix()
         return library_root, album_path
     except (ValueError, OSError):
-        # If root is not under library_root, fall back to using root as index
-        return root, None
+        # If path resolution fails (e.g. case or symlink differences), stick to the
+        # single global database at the library root and simply skip album filtering.
+        # This avoids accidentally creating per-folder databases.
+        # Best-effort fallback: try a case-insensitive prefix check to recover album_path.
+        lib_str = library_root.as_posix()
+        root_str = root.as_posix()
+        if root_str.lower().startswith(lib_str.lower().rstrip("/")):
+            # Derive a relative path without relying on Path.relative_to semantics.
+            try:
+                album_path = Path(os.path.relpath(root, library_root)).as_posix()
+            except Exception:
+                album_path = None
+            return library_root, album_path
+        return library_root, None
 
 
 def adjust_rel_for_album(row: Dict[str, object], album_path: Optional[str]) -> Dict[str, object]:
