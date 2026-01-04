@@ -99,7 +99,10 @@ class AssetListModel(QAbstractListModel):
         return self._album_root
 
     def is_valid(self) -> bool:
-        """Return ``True`` when the cached rows represent the active album."""
+        """
+        Return ``True`` when a successful load was recorded for the current album.
+        Cleared whenever the album context changes, filters change, or a new load starts.
+        """
 
         return bool(self._is_valid and self._album_root)
 

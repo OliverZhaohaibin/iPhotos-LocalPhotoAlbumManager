@@ -107,6 +107,34 @@ def test_open_library_root_reuses_cached_model(monkeypatch, tmp_path: Path, qapp
     root = tmp_path / "Library"
     root.mkdir()
 
+    class _StubListModel:
+        def __init__(self, rows: int = 1, valid: bool = False) -> None:
+            self._rows = rows
+            self._album_root: Path | None = None
+            self._valid = valid
+            self.prepared: list[Path] = []
+
+        def prepare_for_album(self, album_root: Path) -> None:
+            self.prepared.append(album_root)
+            self._album_root = album_root
+            self._valid = False
+
+        def album_root(self) -> Path | None:
+            return self._album_root
+
+        def rowCount(self) -> int:
+            return self._rows
+
+        def is_valid(self) -> bool:
+            return self._valid
+
+        def set_library_root(self, _root: Path) -> None:
+            return
+
+        def _on_controller_load_finished(self, root: Path, success: bool) -> None:
+            # Mirror the production validity flag so the caching check behaves identically.
+            self._valid = bool(success and self._album_root and root == self._album_root)
+
     facade = AppFacade()
     facade._library_manager = SimpleNamespace(
         root=lambda: root,
@@ -121,12 +149,19 @@ def test_open_library_root_reuses_cached_model(monkeypatch, tmp_path: Path, qapp
     facade._library_update_service.reset_cache = lambda: None
     facade._library_update_service.cancel_active_scan = lambda: None
 
+    library_model = _StubListModel()
+    album_model = _StubListModel(rows=0)
+    facade._library_list_model = library_model
+    facade._album_list_model = album_model
+    facade._active_model = library_model
+
     def _fake_open_album(path: Path, autoscan: bool = False, library_root: Path | None = None):
+        # autoscan/library_root are irrelevant for the cache reuse check exercised here.
         return SimpleNamespace(root=path, manifest={"title": path.name})
 
     class _StubIndexStore:
         def __init__(self, *_args, **_kwargs) -> None:
-            return
+            pass
 
         def read_all(self):
             return iter([{"id": 1}])
@@ -141,13 +176,7 @@ def test_open_library_root_reuses_cached_model(monkeypatch, tmp_path: Path, qapp
     monkeypatch.setattr("src.iPhoto.gui.facade.backend.IndexStore", _StubIndexStore)
 
     facade.open_album(root)
-
-    library_model = facade._library_list_model
-    library_model._album_root = root
-    library_model._state_manager.set_rows(
-        [{"rel": "a.jpg", "abs": str(root / "a.jpg"), "id": 1}]
-    )
-    library_model._is_valid = True
+    library_model._on_controller_load_finished(root, True)
 
     restart_calls.clear()
     facade.open_album(root)
