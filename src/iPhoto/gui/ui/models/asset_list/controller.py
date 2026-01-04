@@ -124,7 +124,10 @@ class AssetListController(QObject):
                 self._live_signals.chunkReady.disconnect(self._on_loader_chunk_ready)
             except RuntimeError:
                 pass
-            self._live_signals.deleteLater()
+            try:
+                self._live_signals.deleteLater()
+            except RuntimeError:
+                pass  # C++ object already deleted
             self._live_signals = None
 
         # Cleanup incremental refresh worker
@@ -204,7 +207,10 @@ class AssetListController(QObject):
                             self._live_signals.chunkReady.disconnect(self._on_loader_chunk_ready)
                         except RuntimeError:
                             pass
-                        self._live_signals.deleteLater()
+                        try:
+                            self._live_signals.deleteLater()
+                        except RuntimeError:
+                            pass  # C++ object already deleted
                         self._live_signals = None
 
                     live_items = self._facade.library_manager.get_live_scan_results(

@@ -240,9 +240,11 @@ class AppFacade(QObject):
 
         # Check if the index is empty (likely because it's a new or cleaned album)
         # and trigger a background scan if necessary.
+        # Use library_root for global database if available, otherwise use album_root
+        index_root = library_root if library_root else album_root
         has_assets = False
         try:
-            store = backend.IndexStore(album_root)
+            store = backend.IndexStore(index_root)
             # Peek at the first item to see if there is any data.
             # read_all returns an iterator, so next() is sufficient.
             next(store.read_all())
