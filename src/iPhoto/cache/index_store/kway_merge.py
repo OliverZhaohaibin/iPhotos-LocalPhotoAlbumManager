@@ -138,8 +138,12 @@ def _sort_key(item: Dict[str, Any]) -> Tuple[str, str]:
         item: Asset dictionary.
         
     Returns:
-        A tuple (dt, id) for sorting. Missing values are handled gracefully.
+        A tuple (dt, id) for sorting. Items with missing dt or id values will sort
+        after items with valid values due to empty string being lexicographically
+        smaller than timestamps and IDs.
     """
+    # Use empty string as fallback so items with missing keys sort last
+    # (empty string < "2023-..." in lexicographic comparison)
     dt = item.get("dt") or ""
     item_id = item.get("id") or ""
     return (dt, item_id)
@@ -150,15 +154,17 @@ class _HeapEntry:
     """Wrapper for heap entries that supports reverse comparison.
     
     Since heapq is a min-heap but we want descending order (newest first),
-    we invert the comparison operators.
+    we invert the comparison operators so that items with larger dt values
+    are considered "smaller" by the heap, causing them to be popped first.
     """
     sort_key: Tuple[str, str]
     source_index: int
     item: Dict[str, Any]
     
     def __lt__(self, other: "_HeapEntry") -> bool:
-        # Reverse comparison for descending order
-        # Larger dt values should come first
+        # Use > instead of < to achieve descending order in a min-heap.
+        # This makes items with larger (more recent) dt values "smaller"
+        # in heap terms, so they get popped first.
         return self.sort_key > other.sort_key
     
     def __eq__(self, other: object) -> bool:
