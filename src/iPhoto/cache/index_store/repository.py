@@ -275,6 +275,7 @@ class AssetRepository:
             limit=limit,
         )
 
+
         conn = self._db_manager.get_connection()
         should_close = (conn != self._db_manager._conn)
 
@@ -317,6 +318,15 @@ class AssetRepository:
             "original_album_subpath", "is_favorite", "location", "gps",
             "micro_thumbnail"
         ]
+
+        logger.debug(
+            "IndexStore.read_geometry_only album_path=%s include_subalbums=%s "
+            "sort_by_date=%s filter_params=%s",
+            album_path,
+            include_subalbums,
+            sort_by_date,
+            filter_params,
+        )
 
         query, params = QueryBuilder.build_pagination_query(
             select_clause=f"SELECT {', '.join(columns)}",

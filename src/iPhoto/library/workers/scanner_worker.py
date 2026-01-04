@@ -72,6 +72,12 @@ class ScannerWorker(QRunnable):
         return self._signals
 
     @property
+    def library_root(self) -> Path:
+        """Return the database root used by this worker."""
+
+        return self._library_root
+
+    @property
     def cancelled(self) -> bool:
         """Return ``True`` if the scan has been cancelled."""
 

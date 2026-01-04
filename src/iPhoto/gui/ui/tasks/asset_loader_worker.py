@@ -51,20 +51,30 @@ def compute_album_path(
     # Ensure work dir exists at library root
     ensure_work_dir(library_root, WORK_DIR_NAME)
 
+    # Prefer robust, case-tolerant relative computation to avoid dropping
+    # album filters (which would leak All Photos into physical album views).
     try:
-        root_resolved = root.resolve()
-        library_resolved = library_root.resolve()
-
-        if root_resolved == library_resolved:
-            # Viewing the library root itself - no album filtering needed
-            return library_root, None
-
-        # Compute album path relative to library root
-        album_path = root_resolved.relative_to(library_resolved).as_posix()
-        return library_root, album_path
+        rel = Path(os.path.relpath(root, library_root)).as_posix()
     except (ValueError, OSError):
-        # If root is not under library_root, fall back to using root as index
+        rel = None
+
+    if rel is None or rel.startswith(".."):
+        # Outside the library – fall back to per-folder index
         return root, None
+
+    if rel == ".":
+        # Library root
+        return library_root, None
+
+    # Debug trace to diagnose album filtering issues
+    LOGGER.debug(
+        "asset_loader.compute_album_path root=%s library_root=%s album_path=%s",
+        root,
+        library_root,
+        rel,
+    )
+
+    return library_root, rel
 
 
 def adjust_rel_for_album(row: Dict[str, object], album_path: Optional[str]) -> Dict[str, object]:
@@ -466,6 +476,15 @@ class AssetLoaderWorker(QRunnable):
 
         # Determine the effective index root and album path using helper
         effective_index_root, album_path = compute_album_path(self._root, self._library_root)
+        LOGGER.debug(
+            "AssetLoaderWorker._build_payload_chunks root=%s library_root=%s index_root=%s "
+            "album_path=%s filter_params=%s",
+            self._root,
+            self._library_root,
+            effective_index_root,
+            album_path,
+            self._filter_params,
+        )
 
         store = IndexStore(effective_index_root)
 

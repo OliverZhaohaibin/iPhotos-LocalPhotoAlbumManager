@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
+import os
 from typing import Callable, Dict, List, Optional, Tuple
 
 from .cache.index_store import IndexStore
@@ -22,6 +23,27 @@ from .utils.jsonio import read_json, write_json
 from .utils.logging import get_logger
 
 LOGGER = get_logger()
+
+
+def _compute_album_path(root: Path, library_root: Optional[Path]) -> Optional[str]:
+    """Return library-relative album path when root is inside library_root.
+
+    Uses os.path.relpath to tolerate case differences and symlinks. Returns
+    None when outside the library or when pointing at the library root.
+    """
+    if not library_root:
+        return None
+    try:
+        rel = Path(os.path.relpath(root, library_root)).as_posix()
+    except (ValueError, OSError):
+        return None
+
+    if rel.startswith(".."):
+        return None
+    if rel in (".", ""):
+        return None
+    # Debug trace to help diagnose album filtering issues
+    return rel
 
 
 def open_album(
@@ -45,12 +67,7 @@ def open_album(
     store = IndexStore(db_root)
     
     # If using global DB, we need to filter by album path
-    album_path = None
-    if library_root:
-        try:
-            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
-        except (ValueError, OSError):
-            pass
+    album_path = _compute_album_path(root, library_root)
     
     # Read rows from the database, filtered by album if using global DB
     if album_path:
@@ -165,12 +182,9 @@ def _sync_live_roles_to_db(
     # Compute album path for library-relative paths
     album_prefix = ""
     if library_root:
-        try:
-            album_prefix = root.resolve().relative_to(library_root.resolve()).as_posix()
-            if album_prefix:
-                album_prefix += "/"
-        except (ValueError, OSError):
-            pass
+        rel = _compute_album_path(root, library_root)
+        if rel:
+            album_prefix = f"{rel}/"
 
     for group in groups:
         # Still image: Role 0 (Primary), Partner = Motion
@@ -227,12 +241,7 @@ def load_incremental_index_cache(
     existing_index = {}
     
     # If using global DB, filter by album path
-    album_path = None
-    if library_root:
-        try:
-            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
-        except (ValueError, OSError):
-            pass
+    album_path = _compute_album_path(root, library_root)
     
     try:
         if album_path:
@@ -319,12 +328,7 @@ def rescan(
     store = IndexStore(db_root)
     
     # Compute album path for library-relative paths
-    album_path = None
-    if library_root:
-        try:
-            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
-        except (ValueError, OSError):
-            pass
+    album_path = _compute_album_path(root, library_root)
 
     # ``original_rel_path`` is only populated for assets in the shared trash
     # album.  Rescanning that directory must therefore preserve the existing
@@ -452,12 +456,7 @@ def scan_specific_files(
     rows = list(process_media_paths(root, image_paths, video_paths))
     
     # If using global DB, convert to library-relative paths
-    album_path = None
-    if library_root:
-        try:
-            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
-        except (ValueError, OSError):
-            pass
+    album_path = _compute_album_path(root, library_root)
     
     if album_path:
         for row in rows:
@@ -484,12 +483,7 @@ def pair(root: Path, library_root: Optional[Path] = None) -> List[LiveGroup]:
     db_root = library_root if library_root else root
     
     # If using global DB, filter by album path
-    album_path = None
-    if library_root:
-        try:
-            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
-        except (ValueError, OSError):
-            pass
+    album_path = _compute_album_path(root, library_root)
     
     # Read rows from the database
     if album_path:
