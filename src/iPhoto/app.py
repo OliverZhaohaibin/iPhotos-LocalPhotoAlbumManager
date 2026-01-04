@@ -35,7 +35,7 @@ def _compute_album_path(root: Path, library_root: Optional[Path]) -> Optional[st
         return None
     try:
         rel = Path(os.path.relpath(root, library_root)).as_posix()
-    except Exception:
+    except (ValueError, OSError):
         return None
 
     if rel.startswith(".."):
