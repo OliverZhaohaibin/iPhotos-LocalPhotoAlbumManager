@@ -142,7 +142,8 @@ class ScannerWorker(QRunnable):
 
                 # Adjust rel path to be library-relative if scanning a subfolder
                 if scan_prefix and "rel" in row:
-                    row["rel"] = f"{scan_prefix}/{row['rel']}"
+                    # Use Path for proper path construction
+                    row["rel"] = (Path(scan_prefix) / row["rel"]).as_posix()
 
                 rows.append(row)
                 chunk.append(row)

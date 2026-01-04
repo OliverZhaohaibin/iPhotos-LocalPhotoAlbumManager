@@ -360,8 +360,14 @@ class LibraryManager(QObject):
             parent_album_path = row.get("parent_album_path")
             if parent_album_path:
                 album_path = root / parent_album_path
+                # Compute album-relative path by removing the parent prefix
+                try:
+                    album_relative_str = Path(rel).relative_to(parent_album_path).as_posix()
+                except ValueError:
+                    album_relative_str = Path(rel).name
             else:
                 album_path = root
+                album_relative_str = rel
             asset_id = str(row.get("id") or rel)
             classified_image, classified_video = classify_media(row)
             # Combine classifier results with any persisted flags to remain
@@ -381,7 +387,7 @@ class LibraryManager(QObject):
             assets.append(
                 GeotaggedAsset(
                     library_relative=library_relative_str,
-                    album_relative=rel,
+                    album_relative=album_relative_str,
                     absolute_path=abs_path,
                     album_path=album_path,
                     asset_id=asset_id,
