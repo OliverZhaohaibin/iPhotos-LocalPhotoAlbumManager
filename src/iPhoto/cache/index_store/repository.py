@@ -108,8 +108,6 @@ class AssetRepository:
                 will be created at `<library_root>/.iPhoto/global_index.db`.
         """
         self.library_root = library_root
-        # For backward compatibility, also expose as album_root
-        self.album_root = library_root
         self.path = library_root / WORK_DIR_NAME / GLOBAL_INDEX_DB_NAME
         self.path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -153,8 +151,9 @@ class AssetRepository:
         if self._conn is not None:
             try:
                 self._conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                # Best-effort close: do not propagate, but log for observability.
+                logger.warning("Error while closing database connection: %s", exc)
             finally:
                 self._conn = None
 
@@ -274,7 +273,6 @@ class AssetRepository:
             cursor_id=cursor_id,
             limit=limit,
         )
-
 
         conn = self._db_manager.get_connection()
         should_close = (conn != self._db_manager._conn)

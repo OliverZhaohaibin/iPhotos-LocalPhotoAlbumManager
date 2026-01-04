@@ -287,6 +287,9 @@ class AlbumDataWorker(QRunnable):
                     if node_resolved != lib_resolved:
                         album_path = node_resolved.relative_to(lib_resolved).as_posix()
                 except (ValueError, OSError):
+                    # If we cannot resolve or relativize paths (e.g. outside library root or
+                    # due to filesystem issues), fall back to using the full index without
+                    # an album-specific filter.
                     pass
 
             # Count assets for this album using the count method with album filter
@@ -297,13 +300,19 @@ class AlbumDataWorker(QRunnable):
                 if isinstance(row, dict):
                     rel = row.get("rel", "")
                     if isinstance(rel, str) and rel:
-                        # If using album_path filter, rel is already library-relative
-                        # We need to make it relative to the album
-                        if album_path and rel.startswith(album_path + "/"):
-                            first_rel = rel[len(album_path) + 1:]
+                        # If using album_path filter, rel is library-relative.
+                        # Ensure first_rel is always album-relative when joined with self.node.path.
+                        if album_path:
+                            prefix = album_path.rstrip("/") + "/"
+                            if rel.startswith(prefix):
+                                inner = rel[len(prefix):]
+                                if inner:
+                                    first_rel = inner
+                                    break
                         else:
+                            # When there is no album_path (library root), rel is already correct.
                             first_rel = rel
-                        break
+                            break
         except Exception:
             pass
 

@@ -89,6 +89,8 @@ class LibraryExportWorker(QRunnable):
                 if sidecar.sidecar_path_for_asset(abs_path).exists():
                     to_export.append(abs_path)
         except Exception:
+            # If we cannot read from the database (e.g. corrupted, missing, or
+            # permission issues), skip export silently.
             pass
 
         total = len(to_export)

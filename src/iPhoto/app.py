@@ -43,6 +43,12 @@ def _compute_album_path(root: Path, library_root: Optional[Path]) -> Optional[st
     if rel in (".", ""):
         return None
     # Debug trace to help diagnose album filtering issues
+    LOGGER.debug(
+        "Computed album path: root=%s, library_root=%s, rel=%s",
+        root,
+        library_root,
+        rel,
+    )
     return rel
 
 
@@ -106,8 +112,6 @@ def open_album(
                 album_rows.append(row)
         _ensure_links(root, album_rows, library_root=library_root)
         
-        # For favorites, the album manifest uses album-relative paths
-        album_rels = [r.get("rel", "") for r in album_rows]
         store.sync_favorites(album.manifest.get("featured", []))
     else:
         _ensure_links(root, rows, library_root=library_root)

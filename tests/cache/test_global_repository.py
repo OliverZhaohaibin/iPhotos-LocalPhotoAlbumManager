@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 import pytest
 from src.iPhoto.cache.index_store import (
-    IndexStore,
     get_global_repository,
     reset_global_repository,
     GLOBAL_INDEX_DB_NAME,

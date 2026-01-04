@@ -325,6 +325,11 @@ class LibraryManager(QObject):
         """
 
         root = self._require_root()
+        # Track resolved absolute paths we've already yielded. The global
+        # index at the library root guarantees uniqueness of library-relative
+        # paths, but files may still be reachable via multiple album roots
+        # (e.g. via symlinks or hard links), so we deduplicate on absolute
+        # paths here for safety.
         seen: set[Path] = set()
         assets: list[GeotaggedAsset] = []
 
@@ -360,10 +365,15 @@ class LibraryManager(QObject):
             parent_album_path = row.get("parent_album_path")
             if parent_album_path:
                 album_path = root / parent_album_path
-                # Compute album-relative path by removing the parent prefix
-                try:
-                    album_relative_str = Path(rel).relative_to(parent_album_path).as_posix()
-                except ValueError:
+                # Compute album-relative path by stripping the parent prefix
+                # Use string operations for robustness with paths at album root
+                prefix = parent_album_path + "/"
+                if rel.startswith(prefix):
+                    album_relative_str = rel[len(prefix):]
+                elif rel == parent_album_path:
+                    # File at the album root with same name as album (edge case)
+                    album_relative_str = ""
+                else:
                     album_relative_str = Path(rel).name
             else:
                 album_path = root

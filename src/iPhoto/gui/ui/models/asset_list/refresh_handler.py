@@ -100,8 +100,11 @@ class IncrementalUpdateHandler(QObject):
             featured = self._get_featured()
             filter_params = self._get_filter_params() or {}
             
-            # Get library root for global database filtering
-            library_root = self._get_library_root() if self._get_library_root else None
+            # Optionally get library root for global database filtering
+            if self._get_library_root is not None:
+                library_root = self._get_library_root()
+            else:
+                library_root = None
             
             self._incremental_signals = IncrementalRefreshSignals()
             self._incremental_signals.resultsReady.connect(self._apply_incremental_results)

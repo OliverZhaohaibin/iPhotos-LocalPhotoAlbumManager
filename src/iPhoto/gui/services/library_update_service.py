@@ -109,11 +109,11 @@ class LibraryUpdateService(QObject):
             finished=signals.finished,
             error=signals.error,
             pause_watcher=False,
-            on_finished=lambda root, rows, lib_root=library_root: self._on_scan_finished(
+            on_finished=lambda root, rows, captured_library_root=library_root: self._on_scan_finished(
                 worker,
                 root,
                 rows,
-                library_root=lib_root,
+                library_root=captured_library_root,
             ),
             on_error=lambda root, message: self._on_scan_error(worker, root, message),
             result_payload=lambda root, rows: rows,
@@ -355,17 +355,25 @@ class LibraryUpdateService(QObject):
             try:
                 db_root = library_root if library_root else root
                 album_path: str | None = None
+                # Only allow read_all() when we are directly indexing the Recently
+                # Deleted root. If album_path resolution fails relative to a
+                # library_root, we must not fall back to a global read.
+                allow_read_all = not bool(library_root)
                 if library_root:
                     try:
                         album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
                     except (OSError, ValueError):
+                        # Resolution failed: do not attempt a global read_all().
                         album_path = None
+                        allow_read_all = False
                 store = backend.IndexStore(db_root)
-                row_iter = (
-                    store.read_album_assets(album_path, include_subalbums=True)
-                    if album_path
-                    else store.read_all()
-                )
+                if album_path:
+                    row_iter = store.read_album_assets(album_path, include_subalbums=True)
+                elif allow_read_all:
+                    row_iter = store.read_all()
+                else:
+                    # No safe way to scope the read; skip merging preserved rows.
+                    row_iter = ()
                 for old_row in row_iter:
                     rel_value = old_row.get("rel")
                     if rel_value is None:

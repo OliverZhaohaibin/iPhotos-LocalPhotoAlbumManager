@@ -53,7 +53,7 @@ class ScannerWorker(QRunnable):
         self._include = list(include)
         self._exclude = list(exclude)
         self._signals = signals
-        # Use library_root for database if provided, otherwise use scan root
+        # Use library_root for database if provided, otherwise use root
         self._library_root = library_root if library_root else root
         self._is_cancelled = False
         self._had_error = False
@@ -134,11 +134,13 @@ class ScannerWorker(QRunnable):
                 progress_callback=progress_callback
             )
 
-            # Compute prefix for library-relative paths
+            # Compute prefix for library-relative paths (once, before the loop)
             scan_prefix = ""
+            scan_prefix_with_slash = ""
             try:
                 if self._library_root.resolve() != self._root.resolve():
                     scan_prefix = self._root.relative_to(self._library_root).as_posix()
+                    scan_prefix_with_slash = scan_prefix + "/"
             except ValueError:
                 pass  # root is not under library_root, keep empty prefix
 
@@ -148,8 +150,8 @@ class ScannerWorker(QRunnable):
 
                 # Adjust rel path to be library-relative if scanning a subfolder
                 if scan_prefix and "rel" in row:
-                    # Use Path for proper path construction
-                    row["rel"] = (Path(scan_prefix) / row["rel"]).as_posix()
+                    # Use string concatenation for efficiency (avoiding Path object creation per row)
+                    row["rel"] = scan_prefix_with_slash + row["rel"]
 
                 rows.append(row)
                 chunk.append(row)
