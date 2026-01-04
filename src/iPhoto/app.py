@@ -140,27 +140,24 @@ def load_incremental_index_cache(root: Path) -> Dict[str, dict]:
 
 
 def _update_index_snapshot(root: Path, materialised_rows: List[dict]) -> None:
-    """Apply *materialised_rows* to ``index.db`` using incremental updates.
+    """Apply *materialised_rows* to the global database using additive-only updates.
 
-    Instead of rewriting the entire index after every scan, the helper removes
-    entries that are no longer present and upserts any rows that appeared or
-    changed.  The incremental approach keeps writes small, which in turn reduces
-    churn on networked or slow storage while still guaranteeing atomicity
-    through the :class:`~iPhoto.cache.index_store.IndexStore` primitives.
+    This function implements **Constraint #4: Additive-Only "Fact Supplementation"**:
+    - Scanning is for discovering facts, not removing them
+    - Files not found during a partial scan are NOT deleted from the database
+    - Deletion is a separate lifecycle event and never occurs during scan
+    
+    The function uses idempotent upsert operations to ensure duplicate scans
+    don't create duplicate data (Constraint #3).
     """
 
     store = IndexStore(root)
 
-    existing_rows: Dict[str, dict] = {}
     corrupted_during_read = False
     try:
-        for cached_row in store.read_all():
-            rel_key = _normalise_rel_key(cached_row.get("rel"))
-            if rel_key is None:
-                continue
-            existing_rows[rel_key] = cached_row
+        # Just verify we can read the database
+        list(store.read_all())
     except IndexCorruptedError:
-        existing_rows = {}
         corrupted_during_read = True
 
     fresh_rows: Dict[str, dict] = {}
@@ -173,31 +170,19 @@ def _update_index_snapshot(root: Path, materialised_rows: List[dict]) -> None:
     materialised_snapshot = list(fresh_rows.values())
 
     if corrupted_during_read:
+        # On corruption, write all rows to rebuild the database
         store.write_rows(materialised_snapshot)
         return
 
-    if not fresh_rows and not existing_rows:
+    if not fresh_rows:
         return
 
-    stale_rels = set(existing_rows.keys()) - set(fresh_rows.keys())
-    if stale_rels:
-        try:
-            store.remove_rows(stale_rels)
-        except IndexCorruptedError:
-            store.write_rows(materialised_snapshot)
-            return
-
-    updated_payload: List[dict] = []
-    for rel_key, row in fresh_rows.items():
-        cached = existing_rows.get(rel_key)
-        if cached is None or cached != row:
-            updated_payload.append(row)
-
-    if updated_payload:
-        try:
-            store.append_rows(updated_payload)
-        except IndexCorruptedError:
-            store.write_rows(materialised_snapshot)
+    # Additive-only: only append new/updated rows, never delete
+    # append_rows uses INSERT OR REPLACE which is idempotent
+    try:
+        store.append_rows(materialised_snapshot)
+    except IndexCorruptedError:
+        store.write_rows(materialised_snapshot)
 
 
 def rescan(root: Path, progress_callback: Optional[Callable[[int, int], None]] = None) -> List[dict]:
