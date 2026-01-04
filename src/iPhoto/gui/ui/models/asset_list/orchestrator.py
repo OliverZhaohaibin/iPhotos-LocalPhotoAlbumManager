@@ -83,13 +83,21 @@ class AssetDataOrchestrator(QObject):
         self._pending_loader_root: Optional[Path] = None
         self._ignore_incoming_chunks = False
         self._current_live_worker: Optional[LiveIngestWorker] = None
+        self._existing_rels_supplier = None
+        self._existing_abs_lookup = None
         
         # Connect data loader signals
         self._data_loader.chunkReady.connect(self._on_loader_chunk_ready)
         self._data_loader.loadProgress.connect(self._on_loader_progress)
         self._data_loader.loadFinished.connect(self._on_loader_finished)
         self._data_loader.error.connect(self._on_loader_error)
-    
+
+    def configure_buffer_sources(self, rels_supplier, abs_lookup) -> None:
+        """Provide callbacks for deduplication in the streaming buffer."""
+
+        self._existing_rels_supplier = rels_supplier
+        self._existing_abs_lookup = abs_lookup
+
     def set_album_root(self, root: Optional[Path]) -> None:
         """Set the current album root."""
         self._album_root = root
@@ -208,11 +216,14 @@ class AssetDataOrchestrator(QObject):
             self.firstChunkReady.emit(chunk, True)
             self._stream_buffer.mark_first_chunk_processed()
         else:
-            # Add to buffer - deduplication happens in the model
-            # for now since it needs access to row_lookup
-            # This is a simplification for Phase 1
-            # In future, we can improve this
-            pass
+            if self._existing_rels_supplier and self._existing_abs_lookup:
+                self._stream_buffer.add_chunk(
+                    chunk,
+                    self._existing_rels_supplier(),
+                    self._existing_abs_lookup,
+                )
+            else:
+                logger.warning("Stream buffer deduplication sources are not configured.")
     
     def add_chunk_to_buffer(
         self,

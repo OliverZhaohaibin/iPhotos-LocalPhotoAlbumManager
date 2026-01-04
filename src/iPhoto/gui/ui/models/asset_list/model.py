@@ -23,10 +23,12 @@ from ..asset_state_manager import AssetListStateManager
 from ..asset_row_adapter import AssetRowAdapter
 from ..list_diff_calculator import ListDiffCalculator
 from ..roles import Roles, role_names
-from .controller import AssetListController
+from .orchestrator import AssetDataOrchestrator
+from .filter_engine import ModelFilterHandler
 from .....utils.pathutils import (
     normalise_for_compare,
     normalise_rel_value,
+    is_descendant_path,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
@@ -66,17 +68,21 @@ class AssetListModel(QAbstractListModel):
 
         self._row_adapter = AssetRowAdapter(self._thumb_size, self._cache_manager)
 
-        # Initialize Controller
-        self._controller = AssetListController(
-            facade,
-            duplication_checker=self._check_duplication,
-            parent=self,
+        # Initialize orchestrator-based pipeline
+        self._filter_handler = ModelFilterHandler()
+        self._data_loader = AssetDataLoader(self)
+        self._orchestrator = AssetDataOrchestrator(
+            self._data_loader, self._filter_handler, parent=self
         )
-        self._controller.batchReady.connect(self._on_batch_ready)
-        self._controller.incrementalReady.connect(self._apply_incremental_results)
-        self._controller.loadProgress.connect(self.loadProgress)
-        self._controller.loadFinished.connect(self._on_controller_load_finished)
-        self._controller.error.connect(self._on_controller_error)
+        self._orchestrator.configure_buffer_sources(
+            lambda: set(self._state_manager.row_lookup.keys()),
+            self._state_manager.get_index_by_abs,
+        )
+        self._orchestrator.firstChunkReady.connect(self._on_first_chunk_ready)
+        self._orchestrator.rowsReadyForInsertion.connect(self._on_rows_ready)
+        self._orchestrator.loadProgress.connect(self.loadProgress)
+        self._orchestrator.loadFinished.connect(self._on_controller_load_finished)
+        self._orchestrator.loadError.connect(self._on_controller_error)
 
         self._facade.linksUpdated.connect(self.handle_links_updated)
         self._facade.assetUpdated.connect(self.handle_asset_updated)
@@ -92,7 +98,7 @@ class AssetListModel(QAbstractListModel):
     def set_library_root(self, root: Path) -> None:
         """Update the centralized library root for thumbnail generation and index access."""
         self._cache_manager.set_library_root(root)
-        self._controller.set_library_root(root)
+        self._data_loader.set_library_root(root)
 
     def album_root(self) -> Optional[Path]:
         """Return the path of the currently open album, if any."""
@@ -273,10 +279,8 @@ class AssetListModel(QAbstractListModel):
     # ------------------------------------------------------------------
     def prepare_for_album(self, root: Path) -> None:
         """Reset internal state so *root* becomes the active album."""
-        # Let the controller handle any pending reload state before we
-        # mutate our own album root and clear the state manager flags.
-        self._controller.prepare_for_album(root)
-
+        self._orchestrator.cancel_load()
+        self._orchestrator.set_album_root(root)
         self._album_root = root
         self._is_valid = False
         self._state_manager.clear_reload_pending()
@@ -316,7 +320,7 @@ class AssetListModel(QAbstractListModel):
         # Note: We clear model here to match original behavior of immediate clearing
         # before the async load kicks in.
         normalized = mode.casefold() if isinstance(mode, str) and mode else None
-        if normalized == self._controller.active_filter_mode():
+        if normalized == self._filter_handler.get_mode():
             return
 
         self._is_valid = False
@@ -324,10 +328,12 @@ class AssetListModel(QAbstractListModel):
         self._state_manager.clear_rows()
         self.endResetModel()
 
-        self._controller.set_filter_mode(mode)
+        if not self._filter_handler.set_mode(mode):
+            return
+        self.start_load()
 
     def active_filter_mode(self) -> Optional[str]:
-        return self._controller.active_filter_mode()
+        return self._filter_handler.get_mode()
 
     # ------------------------------------------------------------------
     # Data loading helpers
@@ -337,30 +343,44 @@ class AssetListModel(QAbstractListModel):
         self._is_valid = False
         self._state_manager.clear_reload_pending()
         self._cache_manager.clear_recently_removed()
-        self._controller.start_load()
+        if not self._album_root:
+            return
+        filter_params = self._filter_handler.get_filter_params()
+        manifest = self._facade.current_album.manifest if self._facade.current_album else {}
+        featured = manifest.get("featured", []) or []
+        self._orchestrator.start_load(
+            self._album_root,
+            featured,
+            filter_params=filter_params,
+            library_manager=self._facade.library_manager,
+        )
 
-    def _on_batch_ready(self, chunk: List[Dict[str, object]], is_reset: bool) -> None:
-        """Handle incoming data batch from Controller."""
+    def _on_first_chunk_ready(self, chunk: List[Dict[str, object]], _should_reset: bool) -> None:
+        """Handle the first chunk from the orchestrator."""
         if not chunk:
             return
 
-        if is_reset:
-            # If the controller signals a reset (e.g. first chunk), we reset the model.
-            self.beginResetModel()
-            self._state_manager.clear_rows()
-            self._state_manager.append_chunk(chunk)
-            self.endResetModel()
-            self.prioritize_rows(0, len(chunk) - 1)
-        else:
-            # Append mode
+        self.beginResetModel()
+        self._state_manager.clear_rows()
+        self._state_manager.append_chunk(chunk)
+        self.endResetModel()
+        self.prioritize_rows(0, len(chunk) - 1)
+
+        # Subsequent chunks will arrive via rowsReadyForInsertion
+
+    def _on_rows_ready(self, start_row: int, rows: List[Dict[str, object]]) -> None:
+        """Insert buffered rows emitted by the orchestrator."""
+        if not rows:
+            return
+
+        if start_row < 0:
             start_row = self._state_manager.row_count()
-            end_row = start_row + len(chunk) - 1
 
-            self.beginInsertRows(QModelIndex(), start_row, end_row)
-            self._state_manager.append_chunk(chunk)
-            self.endInsertRows()
-
-            self._state_manager.on_external_row_inserted(start_row, len(chunk))
+        end_row = start_row + len(rows) - 1
+        self.beginInsertRows(QModelIndex(), start_row, end_row)
+        self._state_manager.append_chunk(rows)
+        self.endInsertRows()
+        self._state_manager.on_external_row_inserted(start_row, len(rows))
 
     def _on_controller_load_finished(self, root: Path, success: bool) -> None:
         """Handle load completion."""
@@ -476,21 +496,22 @@ class AssetListModel(QAbstractListModel):
                 updated_root,
             )
             self._state_manager.set_virtual_reload_suppressed(False)
-            if self._state_manager.rows:
-                # Check if update targets our view and trigger refresh if applicable
-                handled = self._controller.handle_links_updated(root, self._album_root)
-                if not handled:
-                    logger.debug(
-                        "AssetListModel: suppression cleared but update doesn't target current view."
-                    )
-            return
+            if not self._state_manager.rows:
+                return
 
-        # Delegate to controller
-        handled = self._controller.handle_links_updated(root, self._album_root)
-        if not handled:
+        album_root = normalise_for_compare(self._album_root)
+        if not (updated_root == album_root or is_descendant_path(updated_root, album_root)):
             logger.debug(
                 "AssetListModel: linksUpdated ignored because update doesn't target current view."
             )
+            return
+
+        if self._data_loader.is_running():
+            logger.debug("AssetListModel: linksUpdated received while load in progress; skipping.")
+            return
+
+        logger.debug("AssetListModel: linksUpdated triggers refresh for %s.", updated_root)
+        self.start_load()
 
     def _apply_incremental_results(
         self, fresh_rows: List[Dict[str, object]], root: Path
