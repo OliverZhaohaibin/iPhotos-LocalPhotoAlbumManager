@@ -110,9 +110,15 @@ class LibraryUpdateService(QObject):
 
     def pair_live(self, album: "Album") -> List[dict]:
         """Rebuild Live Photo pairings for *album* and refresh related views."""
+        
+        # Get library root for global database access
+        library_root = None
+        lib_manager = self._library_manager_getter()
+        if lib_manager:
+            library_root = lib_manager.root()
 
         try:
-            groups = backend.pair(album.root)
+            groups = backend.pair(album.root, library_root=library_root)
         except IPhotoError as exc:
             self.errorRaised.emit(str(exc))
             return []

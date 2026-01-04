@@ -201,7 +201,7 @@ class MoveWorker(QRunnable):
         
         # Update pairing at the library root level
         if self._library_root:
-            backend.pair(self._library_root)
+            backend.pair(self._library_root, library_root=self._library_root)
         else:
             backend.pair(self._source_root)
 
@@ -304,7 +304,7 @@ class MoveWorker(QRunnable):
         
         # Update pairing at the library root level
         if self._library_root:
-            backend.pair(self._library_root)
+            backend.pair(self._library_root, library_root=self._library_root)
         else:
             backend.pair(self._destination_root)
 
@@ -360,7 +360,7 @@ class MoveWorker(QRunnable):
         # Pairing the Basic Library after each update keeps library-wide Live Photo metadata
         # consistent with the concrete album indices, ensuring that aggregated views present
         # fresh still/motion relationships immediately after moves or restores complete.
-        backend.pair(library_root)
+        backend.pair(library_root, library_root=library_root)
 
     def _resolve_optional(self, path: Optional[Path]) -> Optional[Path]:
         """Resolve *path* defensively, returning ``None`` when unavailable."""

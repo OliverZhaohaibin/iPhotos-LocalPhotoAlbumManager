@@ -24,25 +24,91 @@ from .utils.logging import get_logger
 LOGGER = get_logger()
 
 
-def open_album(root: Path, autoscan: bool = True) -> Album:
-    """Open an album directory, scanning and pairing as required."""
+def open_album(
+    root: Path,
+    autoscan: bool = True,
+    library_root: Optional[Path] = None,
+) -> Album:
+    """Open an album directory, scanning and pairing as required.
+    
+    Args:
+        root: The album root directory.
+        autoscan: Whether to scan automatically if the index is empty.
+        library_root: If provided, use this as the database root (global database).
+                     If None, defaults to root for backward compatibility.
+    """
 
     album = Album.open(root)
-    store = IndexStore(root)
-    rows = list(store.read_all())
+    
+    # Use library_root for global database if provided, otherwise use album root
+    db_root = library_root if library_root else root
+    store = IndexStore(db_root)
+    
+    # If using global DB, we need to filter by album path
+    album_path = None
+    if library_root:
+        try:
+            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
+        except (ValueError, OSError):
+            pass
+    
+    # Read rows from the database, filtered by album if using global DB
+    if album_path:
+        rows = list(store.read_album_assets(album_path, include_subalbums=True))
+    else:
+        rows = list(store.read_all())
     if not rows and autoscan:
         include = album.manifest.get("filters", {}).get("include", DEFAULT_INCLUDE)
         exclude = album.manifest.get("filters", {}).get("exclude", DEFAULT_EXCLUDE)
         from .io.scanner import scan_album
 
         rows = list(scan_album(root, include, exclude))
+        
+        # If using global DB, convert to library-relative paths before writing
+        if library_root and album_path:
+            for row in rows:
+                if "rel" in row:
+                    row["rel"] = f"{album_path}/{row['rel']}"
+        
         store.write_rows(rows)
-    _ensure_links(root, rows)
-    store.sync_favorites(album.manifest.get("featured", []))
+    
+    # For links and sync_favorites, we need album-relative rows
+    # If using global DB, adjust rel paths for _ensure_links
+    if album_path:
+        # Create album-relative rows for _ensure_links
+        album_rows = []
+        prefix = album_path + "/"
+        for row in rows:
+            rel = row.get("rel", "")
+            if rel.startswith(prefix):
+                adj_row = dict(row)
+                adj_row["rel"] = rel[len(prefix):]
+                album_rows.append(adj_row)
+            elif "/" not in rel:
+                # File directly in album root
+                album_rows.append(row)
+        _ensure_links(root, album_rows, library_root=library_root)
+        
+        # For favorites, the album manifest uses album-relative paths
+        album_rels = [r.get("rel", "") for r in album_rows]
+        store.sync_favorites(album.manifest.get("featured", []))
+    else:
+        _ensure_links(root, rows, library_root=library_root)
+        store.sync_favorites(album.manifest.get("featured", []))
+    
     return album
 
 
-def _ensure_links(root: Path, rows: List[dict]) -> None:
+def _ensure_links(
+    root: Path, rows: List[dict], library_root: Optional[Path] = None
+) -> None:
+    """Ensure links.json and DB are synchronized with the given rows.
+    
+    Args:
+        root: The album root directory.
+        rows: List of asset rows (with album-relative paths).
+        library_root: If provided, use this as the database root.
+    """
     work_dir = root / WORK_DIR_NAME
     links_path = work_dir / "links.json"
     groups, payload = _compute_links_payload(rows)
@@ -59,13 +125,13 @@ def _ensure_links(root: Path, rows: List[dict]) -> None:
             existing = {}
         if existing == payload:
             # Sync DB anyway to ensure migration/consistency
-            _sync_live_roles_to_db(root, groups)
+            _sync_live_roles_to_db(root, groups, library_root=library_root)
             return
 
     LOGGER.info("Updating links.json for %s", root)
     _write_links(root, payload)
     # _write_links writes the file, but we also need to update the DB
-    _sync_live_roles_to_db(root, groups)
+    _sync_live_roles_to_db(root, groups, library_root=library_root)
 
 
 def _compute_links_payload(rows: List[dict]) -> tuple[List[LiveGroup], Dict[str, object]]:
@@ -84,20 +150,43 @@ def _write_links(root: Path, payload: Dict[str, object]) -> None:
         write_json(work_dir / "links.json", payload, backup_dir=work_dir / "manifest.bak")
 
 
-def _sync_live_roles_to_db(root: Path, groups: List[LiveGroup]) -> None:
-    """Propagate live photo roles from computed groups to the IndexStore."""
+def _sync_live_roles_to_db(
+    root: Path, groups: List[LiveGroup], library_root: Optional[Path] = None
+) -> None:
+    """Propagate live photo roles from computed groups to the IndexStore.
+    
+    Args:
+        root: The album root directory.
+        groups: List of LiveGroup objects to sync.
+        library_root: If provided, use this as the database root (global database).
+    """
     updates: List[Tuple[str, int, Optional[str]]] = []
+    
+    # Compute album path for library-relative paths
+    album_prefix = ""
+    if library_root:
+        try:
+            album_prefix = root.resolve().relative_to(library_root.resolve()).as_posix()
+            if album_prefix:
+                album_prefix += "/"
+        except (ValueError, OSError):
+            pass
 
     for group in groups:
         # Still image: Role 0 (Primary), Partner = Motion
         if group.still:
-            updates.append((group.still, 0, group.motion))
+            still_rel = f"{album_prefix}{group.still}" if album_prefix else group.still
+            motion_rel = f"{album_prefix}{group.motion}" if album_prefix and group.motion else group.motion
+            updates.append((still_rel, 0, motion_rel))
 
         # Motion component: Role 1 (Hidden), Partner = Still
         if group.motion:
-            updates.append((group.motion, 1, group.still))
+            motion_rel = f"{album_prefix}{group.motion}" if album_prefix else group.motion
+            still_rel = f"{album_prefix}{group.still}" if album_prefix and group.still else group.still
+            updates.append((motion_rel, 1, still_rel))
 
-    IndexStore(root).apply_live_role_updates(updates)
+    db_root = library_root if library_root else root
+    IndexStore(db_root).apply_live_role_updates(updates)
 
 
 def _normalise_rel_key(rel_value: object) -> Optional[str]:
@@ -120,17 +209,37 @@ def _normalise_rel_key(rel_value: object) -> Optional[str]:
     return None
 
 
-def load_incremental_index_cache(root: Path) -> Dict[str, dict]:
+def load_incremental_index_cache(
+    root: Path, library_root: Optional[Path] = None
+) -> Dict[str, dict]:
     """Load the existing index into a dictionary for incremental scanning.
 
     This helper encapsulates the logic of reading the index store and normalizing
     keys, allowing it to be reused by both the main application facade and
     background workers.
+    
+    Args:
+        root: The album root directory.
+        library_root: If provided, use this as the database root (global database).
     """
-    store = IndexStore(root)
+    db_root = library_root if library_root else root
+    store = IndexStore(db_root)
     existing_index = {}
+    
+    # If using global DB, filter by album path
+    album_path = None
+    if library_root:
+        try:
+            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
+        except (ValueError, OSError):
+            pass
+    
     try:
-        for row in store.read_all():
+        if album_path:
+            rows = store.read_album_assets(album_path, include_subalbums=True)
+        else:
+            rows = store.read_all()
+        for row in rows:
             rel_key = _normalise_rel_key(row.get("rel"))
             if rel_key:
                 existing_index[rel_key] = row
@@ -139,7 +248,11 @@ def load_incremental_index_cache(root: Path) -> Dict[str, dict]:
     return existing_index
 
 
-def _update_index_snapshot(root: Path, materialised_rows: List[dict]) -> None:
+def _update_index_snapshot(
+    root: Path,
+    materialised_rows: List[dict],
+    library_root: Optional[Path] = None,
+) -> None:
     """Apply *materialised_rows* to the global database using additive-only updates.
 
     This function implements **Constraint #4: Additive-Only "Fact Supplementation"**:
@@ -149,9 +262,14 @@ def _update_index_snapshot(root: Path, materialised_rows: List[dict]) -> None:
     
     The function uses idempotent upsert operations to ensure duplicate scans
     don't create duplicate data (Constraint #3).
+    
+    Args:
+        root: The album root directory.
+        materialised_rows: List of rows to update/insert.
+        library_root: If provided, use this as the database root (global database).
     """
-
-    store = IndexStore(root)
+    db_root = library_root if library_root else root
+    store = IndexStore(db_root)
 
     corrupted_during_read = False
     try:
@@ -186,11 +304,27 @@ def _update_index_snapshot(root: Path, materialised_rows: List[dict]) -> None:
 
 
 def rescan(
-    root: Path, progress_callback: Optional[Callable[[int, int], None]] = None
+    root: Path,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    library_root: Optional[Path] = None,
 ) -> List[dict]:
-    """Rescan the album and return the fresh index rows."""
-
-    store = IndexStore(root)
+    """Rescan the album and return the fresh index rows.
+    
+    Args:
+        root: The album root directory.
+        progress_callback: Optional callback for progress updates.
+        library_root: If provided, use this as the database root (global database).
+    """
+    db_root = library_root if library_root else root
+    store = IndexStore(db_root)
+    
+    # Compute album path for library-relative paths
+    album_path = None
+    if library_root:
+        try:
+            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
+        except (ValueError, OSError):
+            pass
 
     # ``original_rel_path`` is only populated for assets in the shared trash
     # album.  Rescanning that directory must therefore preserve the existing
@@ -224,7 +358,7 @@ def rescan(
     from .io.scanner import scan_album
 
     # Load existing index for incremental scanning
-    existing_index = load_incremental_index_cache(root)
+    existing_index = load_incremental_index_cache(root, library_root=library_root)
 
     rows = list(scan_album(
         root,
@@ -233,6 +367,13 @@ def rescan(
         existing_index=existing_index,
         progress_callback=progress_callback
     ))
+    
+    # If using global DB, convert to library-relative paths
+    if album_path:
+        for row in rows:
+            if "rel" in row:
+                row["rel"] = f"{album_path}/{row['rel']}"
+    
     if is_recently_deleted and preserved_restore_rows:
         for new_row in rows:
             rel_value = new_row.get("rel")
@@ -246,17 +387,40 @@ def rescan(
                 if field in cached and field not in new_row:
                     new_row[field] = cached[field]
 
-    _update_index_snapshot(root, rows)
-    _ensure_links(root, rows)
+    _update_index_snapshot(root, rows, library_root=library_root)
+    
+    # For _ensure_links, we need album-relative rows
+    if album_path:
+        prefix = album_path + "/"
+        album_rows = []
+        for row in rows:
+            rel = row.get("rel", "")
+            if rel.startswith(prefix):
+                adj_row = dict(row)
+                adj_row["rel"] = rel[len(prefix):]
+                album_rows.append(adj_row)
+            elif "/" not in rel:
+                album_rows.append(row)
+        _ensure_links(root, album_rows, library_root=library_root)
+    else:
+        _ensure_links(root, rows, library_root=library_root)
+    
     store.sync_favorites(album.manifest.get("featured", []))
     return rows
 
 
-def scan_specific_files(root: Path, files: List[Path]) -> None:
+def scan_specific_files(
+    root: Path, files: List[Path], library_root: Optional[Path] = None
+) -> None:
     """Generate index rows for specific files and merge them into the index.
 
     This helper avoids a full directory scan, enabling efficient incremental
     updates during batch import operations.
+    
+    Args:
+        root: The album root directory.
+        files: List of files to scan.
+        library_root: If provided, use this as the database root (global database).
     """
     from .io.scanner import process_media_paths
 
@@ -286,21 +450,69 @@ def scan_specific_files(root: Path, files: List[Path]) -> None:
             video_paths.append(f)
 
     rows = list(process_media_paths(root, image_paths, video_paths))
+    
+    # If using global DB, convert to library-relative paths
+    album_path = None
+    if library_root:
+        try:
+            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
+        except (ValueError, OSError):
+            pass
+    
+    if album_path:
+        for row in rows:
+            if "rel" in row:
+                row["rel"] = f"{album_path}/{row['rel']}"
 
-    store = IndexStore(root)
+    db_root = library_root if library_root else root
+    store = IndexStore(db_root)
     # We use append_rows which handles merging/updating based on 'rel' key
     # It also handles locking safely.
     store.append_rows(rows)
 
 
-def pair(root: Path) -> List[LiveGroup]:
-    """Rebuild live photo pairings from the current index."""
-
-    rows = list(IndexStore(root).read_all())
+def pair(root: Path, library_root: Optional[Path] = None) -> List[LiveGroup]:
+    """Rebuild live photo pairings from the current index.
+    
+    Args:
+        root: The album root directory.
+        library_root: If provided, use this as the database root (global database).
+    
+    Returns:
+        List of LiveGroup objects representing the pairings.
+    """
+    db_root = library_root if library_root else root
+    
+    # If using global DB, filter by album path
+    album_path = None
+    if library_root:
+        try:
+            album_path = root.resolve().relative_to(library_root.resolve()).as_posix()
+        except (ValueError, OSError):
+            pass
+    
+    # Read rows from the database
+    if album_path:
+        rows = list(IndexStore(db_root).read_album_assets(album_path, include_subalbums=True))
+        # Convert to album-relative paths for pairing
+        prefix = album_path + "/"
+        album_rows = []
+        for row in rows:
+            rel = row.get("rel", "")
+            if rel.startswith(prefix):
+                adj_row = dict(row)
+                adj_row["rel"] = rel[len(prefix):]
+                album_rows.append(adj_row)
+            elif "/" not in rel:
+                album_rows.append(row)
+        rows = album_rows
+    else:
+        rows = list(IndexStore(db_root).read_all())
+    
     groups, payload = _compute_links_payload(rows)
     _write_links(root, payload)
 
     # Also sync to DB
-    _sync_live_roles_to_db(root, groups)
+    _sync_live_roles_to_db(root, groups, library_root=library_root)
 
     return groups

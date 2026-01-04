@@ -187,8 +187,11 @@ class AppFacade(QObject):
     def open_album(self, root: Path) -> Optional[Album]:
         """Open *root* and trigger background work as needed."""
 
+        # Get library root first for global database access
+        library_root = self._library_manager.root() if self._library_manager else None
+        
         try:
-            album = backend.open_album(root, autoscan=False)
+            album = backend.open_album(root, autoscan=False, library_root=library_root)
         except IPhotoError as exc:
             self.errorRaised.emit(str(exc))
             return None
@@ -196,7 +199,6 @@ class AppFacade(QObject):
         # Dual-Model Switching Strategy:
         # Determine whether to use the persistent library model or the transient album model.
         target_model = self._album_list_model
-        library_root = self._library_manager.root() if self._library_manager else None
 
         # If the requested root matches the library root, assume we are viewing the
         # aggregated "All Photos" collection (or similar library-wide view).
