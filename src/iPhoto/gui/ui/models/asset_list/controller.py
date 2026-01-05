@@ -1,4 +1,22 @@
-"""Controller for managing asset data loading, streaming, and incremental refreshes."""
+"""Controller for managing asset data loading, streaming, and incremental refreshes.
+
+This module implements a Pull-Based K-Way Merge architecture for efficiently
+loading large aggregate views (e.g., "All Photos", "Videos"). The key components:
+
+1. **MergedAssetStream**: A K-Way merge buffer that combines DB and Live Scanner
+   data streams in O(N) linear time, avoiding the O(N log N) cost of re-sorting.
+
+2. **Lazy Loading**: Data is fetched on-demand when the UI requests it via
+   `load_next_page()`, rather than eagerly loading all data upfront.
+
+3. **Cursor-based Pagination**: The DB stream uses cursor-based pagination to
+   fetch pages incrementally as needed.
+
+Architecture:
+    UI Scroll -> fetchMore() -> Controller.load_next_page()
+    -> MergedAssetStream.pop_next() -> [If buffer low] -> Fetch DB page
+    -> Push to MergedAssetStream -> Pop merged data -> Emit to UI
+"""
 
 from __future__ import annotations
 
@@ -29,6 +47,7 @@ from ...tasks.incremental_refresh_worker import (
     IncrementalRefreshWorker,
 )
 from ..asset_data_loader import AssetDataLoader
+from .streaming import MergedAssetStream
 from .....utils.pathutils import (
     normalise_for_compare,
     is_descendant_path,
@@ -42,10 +61,10 @@ class AssetListController(QObject):
     """
     Manages data loading, buffering, and background tasks for the asset list.
 
-    Delegates specific loading tasks to `AssetDataLoader`, `LiveIngestWorker`,
-    and `IncrementalRefreshWorker`. Handles buffering of incoming chunks to
-    prevent UI freezing. Also supports cursor-based pagination for efficient
-    loading of large datasets.
+    Implements a Pull-Based K-Way Merge architecture where:
+    - Data is fetched lazily when the UI requests it via fetchMore()
+    - DB and Live Scanner streams are merged in O(N) linear time
+    - The MergedAssetStream acts as the central data buffer
     """
 
     # Signals
@@ -59,10 +78,12 @@ class AssetListController(QObject):
     # Pagination signals
     allDataLoaded = Signal()  # Signals when all data has been loaded (end of cursor)
 
-    # Tuning constants for streaming updates
+    # Tuning constants
     _STREAM_FLUSH_INTERVAL_MS = 100
     _STREAM_BATCH_SIZE = 100
     _STREAM_FLUSH_THRESHOLD = 2000
+    _PREFETCH_THRESHOLD = 50  # Fetch more DB data when buffer drops below this
+    _PREFETCH_MULTIPLIER = 2  # Fetch N times the requested page size for efficiency
 
     def __init__(
         self,
@@ -76,7 +97,7 @@ class AssetListController(QObject):
         self._album_root: Optional[Path] = None
         self._active_filter: Optional[str] = None
 
-        # Workers
+        # Workers (for backward compatibility with eager loading)
         self._data_loader = AssetDataLoader(self)
         self._data_loader.chunkReady.connect(self._on_loader_chunk_ready)
         self._data_loader.loadProgress.connect(self._on_loader_progress)
@@ -89,7 +110,7 @@ class AssetListController(QObject):
         self._incremental_signals: Optional[IncrementalRefreshSignals] = None
         self._refresh_lock = QMutex()
 
-        # Pagination state
+        # Pagination state (cursor-based lazy loading)
         self._cursor_dt: Optional[str] = None
         self._cursor_id: Optional[str] = None
         self._is_loading_page: bool = False
@@ -97,7 +118,11 @@ class AssetListController(QObject):
         self._paginated_worker: Optional[PaginatedLoaderWorker] = None
         self._paginated_signals: Optional[PaginatedLoaderSignals] = None
 
-        # Streaming buffer state
+        # K-Way Merge Stream - central buffer for lazy loading
+        self._k_way_stream: MergedAssetStream = MergedAssetStream()
+        self._use_lazy_loading: bool = False  # Enable lazy loading for large albums
+
+        # Legacy streaming buffer state (for backward compatibility)
         self._pending_chunks_buffer: List[Dict[str, object]] = []
         self._pending_rels: Set[str] = set()
         self._pending_abs: Set[str] = set()
@@ -168,6 +193,9 @@ class AssetListController(QObject):
         self._pending_finish_event = None
         self._is_flushing = False
         self._is_first_chunk = True
+        # Reset K-Way merge stream
+        self._k_way_stream.reset()
+        self._use_lazy_loading = False
 
     def _reset_pagination_state(self) -> None:
         """Clear pagination state for a fresh load."""
@@ -390,7 +418,11 @@ class AssetListController(QObject):
             self._is_flushing = False
 
     def _on_scan_chunk_ready(self, root: Path, chunk: List[Dict[str, object]]) -> None:
-        """Process scan results directly without buffering, as they are live updates."""
+        """Process scan results by routing them through the K-Way merge stream.
+        
+        Live scanner results are pushed to the live_queue of the MergedAssetStream,
+        where they will be merged with DB results in chronological order.
+        """
         if not self._album_root or not chunk:
             return
 
@@ -436,8 +468,11 @@ class AssetListController(QObject):
                 )
                 continue
 
-            # Check if exists in model
-            if self._duplication_checker(normalise_rel_value(view_rel), None):
+            # Check if exists in model or K-Way stream
+            norm_rel = normalise_rel_value(view_rel)
+            if self._duplication_checker(norm_rel, None):
+                continue
+            if self._k_way_stream.is_row_tracked(norm_rel):
                 continue
 
             adjusted_row = row.copy()
@@ -462,7 +497,22 @@ class AssetListController(QObject):
             entries.append(entry)
 
         if entries:
-            self.batchReady.emit(entries, False)
+            # Push live scan results to the K-Way merge stream
+            added = self._k_way_stream.push_live_chunk(entries)
+            logger.debug(
+                "Live scan chunk: %d entries processed, %d unique added to stream",
+                len(entries),
+                added,
+            )
+            
+            # For live items that are newer than current view position,
+            # emit them immediately so they appear at the top
+            if added > 0 and not self._is_first_chunk:
+                # Only emit live items directly after initial load has started
+                # Check if live items are newer than the last rendered DB item
+                live_head = self._k_way_stream.peek_live_head()
+                if live_head:
+                    self.batchReady.emit(entries, False)
 
     def _on_loader_progress(self, root: Path, current: int, total: int) -> None:
         if not self._album_root or root != self._album_root:
@@ -659,12 +709,16 @@ class AssetListController(QObject):
         """Return True if more data can be loaded via pagination.
         
         Returns False if:
-        - All data has been loaded
+        - All data has been loaded and K-Way stream is empty
         - A page load is currently in progress
         - No album root is set
         """
+        # Check if K-Way stream has buffered data OR DB has more pages
+        has_buffered_data = self._k_way_stream.has_data()
+        can_fetch_db = not self._all_data_loaded
+        
         return (
-            not self._all_data_loaded
+            (has_buffered_data or can_fetch_db)
             and not self._is_loading_page
             and self._album_root is not None
         )
@@ -675,30 +729,75 @@ class AssetListController(QObject):
 
     def all_data_loaded(self) -> bool:
         """Return True if all data has been loaded (no more pages)."""
-        return self._all_data_loaded
+        return self._all_data_loaded and not self._k_way_stream.has_data()
 
     def load_next_page(self, page_size: int = DEFAULT_PAGE_SIZE) -> bool:
-        """Load the next page of assets using cursor-based pagination.
+        """Load the next page of assets using the K-Way merge stream.
         
-        This method starts a background worker to fetch the next page of assets
-        starting from the current cursor position. The results are emitted via
-        the batchReady signal.
+        This method implements lazy pull-based loading:
+        1. First, try to fulfill the request from the MergedAssetStream buffer
+        2. If buffer has enough data, emit immediately without DB fetch
+        3. If buffer is low, trigger a DB page fetch and wait for results
         
         Args:
             page_size: Number of assets to fetch (default: DEFAULT_PAGE_SIZE).
         
         Returns:
-            True if a page load was started, False if conditions weren't met.
+            True if data was emitted or a fetch was started, False otherwise.
         """
-        if not self.can_load_more():
-            logger.debug(
-                "load_next_page: cannot load more (all_loaded=%s, is_loading=%s, root=%s)",
-                self._all_data_loaded,
-                self._is_loading_page,
-                self._album_root,
-            )
+        if self._album_root is None:
+            logger.debug("load_next_page: no album root set")
             return False
 
+        if self._is_loading_page:
+            logger.debug("load_next_page: already loading a page")
+            return False
+
+        # Step 1: Check if we can fulfill from the K-Way stream buffer
+        buffered_count = self._k_way_stream.total_pending()
+        
+        if buffered_count >= page_size:
+            # We have enough buffered data - emit directly without DB fetch
+            batch = self._k_way_stream.pop_next(page_size)
+            if batch:
+                self._emit_batch_from_stream(batch)
+                logger.debug(
+                    "load_next_page: fulfilled from buffer (%d items, %d remaining)",
+                    len(batch),
+                    self._k_way_stream.total_pending(),
+                )
+                return True
+
+        # Step 2: If buffer is low AND DB has more data, fetch from DB
+        if not self._all_data_loaded:
+            # Calculate how much to fetch (prefetch more than requested for efficiency)
+            fetch_size = page_size * self._PREFETCH_MULTIPLIER
+            self._trigger_db_page_fetch(fetch_size)
+            return True
+
+        # Step 3: If DB is exhausted but we have remaining buffered data, emit it
+        if buffered_count > 0:
+            batch = self._k_way_stream.pop_next(page_size)
+            if batch:
+                self._emit_batch_from_stream(batch)
+                logger.debug(
+                    "load_next_page: drained remaining buffer (%d items)",
+                    len(batch),
+                )
+                return True
+
+        # No data available and DB is exhausted
+        if not self.allDataLoaded:
+            self.allDataLoaded.emit()
+        logger.debug("load_next_page: all data exhausted")
+        return False
+
+    def _trigger_db_page_fetch(self, page_size: int) -> None:
+        """Trigger an async fetch of the next DB page.
+        
+        Args:
+            page_size: Number of rows to fetch from the database.
+        """
         # Cleanup any existing paginated worker
         self._cleanup_paginated_worker()
 
@@ -738,12 +837,37 @@ class AssetListController(QObject):
         QThreadPool.globalInstance().start(self._paginated_worker)
 
         logger.debug(
-            "load_next_page: started page load cursor_dt=%s cursor_id=%s page_size=%d",
+            "load_next_page: triggered DB fetch cursor_dt=%s cursor_id=%s page_size=%d",
             self._cursor_dt,
             self._cursor_id,
             page_size,
         )
-        return True
+
+    def _emit_batch_from_stream(self, batch: List[Dict[str, object]]) -> None:
+        """Emit a batch of rows from the K-Way stream to the UI.
+        
+        Args:
+            batch: List of asset dictionaries to emit.
+        """
+        # Filter out any duplicates that may already be in the model
+        unique_batch = []
+        for row in batch:
+            rel = row.get("rel")
+            if not rel:
+                continue
+            norm_rel = normalise_rel_value(rel)
+            abs_val = row.get("abs")
+            abs_key = str(abs_val) if abs_val else None
+
+            if not self._duplication_checker(norm_rel, abs_key):
+                unique_batch.append(row)
+
+        if unique_batch:
+            # Emit as non-reset batch (append mode)
+            is_first = self._is_first_chunk
+            if is_first:
+                self._is_first_chunk = False
+            self.batchReady.emit(unique_batch, is_first)
 
     def _on_paginated_page_ready(
         self,
@@ -752,9 +876,14 @@ class AssetListController(QObject):
         last_dt: str,
         last_id: str,
     ) -> None:
-        """Handle a page of results from the paginated worker."""
+        """Handle a page of results from the paginated worker.
+        
+        In the lazy loading mode, we push data to the K-Way stream
+        and then pull merged results to emit to the UI.
+        """
         if not self._album_root or root != self._album_root:
             logger.debug("Ignoring paginated page ready for stale album: %s", root)
+            self._is_loading_page = False
             return
 
         # Update cursor for next page
@@ -763,52 +892,39 @@ class AssetListController(QObject):
         if last_id:
             self._cursor_id = last_id
 
-        # Deduplicate and emit results
-        unique_chunk = []
-        for row in chunk:
-            rel = row.get("rel")
-            if not rel:
-                continue
-            norm_rel = normalise_rel_value(rel)
-            abs_val = row.get("abs")
-            abs_key = str(abs_val) if abs_val else None
-
-            is_duplicate_in_model = self._duplication_checker(norm_rel, abs_key)
-            is_duplicate_in_buffer = (
-                norm_rel in self._pending_rels
-                or (abs_key and abs_key in self._pending_abs)
-            )
-
-            if not is_duplicate_in_model and not is_duplicate_in_buffer:
-                unique_chunk.append(row)
-                self._pending_rels.add(norm_rel)
-                if abs_key:
-                    self._pending_abs.add(abs_key)
-
-        if unique_chunk:
-            # Emit as non-reset batch (append mode)
-            self.batchReady.emit(unique_chunk, False)
-
-            # Clean up pending sets
-            for row in unique_chunk:
-                rel = row.get("rel")
-                if rel:
-                    self._pending_rels.discard(normalise_rel_value(rel))
-                abs_val = row.get("abs")
-                if abs_val:
-                    self._pending_abs.discard(str(abs_val))
+        # Push to K-Way merge stream (deduplication happens inside)
+        added = self._k_way_stream.push_db_chunk(chunk)
+        logger.debug(
+            "Paginated page ready: %d rows received, %d unique added to stream",
+            len(chunk),
+            added,
+        )
 
         self._is_loading_page = False
+
+        # Now emit merged data from the stream
+        # We pull at least one batch to satisfy the pending UI request
+        page_size = self._DEFAULT_PAGE_SIZE
+        batch = self._k_way_stream.pop_next(page_size)
+        if batch:
+            self._emit_batch_from_stream(batch)
 
     def _on_paginated_end_of_data(self, root: Path) -> None:
         """Handle end of data signal from paginated worker."""
         if not self._album_root or root != self._album_root:
+            self._is_loading_page = False
             return
 
         self._all_data_loaded = True
+        self._k_way_stream.mark_db_exhausted()
         self._is_loading_page = False
-        self.allDataLoaded.emit()
-        logger.debug("Pagination: all data loaded for album %s", root)
+        
+        logger.debug("Pagination: DB stream exhausted for album %s", root)
+        
+        # If there's remaining data in the stream, don't emit allDataLoaded yet
+        if not self._k_way_stream.has_data():
+            self.allDataLoaded.emit()
+            logger.debug("Pagination: all data loaded for album %s", root)
 
     def _on_paginated_error(self, root: Path, message: str) -> None:
         """Handle error from paginated worker."""
