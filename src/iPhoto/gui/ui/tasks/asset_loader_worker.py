@@ -189,7 +189,7 @@ def _parse_timestamp(value: object) -> float:
 
 # Maximum entries to cache per directory when checking on-disk presence.
 # Avoid caching very large directories to prevent high memory usage.
-DIR_CACHE_THRESHOLD = 1000
+DIR_CACHE_THRESHOLD = 500000
 def _path_exists_direct(path: Path) -> bool:
     try:
         return path.exists()
@@ -526,8 +526,8 @@ class AssetLoaderWorker(QRunnable):
 
             for position, row in enumerate(generator, start=1):
                 # Yield CPU every 50 items to keep UI responsive
-                if position % 50 == 0:
-                    QThread.msleep(10)
+                # Removed msleep(10) as it causes excessive delay on large datasets.
+                # The thread is already running at LowPriority.
 
                 if self._is_cancelled:
                     return
@@ -654,8 +654,7 @@ class LiveIngestWorker(QRunnable):
 
             for i, row in enumerate(self._items, 1):
                 # Yield CPU every batch to allow UI thread to process events
-                if i > 0 and i % batch_size == 0:
-                    QThread.msleep(10)
+                # Removed msleep(10) as it causes excessive delay.
 
                 if self._is_cancelled:
                     break
