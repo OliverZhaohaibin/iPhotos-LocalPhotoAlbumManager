@@ -38,6 +38,13 @@ GLOBAL_INDEX_DB_NAME = "global_index.db"
 _global_instance: Optional["AssetRepository"] = None
 _global_lock = threading.Lock()
 
+# Minimal columns required for the grid view
+GRID_VIEW_COLUMNS = [
+    "id", "rel", "dt", "ts", "media_type", "dur", "is_favorite",
+    "live_role", "live_partner_rel", "w", "h", "aspect_ratio",
+    "micro_thumbnail", "bytes"
+]
+
 
 def get_global_repository(library_root: Path) -> "AssetRepository":
     """Get or create the global AssetRepository singleton for a library.
@@ -315,15 +322,6 @@ class AssetRepository:
             cursor_dt: Timestamp cursor for pagination (continue after this dt).
             cursor_id: ID cursor for pagination (continue after this id).
         """
-        # Columns needed for the lightweight "viewport-first" loading strategy
-        columns = [
-            "id", "rel", "aspect_ratio", "media_type", "live_partner_rel",
-            "dur", "year", "month", "dt", "ts", "content_id", "bytes",
-            "mime", "w", "h", "original_rel_path", "original_album_id",
-            "original_album_subpath", "is_favorite", "location", "gps",
-            "micro_thumbnail"
-        ]
-
         logger.debug(
             "IndexStore.read_geometry_only album_path=%s include_subalbums=%s "
             "sort_by_date=%s filter_params=%s",
@@ -334,7 +332,7 @@ class AssetRepository:
         )
 
         query, params = QueryBuilder.build_pagination_query(
-            select_clause=f"SELECT {', '.join(columns)}",
+            select_clause=f"SELECT {', '.join(GRID_VIEW_COLUMNS)}",
             base_where=["live_role = 0"],
             album_path=album_path,
             include_subalbums=include_subalbums,
@@ -353,14 +351,7 @@ class AssetRepository:
             cursor = conn.cursor()
             cursor.execute(query, params)
             for row in cursor:
-                d = dict(row)
-                # Parse GPS if present (stored as JSON string)
-                if d.get("gps"):
-                    try:
-                        d["gps"] = json.loads(d["gps"])
-                    except (json.JSONDecodeError, TypeError):
-                        d["gps"] = None
-                yield d
+                yield dict(row)
         finally:
             if should_close:
                 conn.close()

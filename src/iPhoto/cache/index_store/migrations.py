@@ -137,9 +137,6 @@ class SchemaMigrator:
             # Favorites retrieval optimization
             "CREATE INDEX IF NOT EXISTS idx_assets_favorite_dt ON assets (is_favorite, dt DESC)",
             
-            # Streaming query optimization (dt + id for deterministic ordering)
-            "CREATE INDEX IF NOT EXISTS idx_assets_dt_id_desc ON assets (dt DESC, id DESC)",
-            
             # Timeline grouping (Year/Month headers)
             "CREATE INDEX IF NOT EXISTS idx_year_month ON assets(year, month)",
             
@@ -150,12 +147,14 @@ class SchemaMigrator:
             # Media type filtering (Photos/Videos)
             "CREATE INDEX IF NOT EXISTS idx_media_type ON assets(media_type)",
             
-            # Core index for album-scoped pagination
-            ("CREATE INDEX IF NOT EXISTS idx_assets_pagination "
+            # Core index for album-scoped pagination (matches ORDER BY dt DESC NULLS LAST, id DESC)
+            # Note: "DESC" implies "NULLS LAST" in SQLite, so explicit "NULLS LAST" is redundant
+            # and may not be supported in all versions.
+            ("CREATE INDEX IF NOT EXISTS idx_assets_album_pagination "
              "ON assets (parent_album_path, dt DESC, id DESC)"),
             
-            # Global view index (all photos sorted by date)
-            ("CREATE INDEX IF NOT EXISTS idx_assets_global_sort "
+            # Global view index (strictly matches ORDER BY dt DESC NULLS LAST, id DESC)
+            ("CREATE INDEX IF NOT EXISTS idx_assets_global_pagination "
              "ON assets (dt DESC, id DESC)"),
             
             # Album prefix queries (for sub-album filtering with LIKE)

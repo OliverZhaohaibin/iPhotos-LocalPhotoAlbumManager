@@ -586,12 +586,16 @@ class AssetLoaderWorker(QRunnable):
             self._signals.progressUpdated.emit(self._root, total, total)
 
 class LiveIngestWorker(QRunnable):
-    """Process in-memory live scan results on a background thread."""
+    """Process live scan results on a background thread.
+
+    This worker performs the potentially expensive file system scan (get_live_scan_results)
+    on the background thread, then processes and emits the results in chunks.
+    """
 
     def __init__(
         self,
         root: Path,
-        items: List[Dict[str, object]],
+        library_manager: Any,
         featured: Iterable[str],
         signals: AssetLoaderSignals,
         filter_params: Optional[Dict[str, object]] = None,
@@ -599,7 +603,7 @@ class LiveIngestWorker(QRunnable):
         super().__init__()
         self.setAutoDelete(True)
         self._root = root
-        self._items = items
+        self._library_manager = library_manager
         self._featured = normalize_featured(featured)
         self._signals = signals
         self._filter_params = filter_params or {}
@@ -648,11 +652,20 @@ class LiveIngestWorker(QRunnable):
             pass  # Environment may not support priority changes
 
         try:
+            # Perform the potentially expensive I/O here on the worker thread
+            items = self._library_manager.get_live_scan_results(
+                relative_to=self._root
+            )
+
+            if self._is_cancelled:
+                self._signals.finished.emit(self._root, False)
+                return
+
             chunk: List[Dict[str, object]] = []
             # Batch size to ensure responsiveness and smooth streaming
             batch_size = 50
 
-            for i, row in enumerate(self._items, 1):
+            for i, row in enumerate(items, 1):
                 # Yield CPU every batch to allow UI thread to process events
                 if i > 0 and i % batch_size == 0:
                     QThread.msleep(10)

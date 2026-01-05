@@ -74,8 +74,9 @@ def test_read_geometry_only(store: IndexStore) -> None:
     assert len(results) == 3
     # Check fields
     assert "aspect_ratio" in results[0]
-    assert "year" in results[0]
-    assert "mime" in results[0]
+    assert "year" not in results[0]  # Removed for performance
+    assert "mime" not in results[0]  # Removed for performance
+    assert "gps" not in results[0]   # GPS should not be loaded
     # Verify sorting (dt DESC)
     assert results[0]["rel"] == "live.jpg"
     assert results[1]["rel"] == "photo.jpg"

@@ -302,29 +302,29 @@ class AssetListController(QObject):
                         pass  # C++ object already deleted
                     self._live_signals = None
 
-                live_items = self._facade.library_manager.get_live_scan_results(
-                    relative_to=self._album_root
+                # Create signals for the live worker
+                live_signals = AssetLoaderSignals(self)
+                live_signals.chunkReady.connect(self._on_live_chunk_ready)
+                live_signals.finished.connect(
+                    lambda _, __: live_signals.deleteLater()
                 )
-                if live_items:
-                    live_signals = AssetLoaderSignals(self)
-                    live_signals.chunkReady.connect(self._on_live_chunk_ready)
-                    live_signals.finished.connect(
-                        lambda _, __: live_signals.deleteLater()
-                    )
 
-                    worker = LiveIngestWorker(
-                        self._album_root,
-                        live_items,
-                        featured,
-                        live_signals,
-                        filter_params=filter_params,
-                    )
-                    self._current_live_worker = worker
-                    self._live_signals = live_signals
-                    QThreadPool.globalInstance().start(worker)
+                # Instantiate the worker; note that we no longer pre-fetch live_items.
+                # Instead, we pass the library_manager (or a callable) to the worker
+                # so it can perform the I/O on the background thread.
+                worker = LiveIngestWorker(
+                    self._album_root,
+                    self._facade.library_manager,  # Passed instead of items list
+                    featured,
+                    live_signals,
+                    filter_params=filter_params,
+                )
+                self._current_live_worker = worker
+                self._live_signals = live_signals
+                QThreadPool.globalInstance().start(worker)
             except Exception as e:
                 logger.error(
-                    "Failed to inject live scan results: %s", e, exc_info=True
+                    "Failed to start live scanner worker: %s", e, exc_info=True
                 )
 
         # Trigger first page load using optimized pagination
