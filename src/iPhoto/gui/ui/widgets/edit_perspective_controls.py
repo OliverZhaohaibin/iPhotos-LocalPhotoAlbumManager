@@ -232,6 +232,7 @@ class _FlipToggleRow(QWidget):
         self._button.setCheckable(True)
         self._button.setIcon(load_icon(icon_name, color=(180, 180, 180)))
         self._button.setIconSize(QSize(22, 22))
+        self._button.setToolTip("Flip Horizontally")
         self._button.clicked.connect(self._handle_clicked)
         layout.addWidget(self._button)
 
