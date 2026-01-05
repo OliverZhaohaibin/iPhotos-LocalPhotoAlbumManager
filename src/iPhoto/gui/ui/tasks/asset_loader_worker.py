@@ -710,6 +710,7 @@ class PaginatedLoaderSignals(QObject):
 
     pageReady = Signal(Path, list, str, str)  # (root, chunk, last_dt, last_id)
     endOfData = Signal(Path)  # Signals no more data available
+    finished = Signal()       # Signals worker completion (for cleanup)
     error = Signal(Path, str)
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -775,6 +776,9 @@ class PaginatedLoaderWorker(QRunnable):
             LOGGER.error("Error loading paginated assets: %s", exc, exc_info=True)
             if not self._is_cancelled:
                 self._signals.error.emit(self._root, str(exc))
+        finally:
+            # Always emit finished so the controller can safely delete the signals object
+            self._signals.finished.emit()
 
     def _load_page(self) -> None:
         """Load a single page of assets."""

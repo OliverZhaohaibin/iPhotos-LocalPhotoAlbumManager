@@ -208,19 +208,23 @@ class AssetListController(QObject):
         """Cancel and cleanup any running paginated worker."""
         if self._paginated_worker:
             self._paginated_worker.cancel()
+            # Do NOT set self._paginated_worker to None here if we want to support restarting?
+            # actually, setting to None is fine, as long as we don't kill the signals object prematurely.
             self._paginated_worker = None
+
         if self._paginated_signals:
+            # Disconnect slots so we don't process any more events from this worker
             try:
                 self._paginated_signals.pageReady.disconnect(self._on_paginated_page_ready)
                 self._paginated_signals.endOfData.disconnect(self._on_paginated_end_of_data)
                 self._paginated_signals.error.disconnect(self._on_paginated_error)
             except RuntimeError:
                 pass
-            try:
-                self._paginated_signals.deleteLater()
-            except RuntimeError:
-                pass  # C++ object already deleted
+            # Do NOT call deleteLater() here. The signals object is tied to the worker's lifecycle
+            # via the 'finished' signal connection made in _trigger_db_page_fetch.
+            # Calling deleteLater() here causes a race condition if the worker is still running.
             self._paginated_signals = None
+
         self._is_loading_page = False
 
     def set_filter_mode(self, mode: Optional[str]) -> None:
@@ -879,6 +883,12 @@ class AssetListController(QObject):
         self._paginated_signals.pageReady.connect(self._on_paginated_page_ready)
         self._paginated_signals.endOfData.connect(self._on_paginated_end_of_data)
         self._paginated_signals.error.connect(self._on_paginated_error)
+
+        # Ensure signals are cleaned up only when the worker finishes
+        # We capture the specific signals instance in the lambda to avoid scope issues
+        # if self._paginated_signals is replaced before the worker finishes.
+        sig_ref = self._paginated_signals
+        self._paginated_signals.finished.connect(lambda: sig_ref.deleteLater())
 
         # Create and start worker
         self._paginated_worker = PaginatedLoaderWorker(
