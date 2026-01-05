@@ -708,7 +708,7 @@ DEFAULT_PAGE_SIZE = 500
 class PaginatedLoaderSignals(QObject):
     """Signal container for :class:`PaginatedLoaderWorker` events."""
 
-    pageReady = Signal(Path, list, str, str)  # (root, chunk, last_dt, last_id)
+    pageReady = Signal(Path, list, str, str, int)  # (root, chunk, last_dt, last_id, total_count)
     endOfData = Signal(Path)  # Signals no more data available
     finished = Signal()       # Signals worker completion (for cleanup)
     error = Signal(Path, str)
@@ -810,19 +810,36 @@ class PaginatedLoaderWorker(QRunnable):
         def _path_exists(path: Path) -> bool:
             return _cached_path_exists(path, dir_cache)
 
-        # Fetch a page using cursor-based pagination
-        rows = list(store.read_geometry_only(
-            filter_params=params,
-            sort_by_date=True,
-            album_path=album_path,
-            include_subalbums=True,
-            limit=self._page_size,
-            cursor_dt=self._cursor_dt,
-            cursor_id=self._cursor_id,
-        ))
+        # Use a transaction for consistent read + count
+        total_count = -1
+        rows = []
 
-        if self._is_cancelled:
-            return
+        with store.transaction():
+            # 1. Fetch page data
+            rows = list(store.read_geometry_only(
+                filter_params=params,
+                sort_by_date=True,
+                album_path=album_path,
+                include_subalbums=True,
+                limit=self._page_size,
+                cursor_dt=self._cursor_dt,
+                cursor_id=self._cursor_id,
+            ))
+
+            if self._is_cancelled:
+                return
+
+            # 2. Calculate total count on first page
+            if self._cursor_dt is None:
+                try:
+                    total_count = store.count(
+                        filter_hidden=True,
+                        filter_params=params,
+                        album_path=album_path,
+                        include_subalbums=True,
+                    )
+                except Exception as exc:
+                    LOGGER.warning("Failed to count assets in paginated worker: %s", exc)
 
         # If fewer rows than page_size, we've reached the end of data
         is_end_of_data = len(rows) < self._page_size
@@ -854,13 +871,14 @@ class PaginatedLoaderWorker(QRunnable):
         if self._is_cancelled:
             return
 
-        # Emit the page results
+        # Emit the page results with total count
         if entries:
             self._signals.pageReady.emit(
                 self._root,
                 entries,
                 last_dt or "",
                 last_id or "",
+                total_count
             )
 
         # Signal end of data if we received fewer rows than requested

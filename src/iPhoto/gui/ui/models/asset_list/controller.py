@@ -944,6 +944,7 @@ class AssetListController(QObject):
         chunk: List[Dict[str, object]],
         last_dt: str,
         last_id: str,
+        total_count: int,
     ) -> None:
         """Handle a page of results from the paginated worker.
         
@@ -954,6 +955,11 @@ class AssetListController(QObject):
             logger.debug("Ignoring paginated page ready for stale album: %s", root)
             self._is_loading_page = False
             return
+
+        # Update total count if valid (>=0 indicates it was fetched)
+        if total_count >= 0:
+            # Emit progress update so UI can update scrollbars or status
+            self.loadProgress.emit(root, len(chunk), total_count)
 
         # Update cursor for next page
         if last_dt:

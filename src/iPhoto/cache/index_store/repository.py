@@ -253,6 +253,7 @@ class AssetRepository:
         include_subalbums: bool = False,
         filter_hidden: bool = True,
         filter_params: Optional[Dict[str, Any]] = None,
+        columns: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch a page of assets using cursor-based pagination.
         
@@ -267,11 +268,17 @@ class AssetRepository:
             include_subalbums: If True, include assets from sub-albums.
             filter_hidden: If True, exclude hidden assets.
             filter_params: Additional filter parameters.
+            columns: List of columns to select. If None, selects all.
         
         Returns:
             A list of asset dictionaries for the requested page.
         """
+        select_clause = "SELECT *"
+        if columns:
+            select_clause = f"SELECT {', '.join(columns)}"
+
         query, params = QueryBuilder.build_pagination_query(
+            select_clause=select_clause,
             album_path=album_path,
             include_subalbums=include_subalbums,
             filter_hidden=filter_hidden,
@@ -291,7 +298,11 @@ class AssetRepository:
 
             results = []
             for row in cursor:
-                results.append(self._db_row_to_dict(row))
+                if columns:
+                    # Optimized fetch: no JSON parsing or full dict conversion if restricted columns
+                    results.append(dict(row))
+                else:
+                    results.append(self._db_row_to_dict(row))
             return results
         finally:
             if should_close:
