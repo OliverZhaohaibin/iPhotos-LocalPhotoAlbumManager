@@ -963,7 +963,7 @@ class AssetListController(QObject):
 
         # Now emit merged data from the stream
         # We pull at least one batch to satisfy the pending UI request
-        page_size = self._DEFAULT_PAGE_SIZE
+        page_size = DEFAULT_PAGE_SIZE
         batch = self._k_way_stream.pop_next(page_size)
         if batch:
             self._emit_batch_from_stream(batch)
