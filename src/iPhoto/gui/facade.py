@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from ..library.manager import LibraryManager
     from .ui.models.asset_list.model import AssetListModel
 
+import logging
+logger = logging.getLogger(__name__)
 
 class AppFacade(QObject):
     """Expose high-level album operations to the GUI layer."""
@@ -293,10 +295,15 @@ class AppFacade(QObject):
             store.sync_favorites(album.manifest.get("featured", []))
             # Sync live roles from links.json to database
             self._sync_live_roles_from_links(library_root, store)
-        except Exception:
+        except Exception as e:
             # Log but don't fail - sync errors shouldn't break navigation.
             # Favorites/Live Photos may not work correctly, but other views will function.
-            pass
+            logger.exception(
+                "Failed to sync favorites or live roles for album. "
+                "library_root=%s, album=%s",
+                library_root,
+                getattr(album, "id", None),
+            )
 
         # PERFORMANCE CRITICAL: Apply the filter to the library model BEFORE
         # switching. This ensures when the View binds to _library_list_model,
