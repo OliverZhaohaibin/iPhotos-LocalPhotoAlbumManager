@@ -184,6 +184,72 @@ class AppFacade(QObject):
 
         return self._library_manager
 
+    def library_model_has_cached_data(self) -> bool:
+        """Return ``True`` when the library model has valid cached data.
+
+        This allows the navigation controller to use an optimized path when
+        switching from a physical album to an aggregated album view, skipping
+        the expensive model reset and data reload when the library model already
+        contains the required data.
+        """
+        library_root = self._library_manager.root() if self._library_manager else None
+        if library_root is None:
+            return False
+
+        model = self._library_list_model
+        existing_root = model.album_root()
+        if existing_root is None:
+            return False
+
+        # Check if the model has data and is for the correct library root
+        return (
+            model.rowCount() > 0
+            and self._paths_equal(existing_root, library_root)
+        )
+
+    def switch_to_library_model_for_static_collection(
+        self,
+        library_root: Path,
+        title: str,
+    ) -> bool:
+        """Switch to the library model without reloading data.
+
+        This method provides an optimized path for switching from a physical
+        album to a static collection (e.g. "All Photos", "Videos") when the
+        library model already has valid cached data. It avoids the expensive
+        model reset, data reload, and UI rebuild by simply switching the active
+        model reference.
+
+        Returns ``True`` if the switch was successful, ``False`` if the standard
+        path should be used instead.
+        """
+        if not self.library_model_has_cached_data():
+            return False
+
+        # Open the album object for the library root (lightweight operation)
+        try:
+            album = backend.open_album(
+                library_root,
+                autoscan=False,
+                library_root=library_root,
+            )
+        except IPhotoError as exc:
+            self.errorRaised.emit(str(exc))
+            return False
+
+        self._current_album = album
+        album.manifest = {**album.manifest, "title": title}
+
+        # Switch to library model if not already active
+        if self._active_model is not self._library_list_model:
+            self._active_model = self._library_list_model
+            self.activeModelChanged.emit(self._library_list_model)
+
+        # Emit albumOpened signal for any listeners that need it
+        self.albumOpened.emit(library_root)
+
+        return True
+
     def open_album(self, root: Path) -> Optional[Album]:
         """Open *root* and trigger background work as needed."""
 

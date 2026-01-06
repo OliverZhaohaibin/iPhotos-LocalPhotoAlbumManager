@@ -67,12 +67,34 @@ class _StubFacade:
     def __init__(self) -> None:
         self.current_album: Optional[SimpleNamespace] = None
         self.open_requests: list[Path] = []
+        # Track whether the library model has cached data for optimization tests
+        self._has_cached_data: bool = False
+        # Track switch_to_library_model calls
+        self.library_model_switch_calls: list[tuple[Path, str]] = []
 
     def open_album(self, root: Path) -> SimpleNamespace:
         self.open_requests.append(root)
         album = SimpleNamespace(root=root.resolve(), manifest={"title": root.name})
         self.current_album = album
         return album
+
+    def library_model_has_cached_data(self) -> bool:
+        """Return ``True`` when the library model has valid cached data."""
+        return self._has_cached_data
+
+    def switch_to_library_model_for_static_collection(
+        self,
+        library_root: Path,
+        title: str,
+    ) -> bool:
+        """Switch to library model without reloading data."""
+        self.library_model_switch_calls.append((library_root, title))
+        if self._has_cached_data:
+            # Simulate successful switch - update current_album
+            album = SimpleNamespace(root=library_root.resolve(), manifest={"title": title})
+            self.current_album = album
+            return True
+        return False
 
 
 class _StubAssetModel:
@@ -432,3 +454,102 @@ def test_open_recently_deleted_refresh_skips_gallery(
     assert view_controller.gallery_calls == 1  # Should NOT increment
     assert controller.consume_last_open_refresh() is True
     assert len(facade.open_requests) == 1
+
+
+def test_physical_album_to_all_photos_uses_cached_data_optimization(
+    tmp_path: Path, qapp: QApplication
+) -> None:
+    """Switching from physical album to All Photos uses optimized path when cached."""
+
+    facade = _StubFacade()
+    context = _StubContext(tmp_path)
+    context.facade = facade
+    asset_model = _StubAssetModel()
+    sidebar = _StubSidebar()
+    status_bar = QStatusBar()
+    dialog = _StubDialog()
+    view_controller = _SpyViewController()
+
+    controller = NavigationController(
+        context,
+        facade,
+        asset_model,
+        sidebar,
+        status_bar,
+        dialog,  # type: ignore[arg-type]
+        view_controller,
+        QMainWindow(),
+    )
+
+    album_path = tmp_path / "album"
+    album_path.mkdir()
+    tmp_path.mkdir(exist_ok=True)
+
+    # 1. Open a physical album
+    controller.open_album(album_path)
+    assert len(facade.open_requests) == 1
+    assert facade.current_album.root == album_path.resolve()
+
+    # 2. Simulate that library model has cached data
+    facade._has_cached_data = True
+
+    # 3. Switch to "All Photos"
+    # This should use the optimized path (switch_to_library_model_for_static_collection)
+    # instead of open_album
+    controller.open_all_photos()
+
+    # Assertions: open_album should NOT be called again (still 1 request)
+    # switch_to_library_model_for_static_collection should have been called
+    assert len(facade.open_requests) == 1  # No new open_album call
+    assert len(facade.library_model_switch_calls) == 1
+    assert facade.library_model_switch_calls[0][0] == tmp_path  # library root
+    assert facade.library_model_switch_calls[0][1] == "All Photos"
+    assert controller.static_selection() == "All Photos"
+    assert asset_model.filter_mode is None  # All Photos has no filter
+
+
+def test_physical_album_to_all_photos_fallback_without_cached_data(
+    tmp_path: Path, qapp: QApplication
+) -> None:
+    """Switching from physical album to All Photos uses standard path when no cache."""
+
+    facade = _StubFacade()
+    context = _StubContext(tmp_path)
+    context.facade = facade
+    asset_model = _StubAssetModel()
+    sidebar = _StubSidebar()
+    status_bar = QStatusBar()
+    dialog = _StubDialog()
+    view_controller = _SpyViewController()
+
+    controller = NavigationController(
+        context,
+        facade,
+        asset_model,
+        sidebar,
+        status_bar,
+        dialog,  # type: ignore[arg-type]
+        view_controller,
+        QMainWindow(),
+    )
+
+    album_path = tmp_path / "album"
+    album_path.mkdir()
+    tmp_path.mkdir(exist_ok=True)
+
+    # 1. Open a physical album
+    controller.open_album(album_path)
+    assert len(facade.open_requests) == 1
+    assert facade.current_album.root == album_path.resolve()
+
+    # 2. Library model does NOT have cached data (default)
+    assert facade._has_cached_data is False
+
+    # 3. Switch to "All Photos"
+    # This should use the standard path (open_album) because no cached data
+    controller.open_all_photos()
+
+    # Assertions: open_album SHOULD be called (total 2 requests)
+    assert len(facade.open_requests) == 2
+    assert facade.open_requests[1] == tmp_path  # library root
+    assert controller.static_selection() == "All Photos"
