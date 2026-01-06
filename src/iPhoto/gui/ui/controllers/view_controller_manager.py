@@ -38,8 +38,8 @@ class ViewControllerManager(QObject):
 
         self._view_controller = ViewController(
             ui.view_stack,
-            ui.gallery_page,
-            ui.detail_page,
+            album_page=ui.gallery_page,
+            detail_page=ui.detail_page,
             library_page=ui.library_gallery_page,
             map_page=ui.map_page,
             albums_dashboard_page=ui.albums_dashboard_page,

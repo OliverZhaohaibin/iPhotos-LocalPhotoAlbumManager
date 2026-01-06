@@ -219,7 +219,6 @@ class NavigationController:
         self._status.showMessage("Albums")
 
     def open_all_photos(self) -> None:
-        self._view_controller.show_library_view()
         self.open_static_collection(
             AlbumSidebar.ALL_PHOTOS_TITLE, None, gallery_target="library"
         )
@@ -306,6 +305,13 @@ class NavigationController:
         )
         self._last_open_was_refresh = is_refresh
 
+        if show_gallery:
+            if gallery_target == "library":
+                self._view_controller.show_library_view()
+            else:
+                self._view_controller.restore_default_gallery()
+                self._view_controller.show_gallery_view()
+
         if is_refresh:
             return
 
@@ -319,16 +325,6 @@ class NavigationController:
         # reloads triggered by background workers, which maintains the previous
         # view state (e.g. keeping the detail pane active) when the user did
         # not initiate the navigation.
-
-        # Reset the detail pane whenever a static collection (All Photos,
-        # Favorites, etc.) is opened so the UI consistently shows the grid as
-        # its entry point for that virtual album.
-        if show_gallery:
-            if gallery_target == "library":
-                self._view_controller.show_library_view()
-            else:
-                self._view_controller.restore_default_gallery()
-                self._view_controller.show_gallery_view()
 
         self._static_selection = title
 

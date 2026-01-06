@@ -21,7 +21,7 @@ class ViewController(QObject):
     def __init__(
         self,
         view_stack: QStackedWidget,
-        gallery_page: QWidget | None,
+        album_page: QWidget | None,
         detail_page: QWidget | None,
         library_page: QWidget | None = None,
         map_page: QWidget | None = None,
@@ -32,13 +32,12 @@ class ViewController(QObject):
 
         super().__init__(parent)
         self._view_stack = view_stack
-        self._gallery_page = gallery_page
         self._library_page = library_page
-        self._album_page = gallery_page
+        self._album_page = album_page
         self._detail_page = detail_page
         self._map_page = map_page
         self._albums_dashboard_page = albums_dashboard_page
-        self._active_gallery_page = library_page or gallery_page
+        self._active_gallery_page = library_page or album_page
         self._edit_mode_active = False
 
     def show_gallery_view(self) -> None:
@@ -117,9 +116,9 @@ class ViewController(QObject):
         self._edit_mode_active = False
         self.galleryViewShown.emit()
     def restore_default_gallery(self) -> None:
-        """Reset the gallery view back to the standard grid."""
+        """Reset the active gallery to the primary album grid."""
 
-        self._active_gallery_page = self._album_page
+        self._active_gallery_page = self._album_page or self._library_page
 
     def is_detail_view_active(self) -> bool:
         """Return ``True`` when the stacked widget is currently showing the detail page."""
