@@ -58,8 +58,11 @@ class DataManager(QObject):
         self._facade.activeModelChanged.connect(self._on_active_model_changed)
 
         # Filmstrip model follows the active proxy
-        self._filmstrip_model = SpacerProxyModel(window)
-        self._filmstrip_model.setSourceModel(self._active_proxy)
+        self._library_filmstrip = SpacerProxyModel(window)
+        self._library_filmstrip.setSourceModel(self._library_proxy)
+        self._album_filmstrip = SpacerProxyModel(window)
+        self._album_filmstrip.setSourceModel(self._album_proxy)
+        self._filmstrip_model: SpacerProxyModel = self._library_filmstrip
 
         self._media = MediaController(window)
         self._playlist = PlaylistController(window)
@@ -108,8 +111,14 @@ class DataManager(QObject):
         # their cached geometry intact. Each proxy stays subscribed to its underlying
         # source model, so data updates continue to flow without remapping. Only
         # dependent proxies (filmstrip) need to follow the active source.
-        # Update filmstrip to follow the active proxy
-        self._filmstrip_model.setSourceModel(new_proxy)
+        # Update filmstrip to follow the active proxy by swapping the pre-bound proxy
+        target_filmstrip = (
+            self._library_filmstrip if new_proxy is self._library_proxy else self._album_filmstrip
+        )
+        if target_filmstrip is not self._filmstrip_model:
+            self._filmstrip_model = target_filmstrip
+            if self._ui is not None:
+                self._ui.filmstrip_view.setModel(self._filmstrip_model)
 
     # ------------------------------------------------------------------
     # Model exposure
@@ -129,6 +138,29 @@ class DataManager(QObject):
         """Return the proxy model used by the filmstrip view."""
 
         return self._filmstrip_model
+
+    def set_filmstrip_context(self, context: str) -> None:
+        """Switch the filmstrip view to the desired context proxy."""
+
+        if context == "album":
+            target = self._album_filmstrip
+        else:
+            target = self._library_filmstrip
+        if target is self._filmstrip_model:
+            return
+        self._filmstrip_model = target
+        if self._ui is not None:
+            self._ui.filmstrip_view.setModel(self._filmstrip_model)
+
+    def library_filmstrip(self) -> SpacerProxyModel:
+        """Return the filmstrip proxy bound to the library model."""
+
+        return self._library_filmstrip
+
+    def album_filmstrip(self) -> SpacerProxyModel:
+        """Return the filmstrip proxy bound to the album model."""
+
+        return self._album_filmstrip
 
     def media(self) -> MediaController:
         """Expose the multimedia backend wrapper."""

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Optional, TYPE_CHECKING
+from typing import Callable, Literal, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow
@@ -40,6 +40,7 @@ class NavigationController:
         view_controller: ViewController,
         main_window: QMainWindow,
         playback_controller: "PlaybackController" | None = None,
+        filmstrip_context_callback: Callable[[Literal["album", "library"]], None] | None = None,
     ) -> None:
         self._context = context
         self._facade = facade
@@ -49,6 +50,7 @@ class NavigationController:
         self._dialog = dialog
         self._view_controller = view_controller
         self._main_window = main_window
+        self._set_filmstrip_context = filmstrip_context_callback
         # ``PlaybackController`` is injected lazily so the main controller can
         # finish instantiating the playback stack before wiring the navigation
         # callbacks.  When ``None`` the helper simply skips the playback reset.
@@ -152,6 +154,8 @@ class NavigationController:
         # presentation before the model finishes loading.
         self._view_controller.set_album_gallery_active()
         self._view_controller.show_gallery_view()
+        if self._set_filmstrip_context is not None:
+            self._set_filmstrip_context("album")
 
         # Scanning persistence is now handled by LibraryManager.
         album = self._facade.open_album(path)
@@ -266,6 +270,8 @@ class NavigationController:
         self._view_controller.show_gallery_view()
         self._asset_model.set_filter_mode(None)
         self._static_selection = "Recently Deleted"
+        if self._set_filmstrip_context is not None:
+            self._set_filmstrip_context("album")
 
         album = self._facade.open_album(deleted_root)
         if album is None:
@@ -308,9 +314,13 @@ class NavigationController:
         if show_gallery:
             if gallery_target == "library":
                 self._view_controller.show_library_view()
+                if self._set_filmstrip_context is not None:
+                    self._set_filmstrip_context("library")
             else:
                 self._view_controller.set_album_gallery_active()
                 self._view_controller.show_gallery_view()
+                if self._set_filmstrip_context is not None:
+                    self._set_filmstrip_context("album")
 
         if is_refresh:
             return

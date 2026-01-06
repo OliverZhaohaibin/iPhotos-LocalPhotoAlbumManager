@@ -54,6 +54,7 @@ class MainController(QObject):
             self._dialog,
             self._view_manager.view_controller(),
             window,
+            filmstrip_context_callback=self._data.set_filmstrip_context,
         )
         # The navigation controller is created after the edit controller, so
         # provide the reference now that the instance exists.  This keeps the
