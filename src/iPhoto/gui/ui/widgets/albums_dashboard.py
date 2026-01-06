@@ -338,13 +338,13 @@ class DashboardThumbnailLoader(QObject):
     """Simplified thumbnail loader for dashboard cards."""
 
     thumbnailReady = Signal(Path, QPixmap)  # album_root, pixmap
-    _delivered = Signal(object, QImage, str)  # key, image, rel
+    _delivered = Signal(tuple, QImage, str)  # key, image, rel
 
     def __init__(self, parent: QObject | None = None, library_root: Optional[Path] = None) -> None:
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
         self._delivered.connect(self._handle_result)
-        # Map unique keys to album roots
+        # Map base keys (album_root, rel, width, height) to pending album roots
         self._key_to_root: dict[tuple[str, str, int, int], list[Path]] = {}
         self._library_root = library_root
 
@@ -382,7 +382,7 @@ class DashboardThumbnailLoader(QObject):
 
         # Store mapping
         job_root_str = str(album_root.resolve())
-        base_key = (job_root_str, unique_rel, size.width(), size.height())
+        base_key: tuple[str, str, int, int] = (job_root_str, unique_rel, size.width(), size.height())
         self._key_to_root.setdefault(base_key, []).append(album_root)
 
         media_type = get_media_type(image_path)
@@ -418,14 +418,17 @@ class DashboardThumbnailLoader(QObject):
         self._pool.start(job)
 
     def _handle_result(
-        self, key: tuple[str, str, int, int, int], image: Optional[QImage], rel: str
+        self, full_key: tuple[str, str, int, int, int], image: Optional[QImage], rel: str
     ) -> None:
-        roots = self._key_to_root.get(key[:-1])
+        # Use the base key (without timestamp) so sidecar or filesystem timestamp changes
+        # do not prevent delivered thumbnails from matching pending requests.
+        base_key = full_key[:-1]
+        roots = self._key_to_root.get(base_key)
         if not roots:
             return
         album_root = roots.pop(0)
         if not roots:
-            self._key_to_root.pop(key[:-1], None)
+            self._key_to_root.pop(base_key, None)
 
         if image is None:
             return
