@@ -345,7 +345,7 @@ class DashboardThumbnailLoader(QObject):
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
         self._delivered.connect(self._handle_result)
-        # Map base keys (album_root, rel, width, height) to pending album roots
+        # Map base keys (album_root_str, rel, width, height) to pending album roots
         self._key_to_root: dict[tuple[str, str, int, int], deque[Path]] = {}
         self._resolved_roots: dict[Path, str] = {}
         self._library_root = library_root
@@ -439,7 +439,7 @@ class DashboardThumbnailLoader(QObject):
 
     def _album_root_str(self, album_root: Path) -> str:
         cached = self._resolved_roots.get(album_root)
-        if cached:
+        if cached is not None:
             return cached
         try:
             resolved_path = album_root.resolve()
