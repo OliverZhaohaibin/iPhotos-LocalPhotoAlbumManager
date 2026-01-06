@@ -28,6 +28,14 @@ class AssetModel(AssetFilterProxyModel):
     def __init__(self, facade: "AppFacade") -> None:
         super().__init__()
         self._list_model = facade.asset_list_model
+        
+        # OPTIMIZATION: Disable dynamic sort filter to prevent unnecessary 
+        # re-calculations when rows are inserted/removed. The DB maintains 
+        # sort order (ORDER BY dt DESC), so the proxy can trust the source order.
+        # This overrides the base class default of True to optimize for
+        # the Dual-Proxy Architecture where re-sorting is not needed.
+        self.setDynamicSortFilter(False)
+        
         self.setSourceModel(self._list_model)
 
     def setSourceModel(self, source_model: AssetListModel) -> None:  # type: ignore[override]
@@ -50,11 +58,6 @@ class AssetModel(AssetFilterProxyModel):
         
         # Configure the default chronological sort (newest first)
         self.ensure_chronological_order()
-        
-        # OPTIMIZATION: Disable dynamic sort filter to prevent unnecessary 
-        # re-calculations when rows are inserted/removed. The DB maintains 
-        # sort order (ORDER BY dt DESC), so the proxy can trust the source order.
-        self.setDynamicSortFilter(False)
 
     # ------------------------------------------------------------------
     # Convenience accessors

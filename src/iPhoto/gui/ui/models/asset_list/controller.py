@@ -135,6 +135,7 @@ class AssetListController(QObject):
         self._initial_page_loaded: bool = False  # Track if first screen has loaded
         self._prefetch_timer: Optional[QTimer] = None  # Timer for background prefetch
         self._prefetch_remaining: int = 0  # Counter for remaining prefetch pages
+        self._prefetch_pending: bool = False  # Track if recursive prefetch is scheduled
 
         # Legacy streaming buffer state (for backward compatibility)
         self._pending_chunks_buffer: List[Dict[str, object]] = []
@@ -183,7 +184,12 @@ class AssetListController(QObject):
             True if lazy loading should be enabled based on:
             1. Lazy mode is enabled in configuration
             2. Album root is set
-            3. Total asset count exceeds LAZY_LOADING_THRESHOLD
+            
+        Note:
+            When lazy mode is enabled, lazy loading is always used regardless
+            of album size. The cursor-based pagination ensures efficient loading
+            for any album size, so there's no downside to using it even for
+            small albums.
         """
         if not self._lazy_mode_enabled:
             return False
@@ -262,10 +268,12 @@ class AssetListController(QObject):
         self._use_lazy_loading = False
         # Reset lazy loading state
         self._initial_page_loaded = False
-        # Cancel any pending prefetch timer
+        # Cancel any pending prefetch timer and recursive prefetch
         if self._prefetch_timer is not None:
             self._prefetch_timer.stop()
             self._prefetch_timer = None
+        self._prefetch_pending = False
+        self._prefetch_remaining = 0
 
     def _reset_pagination_state(self) -> None:
         """Clear pagination state for a fresh load."""
@@ -1076,19 +1084,23 @@ class AssetListController(QObject):
         
         This method schedules the prefetch to run after PREFETCH_DELAY_MS,
         allowing the UI to settle after the initial page load.
+        
+        Reuses a single timer instance to avoid memory leaks.
         """
         if self._all_data_loaded:
             logger.debug("Skipping prefetch scheduling: all data already loaded")
             return
         
-        # Cancel any existing prefetch timer
-        if self._prefetch_timer is not None:
+        # Lazily create the prefetch timer once and reuse it
+        if self._prefetch_timer is None:
+            self._prefetch_timer = QTimer(self)
+            self._prefetch_timer.setSingleShot(True)
+            self._prefetch_timer.timeout.connect(self._start_background_prefetch)
+        else:
+            # Ensure any pending timeout is cancelled before rescheduling
             self._prefetch_timer.stop()
         
-        # Create and start the prefetch timer
-        self._prefetch_timer = QTimer(self)
-        self._prefetch_timer.setSingleShot(True)
-        self._prefetch_timer.timeout.connect(self._start_background_prefetch)
+        # Start (or restart) the prefetch timer
         self._prefetch_timer.start(self.PREFETCH_DELAY_MS)
         
         logger.debug(
@@ -1122,8 +1134,12 @@ class AssetListController(QObject):
     def _prefetch_next_page(self) -> None:
         """Prefetch the next page of data in the background.
         
-        This method is called recursively to prefetch multiple pages.
+        This method schedules recursive calls to prefetch multiple pages.
+        Uses a tracking flag to allow cancellation during cleanup.
         """
+        # Clear the pending flag since we're now executing
+        self._prefetch_pending = False
+        
         if self._all_data_loaded or self._is_loading_page:
             return
         
@@ -1138,4 +1154,14 @@ class AssetListController(QObject):
         
         if success and self._prefetch_remaining > 0:
             # Schedule the next prefetch after a short delay
-            QTimer.singleShot(200, self._prefetch_next_page)
+            # Set flag so we can cancel if album changes
+            self._prefetch_pending = True
+            QTimer.singleShot(200, self._on_prefetch_timer_fired)
+    
+    def _on_prefetch_timer_fired(self) -> None:
+        """Handle singleShot timer callback for recursive prefetch.
+        
+        Only proceeds if prefetch is still pending (not cancelled).
+        """
+        if self._prefetch_pending:
+            self._prefetch_next_page()

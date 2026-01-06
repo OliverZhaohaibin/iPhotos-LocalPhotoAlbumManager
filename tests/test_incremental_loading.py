@@ -16,12 +16,10 @@ import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 is required", exc_type=ImportError)
 
-from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from src.iPhoto.gui.facade import AppFacade
 from src.iPhoto.gui.ui.controllers.data_manager import DataManager
-from src.iPhoto.gui.ui.models.asset_list.model import AssetListModel
 from src.iPhoto.gui.ui.models.asset_model import AssetModel
 from src.iPhoto.library.manager import LibraryManager
 

@@ -236,7 +236,7 @@ class GalleryGridView(AssetGrid):
             return
         
         # Calculate current scroll position as percentage
-        scroll_ratio = value / max_value if max_value > 0 else 0
+        scroll_ratio = value / max_value
         
         # Check if we've crossed the threshold (scrolling down)
         if scroll_ratio >= self.PREFETCH_THRESHOLD and not self._prefetch_triggered:
@@ -256,13 +256,20 @@ class GalleryGridView(AssetGrid):
         self._last_scroll_value = value
 
     def _schedule_fetch_more(self) -> None:
-        """Schedule a debounced fetchMore call."""
+        """Schedule a debounced fetchMore call.
+        
+        Reuses a single timer instance to avoid memory leaks from creating
+        new timers on every scroll event.
+        """
+        # Reuse existing timer if available
         if self._prefetch_timer is not None and self._prefetch_timer.isActive():
             return  # Already scheduled
-        
-        self._prefetch_timer = QTimer(self)
-        self._prefetch_timer.setSingleShot(True)
-        self._prefetch_timer.timeout.connect(self._trigger_fetch_more)
+
+        if self._prefetch_timer is None:
+            self._prefetch_timer = QTimer(self)
+            self._prefetch_timer.setSingleShot(True)
+            self._prefetch_timer.timeout.connect(self._trigger_fetch_more)
+
         self._prefetch_timer.start(self.PREFETCH_DEBOUNCE_MS)
 
     def _trigger_fetch_more(self) -> None:
