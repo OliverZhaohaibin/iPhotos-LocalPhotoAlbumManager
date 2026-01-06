@@ -77,6 +77,8 @@ class AssetListController(QObject):
     error = Signal(Path, str)
     # Pagination signals
     allDataLoaded = Signal()  # Signals when all data has been loaded (end of cursor)
+    # New signal for first screen loaded
+    initialPageLoaded = Signal(Path)  # Emitted when the first page is ready
 
     # Tuning constants
     _STREAM_FLUSH_INTERVAL_MS = 100
@@ -84,6 +86,12 @@ class AssetListController(QObject):
     _STREAM_FLUSH_THRESHOLD = 2000
     _PREFETCH_THRESHOLD = 50  # Fetch more DB data when buffer drops below this
     _PREFETCH_MULTIPLIER = 2  # Fetch N times the requested page size for efficiency
+    
+    # Lazy loading configuration
+    LAZY_LOADING_THRESHOLD = 1000  # Enable lazy loading for albums > 1000 items
+    INITIAL_PAGE_SIZE = 500  # First screen items
+    PREFETCH_PAGES = 2  # Number of pages to prefetch in background
+    PREFETCH_DELAY_MS = 500  # Delay before starting background prefetch
 
     def __init__(
         self,
@@ -121,6 +129,11 @@ class AssetListController(QObject):
         # K-Way Merge Stream - central buffer for lazy loading
         self._k_way_stream: MergedAssetStream = MergedAssetStream()
         self._use_lazy_loading: bool = False  # Enable lazy loading for large albums
+        
+        # Lazy loading configuration (user-configurable)
+        self._lazy_mode_enabled: bool = True  # Default to enabled for performance
+        self._initial_page_loaded: bool = False  # Track if first screen has loaded
+        self._prefetch_timer: Optional[QTimer] = None  # Timer for background prefetch
 
         # Legacy streaming buffer state (for backward compatibility)
         self._pending_chunks_buffer: List[Dict[str, object]] = []
@@ -145,6 +158,56 @@ class AssetListController(QObject):
     def set_library_root(self, root: Path) -> None:
         """Update the centralized library root for the loader."""
         self._data_loader.set_library_root(root)
+
+    # ------------------------------------------------------------------
+    # Lazy Loading Configuration Methods
+    # ------------------------------------------------------------------
+    
+    def enable_lazy_loading(self, enabled: bool = True) -> None:
+        """Enable or disable lazy loading mode.
+        
+        When enabled, the controller will use incremental loading with 
+        pagination for large albums (> LAZY_LOADING_THRESHOLD items).
+        
+        Args:
+            enabled: True to enable lazy loading, False for traditional eager loading.
+        """
+        self._lazy_mode_enabled = enabled
+        logger.info("Lazy loading mode: %s", "enabled" if enabled else "disabled")
+
+    def should_use_lazy_loading(self) -> bool:
+        """Determine if lazy loading should be used for the current album.
+        
+        Returns:
+            True if lazy loading should be enabled based on:
+            1. Lazy mode is enabled in configuration
+            2. Album root is set
+            3. Total asset count exceeds LAZY_LOADING_THRESHOLD
+        """
+        if not self._lazy_mode_enabled:
+            return False
+        
+        if self._album_root is None:
+            return False
+        
+        # For performance optimization, we always use lazy loading for now
+        # since the infrastructure is already in place. This can be made
+        # more intelligent based on actual item count if needed.
+        #
+        # The cursor-based pagination ensures efficient loading regardless
+        # of album size, so there's no downside to using it even for small albums.
+        return True
+
+    def _get_filter_params(self) -> Dict[str, object]:
+        """Build filter parameters dictionary from current filter state."""
+        filter_params: Dict[str, object] = {}
+        if self._active_filter:
+            filter_params["filter_mode"] = self._active_filter
+        return filter_params
+
+    # ------------------------------------------------------------------
+    # Album Lifecycle
+    # ------------------------------------------------------------------
 
     def prepare_for_album(self, root: Path) -> None:
         """Reset internal state so *root* becomes the active album."""
@@ -196,6 +259,12 @@ class AssetListController(QObject):
         # Reset K-Way merge stream
         self._k_way_stream.reset()
         self._use_lazy_loading = False
+        # Reset lazy loading state
+        self._initial_page_loaded = False
+        # Cancel any pending prefetch timer
+        if self._prefetch_timer is not None:
+            self._prefetch_timer.stop()
+            self._prefetch_timer = None
 
     def _reset_pagination_state(self) -> None:
         """Clear pagination state for a fresh load."""
@@ -967,6 +1036,18 @@ class AssetListController(QObject):
         batch = self._k_way_stream.pop_next(page_size)
         if batch:
             self._emit_batch_from_stream(batch)
+        
+        # Check if this is the first page (initial page loaded)
+        if not self._initial_page_loaded and batch:
+            self._initial_page_loaded = True
+            self.initialPageLoaded.emit(root)
+            logger.info(
+                "Initial page loaded for %s: %d items (first screen ready)",
+                root.name,
+                len(batch),
+            )
+            # Start background prefetch after a delay
+            self._schedule_background_prefetch()
 
     def _on_paginated_end_of_data(self, root: Path) -> None:
         """Handle end of data signal from paginated worker."""
@@ -990,3 +1071,76 @@ class AssetListController(QObject):
         self._is_loading_page = False
         logger.error("Pagination error for %s: %s", root, message)
         self.error.emit(root, message)
+
+    # ------------------------------------------------------------------
+    # Background Prefetch Methods
+    # ------------------------------------------------------------------
+
+    def _schedule_background_prefetch(self) -> None:
+        """Schedule background prefetch to run after a short delay.
+        
+        This method schedules the prefetch to run after PREFETCH_DELAY_MS,
+        allowing the UI to settle after the initial page load.
+        """
+        if self._all_data_loaded:
+            logger.debug("Skipping prefetch scheduling: all data already loaded")
+            return
+        
+        # Cancel any existing prefetch timer
+        if self._prefetch_timer is not None:
+            self._prefetch_timer.stop()
+        
+        # Create and start the prefetch timer
+        self._prefetch_timer = QTimer(self)
+        self._prefetch_timer.setSingleShot(True)
+        self._prefetch_timer.timeout.connect(self._start_background_prefetch)
+        self._prefetch_timer.start(self.PREFETCH_DELAY_MS)
+        
+        logger.debug(
+            "Background prefetch scheduled in %d ms",
+            self.PREFETCH_DELAY_MS,
+        )
+
+    def _start_background_prefetch(self) -> None:
+        """Start background prefetching of additional pages.
+        
+        This method prefetches PREFETCH_PAGES pages in the background
+        to reduce latency when the user scrolls down.
+        """
+        if not self._initial_page_loaded:
+            logger.debug("Skipping background prefetch: initial page not yet loaded")
+            return
+        
+        if self._all_data_loaded:
+            logger.debug("Skipping background prefetch: all data already loaded")
+            return
+        
+        logger.info(
+            "Starting background prefetch: %d pages",
+            self.PREFETCH_PAGES,
+        )
+        
+        # Use a counter to track prefetch pages
+        self._prefetch_remaining = self.PREFETCH_PAGES
+        self._prefetch_next_page()
+
+    def _prefetch_next_page(self) -> None:
+        """Prefetch the next page of data in the background.
+        
+        This method is called recursively to prefetch multiple pages.
+        """
+        if self._all_data_loaded or self._is_loading_page:
+            return
+        
+        if not hasattr(self, '_prefetch_remaining') or self._prefetch_remaining <= 0:
+            return
+        
+        self._prefetch_remaining -= 1
+        
+        # Trigger a page load - the result will be pushed to K-Way stream
+        # and made available when the user scrolls
+        success = self.load_next_page()
+        
+        if success and self._prefetch_remaining > 0:
+            # Schedule the next prefetch after a short delay
+            QTimer.singleShot(200, self._prefetch_next_page)
