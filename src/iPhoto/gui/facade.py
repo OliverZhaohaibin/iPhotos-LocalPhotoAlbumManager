@@ -14,6 +14,7 @@ from ..errors import AlbumOperationError, IPhotoError
 from ..models.album import Album
 from ..utils.logging import get_logger
 from .background_task_manager import BackgroundTaskManager
+from .performance_monitor import performance_monitor
 from .services import (
     AlbumMetadataService,
     AssetImportService,
@@ -184,6 +185,7 @@ class AppFacade(QObject):
 
         return self._library_manager
 
+    @performance_monitor.measure("open_album")
     def open_album(self, root: Path) -> Optional[Album]:
         """Open *root* and trigger background work as needed."""
 
@@ -302,6 +304,27 @@ class AppFacade(QObject):
                 force_reload=force_reload,
             )
         return album
+
+    @performance_monitor.measure("switch_active_model")
+    def _switch_active_model_optimized(self, target_model: "AssetListModel", skip_signal: bool = False) -> None:
+        """Optimized model switching with reduced overhead.
+        
+        This method performs a lightweight model switch when possible, reducing
+        the cost of activeModelChanged signal emissions and proxy model updates.
+        
+        Args:
+            target_model: The model to switch to
+            skip_signal: If True, skip emitting activeModelChanged (for batch operations)
+        """
+        if target_model is self._active_model:
+            return  # Already active, nothing to do
+        
+        previous_model = self._active_model
+        self._active_model = target_model
+        
+        # Only emit signal if not skipped
+        if not skip_signal:
+            self.activeModelChanged.emit(target_model)
 
     def rescan_current(self) -> List[dict]:
         """Rescan the active album and emit ``indexUpdated`` when done."""
