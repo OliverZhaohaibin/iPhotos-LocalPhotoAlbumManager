@@ -70,7 +70,7 @@ class _StubFacade:
         # Track whether the library model has cached data for optimization tests
         self._has_cached_data: bool = False
         # Track switch_to_library_model calls
-        self.library_model_switch_calls: list[tuple[Path, str]] = []
+        self.library_model_switch_calls: list[tuple[Path, str, Optional[str]]] = []
 
     def open_album(self, root: Path) -> SimpleNamespace:
         self.open_requests.append(root)
