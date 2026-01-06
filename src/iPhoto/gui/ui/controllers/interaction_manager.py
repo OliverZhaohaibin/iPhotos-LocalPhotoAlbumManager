@@ -50,7 +50,8 @@ class InteractionManager(QObject):
         main_controller: "MainController",
     ) -> None:
         super().__init__(window)
-        ui: Ui_MainWindow = window.ui
+        self._ui: Ui_MainWindow = window.ui
+        ui = self._ui
 
         self._preview = PreviewController(ui.preview_window, window)
         grid_views = [ui.library_grid_view, ui.album_grid_view]
@@ -187,10 +188,10 @@ class InteractionManager(QObject):
         return self._export
 
     def context_menu(self) -> ContextMenuController:
-        return self._context_menus[0]
+        return self._context_menus[self._active_grid_index()]
 
     def drag_drop(self) -> DragDropController:
-        return self._drag_drop[0]
+        return self._drag_drop[self._active_grid_index()]
 
     def preference_controller(self) -> PreferenceController:
         return self._preference_controller
@@ -203,3 +204,10 @@ class InteractionManager(QObject):
         """Release resources held by interaction controllers."""
 
         self._shortcut.shutdown()
+
+    # ------------------------------------------------------------------
+    def _active_grid_index(self) -> int:
+        current = self._ui.view_stack.currentWidget()
+        if current is self._ui.library_gallery_page:
+            return 0
+        return 1

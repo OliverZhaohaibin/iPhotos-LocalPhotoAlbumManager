@@ -102,6 +102,9 @@ class DataManager(QObject):
         self._active_proxy = new_proxy
         self._asset_model = new_proxy
         
+        # Grid views remain pinned to their dedicated proxies to preserve layout state
+        # and avoid the heavy relayout triggered by setModel().  Only dependent proxies
+        # (filmstrip) need to follow the active source.
         # Update filmstrip to follow the active proxy
         self._filmstrip_model.setSourceModel(new_proxy)
 
