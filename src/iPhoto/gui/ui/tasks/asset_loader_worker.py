@@ -399,6 +399,29 @@ def compute_asset_rows(
     return entries, len(entries)
 
 
+def _safe_signal_emit(signal_func: Callable, *args) -> bool:
+    """Safely emit a Qt signal, handling deleted signal sources gracefully.
+    
+    During rapid album switching, background workers may still be running when
+    their signal objects are deleted. This helper prevents RuntimeError crashes
+    by gracefully handling signal source deletion.
+    
+    Args:
+        signal_func: The signal's emit method (e.g., self._signals.chunkReady.emit)
+        *args: Arguments to pass to the signal
+        
+    Returns:
+        True if the signal was emitted successfully, False if the signal source
+        was deleted (indicating the worker should stop processing).
+    """
+    try:
+        signal_func(*args)
+        return True
+    except RuntimeError:
+        # Signal source has been deleted - this is expected during rapid switching
+        return False
+
+
 class AssetLoaderSignals(QObject):
     """Signal container for :class:`AssetLoaderWorker` events."""
 
@@ -455,15 +478,16 @@ class AssetLoaderWorker(QRunnable):
                 if self._is_cancelled:
                     break
                 if chunk:
-                    self._signals.chunkReady.emit(self._root, chunk)
+                    if not _safe_signal_emit(self._signals.chunkReady.emit, self._root, chunk):
+                        return  # Signal source deleted, stop processing
             if not self._is_cancelled:
-                self._signals.finished.emit(self._root, True)
+                _safe_signal_emit(self._signals.finished.emit, self._root, True)
             else:
-                self._signals.finished.emit(self._root, False)
+                _safe_signal_emit(self._signals.finished.emit, self._root, False)
         except Exception as exc:  # pragma: no cover - surfaced via signal
             if not self._is_cancelled:
-                self._signals.error.emit(self._root, str(exc))
-            self._signals.finished.emit(self._root, False)
+                _safe_signal_emit(self._signals.error.emit, self._root, str(exc))
+            _safe_signal_emit(self._signals.finished.emit, self._root, False)
 
     def cancel(self) -> None:
         """Request cancellation of the current load operation."""
@@ -492,7 +516,7 @@ class AssetLoaderWorker(QRunnable):
         store = IndexStore(effective_index_root)
 
         # Emit indeterminate progress initially
-        self._signals.progressUpdated.emit(self._root, 0, 0)
+        _safe_signal_emit(self._signals.progressUpdated.emit, self._root, 0, 0)
 
         # Prepare filter params with featured list if needed
         params = copy.deepcopy(self._filter_params) if self._filter_params else {}
@@ -574,7 +598,7 @@ class AssetLoaderWorker(QRunnable):
                 # Use >= total to robustly handle concurrent additions where position might exceed original total
                 if total_calculated and (position >= total or position - last_reported >= 50):
                     last_reported = position
-                    self._signals.progressUpdated.emit(self._root, position, total)
+                    _safe_signal_emit(self._signals.progressUpdated.emit, self._root, position, total)
 
             if chunk:
                 yielded_count += len(chunk)
@@ -583,7 +607,7 @@ class AssetLoaderWorker(QRunnable):
             # Final progress update
             if not total_calculated:  # If we never flushed (e.g. small album)
                 total = yielded_count
-            self._signals.progressUpdated.emit(self._root, total, total)
+            _safe_signal_emit(self._signals.progressUpdated.emit, self._root, total, total)
 
 class LiveIngestWorker(QRunnable):
     """Process in-memory live scan results on a background thread."""
@@ -670,19 +694,21 @@ class LiveIngestWorker(QRunnable):
                     chunk.append(entry)
 
                 if len(chunk) >= batch_size:
-                    self._signals.chunkReady.emit(self._root, list(chunk))
+                    if not _safe_signal_emit(self._signals.chunkReady.emit, self._root, list(chunk)):
+                        return  # Signal source deleted, stop processing
                     chunk = []
 
             if chunk and not self._is_cancelled:
-                self._signals.chunkReady.emit(self._root, chunk)
+                if not _safe_signal_emit(self._signals.chunkReady.emit, self._root, chunk):
+                    return  # Signal source deleted, stop processing
 
             if not self._is_cancelled:
-                self._signals.finished.emit(self._root, True)
+                _safe_signal_emit(self._signals.finished.emit, self._root, True)
             else:
-                self._signals.finished.emit(self._root, False)
+                _safe_signal_emit(self._signals.finished.emit, self._root, False)
 
         except Exception as exc:
             LOGGER.error("Error processing live items: %s", exc, exc_info=True)
             if not self._is_cancelled:
-                self._signals.error.emit(self._root, str(exc))
-            self._signals.finished.emit(self._root, False)
+                _safe_signal_emit(self._signals.error.emit, self._root, str(exc))
+            _safe_signal_emit(self._signals.finished.emit, self._root, False)

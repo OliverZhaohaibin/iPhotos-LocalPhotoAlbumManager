@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Set, TYPE_CHECKING
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Signal, Slot
 
 from .. import app as backend
-from ..config import DEFAULT_INCLUDE, DEFAULT_EXCLUDE
+from ..config import DEFAULT_INCLUDE, DEFAULT_EXCLUDE, WORK_DIR_NAME
 from ..errors import AlbumOperationError, IPhotoError
 from ..models.album import Album
+from ..utils.jsonio import read_json
 from ..utils.logging import get_logger
 from .background_task_manager import BackgroundTaskManager
 from .services import (
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     from ..library.manager import LibraryManager
     from .ui.models.asset_list.model import AssetListModel
 
+import logging
+logger = logging.getLogger(__name__)
 
 class AppFacade(QObject):
     """Expose high-level album operations to the GUI layer."""
@@ -183,6 +186,140 @@ class AppFacade(QObject):
         """Expose the underlying library manager."""
 
         return self._library_manager
+
+    def _sync_live_roles_from_links(self, library_root: Path, store: "backend.IndexStore") -> None:
+        """Sync live photo roles from links.json to the database.
+        
+        This reads the live_groups from the links.json file and updates the
+        live_role and live_partner_rel columns in the database. This is needed
+        for the "live" filter to work correctly.
+        
+        Args:
+            library_root: The library root directory.
+            store: The IndexStore instance to update.
+        """
+        links_path = library_root / WORK_DIR_NAME / "links.json"
+        if not links_path.exists():
+            return
+            
+        try:
+            data = read_json(links_path)
+        except Exception:
+            return
+            
+        # Build updates list from live_groups
+        # Format: (rel, live_role, live_partner_rel)
+        # Role 0 = Primary (still image), Role 1 = Hidden (motion component)
+        updates: List[Tuple[str, int, Optional[str]]] = []
+        
+        for group in data.get("live_groups", []):
+            still = group.get("still")
+            motion = group.get("motion")
+            
+            # Both still and motion must be non-empty strings
+            if isinstance(still, str) and still and isinstance(motion, str) and motion:
+                # Still image: Role 0, partner = motion
+                updates.append((still, 0, motion))
+                # Motion component: Role 1, partner = still
+                updates.append((motion, 1, still))
+        
+        if updates:
+            store.apply_live_role_updates(updates)
+
+    def library_model_has_cached_data(self) -> bool:
+        """Return ``True`` when the library model has valid cached data.
+
+        This allows the navigation controller to use an optimized path when
+        switching from a physical album to an aggregated album view, skipping
+        the expensive model reset and data reload when the library model already
+        contains the required data.
+        """
+        library_root = self._library_manager.root() if self._library_manager else None
+        if library_root is None:
+            return False
+
+        model = self._library_list_model
+        existing_root = model.album_root()
+        if existing_root is None:
+            return False
+
+        # Check if the model has data and is for the correct library root
+        return (
+            model.rowCount() > 0
+            and self._paths_equal(existing_root, library_root)
+        )
+
+    def switch_to_library_model_for_static_collection(
+        self,
+        library_root: Path,
+        title: str,
+        filter_mode: Optional[str] = None,
+    ) -> bool:
+        """Switch to the library model without reloading data.
+
+        This method provides an optimized path for switching from a physical
+        album to a static collection (e.g. "All Photos", "Videos") when the
+        library model already has valid cached data. It avoids the expensive
+        model reset, data reload, and UI rebuild by simply switching the active
+        model reference.
+
+        CRITICAL: The filter is applied BEFORE switching models to prevent
+        the View from attempting to render all library items (potentially 50k+)
+        before the filter takes effect. This eliminates the UI freeze/lag that
+        would otherwise occur during the intermediate layout calculation.
+
+        Returns ``True`` if the switch was successful, ``False`` if the standard
+        path should be used instead.
+        """
+        if not self.library_model_has_cached_data():
+            return False
+
+        # PERFORMANCE OPTIMIZATION: Use Album.open() directly instead of
+        # backend.open_album() since we have cached data and don't need to
+        # read from the database. Album.open() only reads the manifest file.
+        try:
+            album = Album.open(library_root)
+        except IPhotoError as exc:
+            self.errorRaised.emit(str(exc))
+            return False
+
+        self._current_album = album
+        album.manifest = {**album.manifest, "title": title}
+
+        # CRITICAL: Sync favorites and live roles from manifest/links to database
+        # before applying filters. Without this, the "favorites" and "live" filters
+        # would not find any items because the corresponding DB columns wouldn't be
+        # set. The full backend.open_album() does this, but Album.open() alone does not.
+        try:
+            store = backend.IndexStore(library_root)
+            store.sync_favorites(album.manifest.get("featured", []))
+            # Sync live roles from links.json to database
+            self._sync_live_roles_from_links(library_root, store)
+        except Exception as e:
+            # Log but don't fail - sync errors shouldn't break navigation.
+            # Favorites/Live Photos may not work correctly, but other views will function.
+            logger.exception(
+                "Failed to sync favorites or live roles for album. "
+                "library_root=%s, album=%s",
+                library_root,
+                getattr(album, "id", None),
+            )
+
+        # PERFORMANCE CRITICAL: Apply the filter to the library model BEFORE
+        # switching. This ensures when the View binds to _library_list_model,
+        # it's already in the correct filtered state (empty or filtered subset),
+        # avoiding expensive intermediate layout calculation of all items.
+        self._library_list_model.set_filter_mode(filter_mode)
+
+        # Switch to library model if not already active
+        if self._active_model is not self._library_list_model:
+            self._active_model = self._library_list_model
+            self.activeModelChanged.emit(self._library_list_model)
+
+        # Emit albumOpened signal for any listeners that need it
+        self.albumOpened.emit(library_root)
+
+        return True
 
     def open_album(self, root: Path) -> Optional[Album]:
         """Open *root* and trigger background work as needed."""
