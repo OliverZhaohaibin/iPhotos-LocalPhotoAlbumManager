@@ -295,7 +295,11 @@ class AlbumDataWorker(QRunnable):
             count = store.count_album_assets(album_path, include_subalbums=True) if album_path else store.count()
             
             # Get first asset for cover fallback
-            for row in store.read_album_assets(album_path) if album_path else store.read_all():
+            for row in (
+                store.read_album_assets(album_path, include_subalbums=True)
+                if album_path
+                else store.read_all()
+            ):
                 if isinstance(row, dict):
                     rel = row.get("rel", "")
                     if isinstance(rel, str) and rel:
