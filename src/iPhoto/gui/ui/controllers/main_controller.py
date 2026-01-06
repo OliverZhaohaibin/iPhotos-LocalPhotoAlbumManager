@@ -106,6 +106,7 @@ class MainController(QObject):
         """Connect application, model, and view signals."""
 
         ui = self._window.ui
+        grid_views = (ui.library_grid_view, ui.album_grid_view)
 
         # Menu and toolbar actions
         ui.open_album_action.triggered.connect(self._handle_open_album_dialog)
@@ -173,12 +174,14 @@ class MainController(QObject):
             signal.connect(self._navigation.update_status)
 
         self._filmstrip_model.modelReset.connect(ui.filmstrip_view.refresh_spacers)
-        ui.grid_view.visibleRowsChanged.connect(self._asset_model.prioritize_rows)
+        for grid_view in grid_views:
+            grid_view.visibleRowsChanged.connect(self._asset_model.prioritize_rows)
         ui.filmstrip_view.visibleRowsChanged.connect(self._prioritize_filmstrip_rows)
 
         # View interactions
         preview = self._interaction.preview()
-        preview.bind_view(ui.grid_view)
+        for grid_view in grid_views:
+            preview.bind_view(grid_view)
         ui.filmstrip_view.itemClicked.connect(self._playback.activate_index)
         preview.bind_view(ui.filmstrip_view)
 
@@ -414,7 +417,8 @@ class MainController(QObject):
             self._detail_ui.show_detail_view()
             return True
 
-        grid_selection = self._window.ui.grid_view.selectionModel()
+        active_grid = self._window._active_grid_view()
+        grid_selection = active_grid.selectionModel()
         if grid_selection is not None:
             candidate = grid_selection.currentIndex()
             if not candidate.isValid():

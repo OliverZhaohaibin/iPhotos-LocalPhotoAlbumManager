@@ -144,9 +144,10 @@ class MainWindow(QMainWindow):
     def current_selection(self) -> list[Path]:
         """Return absolute paths for every asset selected in the active view."""
 
+        active_grid = self._active_grid_view()
         # Priority 1: Grid View (Gallery)
-        if self.ui.grid_view.selectionModel() is not None:
-            grid_indexes = self.ui.grid_view.selectionModel().selectedIndexes()
+        if active_grid.selectionModel() is not None:
+            grid_indexes = active_grid.selectionModel().selectedIndexes()
             if grid_indexes:
                 return self.controller.paths_from_indexes(grid_indexes)
 
@@ -158,3 +159,11 @@ class MainWindow(QMainWindow):
 
         return []
 
+    # ------------------------------------------------------------------
+    def _active_grid_view(self):
+        """Return the grid view corresponding to the visible gallery page."""
+
+        current = self.ui.view_stack.currentWidget()
+        if current is self.ui.library_gallery_page:
+            return self.ui.library_grid_view
+        return self.ui.album_grid_view

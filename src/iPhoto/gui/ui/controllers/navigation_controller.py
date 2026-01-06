@@ -219,8 +219,10 @@ class NavigationController:
         self._status.showMessage("Albums")
 
     def open_all_photos(self) -> None:
-        self._view_controller.restore_default_gallery()
-        self.open_static_collection(AlbumSidebar.ALL_PHOTOS_TITLE, None)
+        self._view_controller.show_library_view()
+        self.open_static_collection(
+            AlbumSidebar.ALL_PHOTOS_TITLE, None, gallery_target="library"
+        )
 
     def open_static_node(self, title: str) -> None:
         mapping = {
@@ -279,6 +281,7 @@ class NavigationController:
         filter_mode: Optional[str],
         *,
         show_gallery: bool = True,
+        gallery_target: Literal["album", "library"] = "album",
     ) -> None:
         self._reset_playback_for_gallery_navigation()
         target_root = self._context.library.root()
@@ -321,8 +324,11 @@ class NavigationController:
         # Favorites, etc.) is opened so the UI consistently shows the grid as
         # its entry point for that virtual album.
         if show_gallery:
-            self._view_controller.restore_default_gallery()
-            self._view_controller.show_gallery_view()
+            if gallery_target == "library":
+                self._view_controller.show_library_view()
+            else:
+                self._view_controller.restore_default_gallery()
+                self._view_controller.show_gallery_view()
 
         self._static_selection = title
 

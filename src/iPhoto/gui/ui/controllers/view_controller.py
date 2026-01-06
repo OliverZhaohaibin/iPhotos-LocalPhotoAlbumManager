@@ -23,6 +23,7 @@ class ViewController(QObject):
         view_stack: QStackedWidget,
         gallery_page: QWidget | None,
         detail_page: QWidget | None,
+        library_page: QWidget | None = None,
         map_page: QWidget | None = None,
         albums_dashboard_page: QWidget | None = None,
         parent: QObject | None = None,
@@ -32,16 +33,18 @@ class ViewController(QObject):
         super().__init__(parent)
         self._view_stack = view_stack
         self._gallery_page = gallery_page
+        self._library_page = library_page
+        self._album_page = gallery_page
         self._detail_page = detail_page
         self._map_page = map_page
         self._albums_dashboard_page = albums_dashboard_page
-        self._active_gallery_page = gallery_page
+        self._active_gallery_page = library_page or gallery_page
         self._edit_mode_active = False
 
     def show_gallery_view(self) -> None:
         """Switch to the gallery view and notify listeners."""
 
-        target = self._active_gallery_page or self._gallery_page
+        target = self._active_gallery_page or self._library_page or self._gallery_page
         if target is not None:
             if self._view_stack.currentWidget() is not target:
                 self._view_stack.setCurrentWidget(target)
@@ -77,6 +80,29 @@ class ViewController(QObject):
         self._edit_mode_active = False
         self.galleryViewShown.emit()
 
+    def show_library_view(self) -> None:
+        """Switch to the persistent library gallery page."""
+
+        if self._library_page is None:
+            return
+        self._active_gallery_page = self._library_page
+        if self._view_stack.currentWidget() is not self._library_page:
+            self._view_stack.setCurrentWidget(self._library_page)
+        self._edit_mode_active = False
+        self.galleryViewShown.emit()
+
+    def show_album_view(self) -> None:
+        """Switch to the dynamic album gallery page."""
+
+        target = self._album_page or self._gallery_page
+        if target is None:
+            return
+        self._active_gallery_page = target
+        if self._view_stack.currentWidget() is not target:
+            self._view_stack.setCurrentWidget(target)
+        self._edit_mode_active = False
+        self.galleryViewShown.emit()
+
     def show_albums_dashboard(self) -> None:
         """Switch to the albums dashboard view."""
 
@@ -93,7 +119,7 @@ class ViewController(QObject):
     def restore_default_gallery(self) -> None:
         """Reset the gallery view back to the standard grid."""
 
-        self._active_gallery_page = self._gallery_page
+        self._active_gallery_page = self._album_page or self._gallery_page
 
     def is_detail_view_active(self) -> bool:
         """Return ``True`` when the stacked widget is currently showing the detail page."""

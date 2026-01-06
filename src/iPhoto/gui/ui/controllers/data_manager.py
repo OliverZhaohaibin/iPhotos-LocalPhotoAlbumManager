@@ -64,6 +64,8 @@ class DataManager(QObject):
         self._media = MediaController(window)
         self._playlist = PlaylistController(window)
         self._grid_delegate: AssetGridDelegate | None = None
+        self._library_delegate: AssetGridDelegate | None = None
+        self._album_delegate: AssetGridDelegate | None = None
 
     # ------------------------------------------------------------------
     # Dual-Proxy Switching Logic
@@ -99,14 +101,6 @@ class DataManager(QObject):
         # Update tracking references
         self._active_proxy = new_proxy
         self._asset_model = new_proxy
-        
-        # Swap model on the view (O(1) pointer assignment)
-        if self._ui is not None:
-            self._ui.grid_view.setModel(new_proxy)
-            
-            # Re-attach delegate to ensure proper rendering
-            if self._grid_delegate is not None:
-                self._ui.grid_view.setItemDelegate(self._grid_delegate)
         
         # Update filmstrip to follow the active proxy
         self._filmstrip_model.setSourceModel(new_proxy)
@@ -145,6 +139,16 @@ class DataManager(QObject):
 
         return self._grid_delegate
 
+    def library_grid_delegate(self) -> AssetGridDelegate | None:
+        """Return the delegate attached to the persistent library grid."""
+
+        return self._library_delegate
+
+    def album_grid_delegate(self) -> AssetGridDelegate | None:
+        """Return the delegate attached to the album grid."""
+
+        return self._album_delegate
+
     # ------------------------------------------------------------------
     # View configuration helpers
     def configure_views(self, ui: "Ui_MainWindow") -> None:
@@ -153,10 +157,18 @@ class DataManager(QObject):
         # Store UI reference for proxy switching
         self._ui = ui
 
-        ui.grid_view.setModel(self._active_proxy)
-        self._grid_delegate = AssetGridDelegate(ui.grid_view)
-        ui.grid_view.setItemDelegate(self._grid_delegate)
-        ui.grid_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        ui.library_grid_view.setModel(self._library_proxy)
+        self._library_delegate = AssetGridDelegate(ui.library_grid_view)
+        ui.library_grid_view.setItemDelegate(self._library_delegate)
+        ui.library_grid_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+        ui.album_grid_view.setModel(self._album_proxy)
+        self._album_delegate = AssetGridDelegate(ui.album_grid_view)
+        ui.album_grid_view.setItemDelegate(self._album_delegate)
+        ui.album_grid_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+        # Backwards compatibility for callers expecting the primary delegate
+        self._grid_delegate = self._album_delegate
 
         ui.filmstrip_view.setModel(self._filmstrip_model)
         ui.filmstrip_view.setItemDelegate(
@@ -168,4 +180,3 @@ class DataManager(QObject):
 
         ui.player_bar.setEnabled(False)
         ui.selection_button.setEnabled(False)
-

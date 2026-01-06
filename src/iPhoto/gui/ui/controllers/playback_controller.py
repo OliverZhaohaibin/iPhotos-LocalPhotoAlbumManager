@@ -24,7 +24,7 @@ class PlaybackController:
         model: AssetModel,
         media: MediaController,
         playlist: PlaylistController,
-        grid_view: AssetGrid,
+        grid_views: list[AssetGrid],
         view_controller: ViewController,
         detail_ui: DetailUIController,
         state_manager: PlaybackStateManager,
@@ -36,7 +36,7 @@ class PlaybackController:
         self._model = model
         self._media = media
         self._playlist = playlist
-        self._grid_view = grid_view
+        self._grid_views = list(grid_views)
         self._view_controller = view_controller
         self._detail_ui = detail_ui
         self._state_manager = state_manager
@@ -378,7 +378,8 @@ class PlaybackController:
         self._playlist.clear()
         self._detail_ui.reset_for_gallery_view()
         self._preview_controller.close_preview(False)
-        self._grid_view.clearSelection()
+        for view in self._grid_views:
+            view.clearSelection()
 
     def replay_live_photo(self) -> None:
         """Request the state manager to replay the active Live Photo."""

@@ -40,6 +40,7 @@ class ViewControllerManager(QObject):
             ui.view_stack,
             ui.gallery_page,
             ui.detail_page,
+            library_page=ui.library_gallery_page,
             map_page=ui.map_page,
             albums_dashboard_page=ui.albums_dashboard_page,
             parent=window,
@@ -136,4 +137,3 @@ class ViewControllerManager(QObject):
         """Switch the stacked widget to the detail page."""
 
         self._view_controller.show_detail_view()
-

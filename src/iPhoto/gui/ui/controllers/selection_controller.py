@@ -21,22 +21,23 @@ class SelectionController(QObject):
     def __init__(
         self,
         selection_button: QPushButton,
-        grid_view: AssetGrid,
-        grid_delegate: AssetGridDelegate | None,
+        grid_views: list[AssetGrid],
+        grid_delegates: list[AssetGridDelegate | None],
         preview_controller: PreviewController,
         playback_controller: PlaybackController,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._selection_button = selection_button
-        self._grid_view = grid_view
-        self._grid_delegate = grid_delegate
+        self._grid_views = list(grid_views)
+        self._grid_delegates = list(grid_delegates)
         self._preview_controller = preview_controller
         self._playback = playback_controller
         self._active = False
 
         self._selection_button.clicked.connect(self._handle_toggle_requested)
-        self._grid_view.itemClicked.connect(self._handle_grid_item_clicked)
+        for view in self._grid_views:
+            view.itemClicked.connect(self._handle_grid_item_clicked)
 
     # ------------------------------------------------------------------
     # Public API
@@ -53,16 +54,20 @@ class SelectionController(QObject):
         desired_state = bool(enabled)
         if self._active == desired_state:
             if not desired_state:
-                self._grid_view.clearSelection()
+                for view in self._grid_views:
+                    view.clearSelection()
             return
 
         self._active = desired_state
         self._update_button_state(desired_state)
 
-        self._grid_view.set_selection_mode_enabled(desired_state)
-        if self._grid_delegate is not None:
-            self._grid_delegate.set_selection_mode_active(desired_state)
-        self._grid_view.clearSelection()
+        for view in self._grid_views:
+            view.set_selection_mode_enabled(desired_state)
+            view.clearSelection()
+
+        for delegate in self._grid_delegates:
+            if delegate is not None:
+                delegate.set_selection_mode_active(desired_state)
         if not desired_state:
             self._preview_controller.close_preview(False)
 

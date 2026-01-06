@@ -53,6 +53,11 @@ class InteractionManager(QObject):
         ui: Ui_MainWindow = window.ui
 
         self._preview = PreviewController(ui.preview_window, window)
+        grid_views = [ui.library_grid_view, ui.album_grid_view]
+        grid_delegates = [
+            data_manager.library_grid_delegate(),
+            data_manager.album_grid_delegate(),
+        ]
         self._state_manager = PlaybackStateManager(
             data_manager.media(),
             data_manager.playlist(),
@@ -65,7 +70,7 @@ class InteractionManager(QObject):
             data_manager.asset_model(),
             data_manager.media(),
             data_manager.playlist(),
-            ui.grid_view,
+            grid_views,
             view_manager.view_controller(),
             view_manager.detail_ui(),
             self._state_manager,
@@ -77,8 +82,8 @@ class InteractionManager(QObject):
         self._notification_toast = NotificationToast(window)
         self._selection = SelectionController(
             ui.selection_button,
-            ui.grid_view,
-            data_manager.grid_delegate(),
+            grid_views,
+            grid_delegates,
             self._preview,
             self._playback,
             parent=window,
@@ -125,27 +130,33 @@ class InteractionManager(QObject):
             parent=window,
         )
 
-        self._context_menu = ContextMenuController(
-            grid_view=ui.grid_view,
-            asset_model=data_manager.asset_model(),
-            facade=facade,
-            navigation=navigation,
-            status_bar=status_bar,
-            notification_toast=self._notification_toast,
-            selection_controller=self._selection,
-            export_callback=self._export._handle_export_selected,
-            parent=window,
-        )
-        self._drag_drop = DragDropController(
-            grid_view=ui.grid_view,
-            sidebar=ui.sidebar,
-            context=context,
-            facade=facade,
-            status_bar=status_bar,
-            dialog=dialog,
-            navigation=navigation,
-            parent=window,
-        )
+        self._context_menus = [
+            ContextMenuController(
+                grid_view=view,
+                asset_model=data_manager.asset_model(),
+                facade=facade,
+                navigation=navigation,
+                status_bar=status_bar,
+                notification_toast=self._notification_toast,
+                selection_controller=self._selection,
+                export_callback=self._export._handle_export_selected,
+                parent=window,
+            )
+            for view in grid_views
+        ]
+        self._drag_drop = [
+            DragDropController(
+                grid_view=view,
+                sidebar=ui.sidebar,
+                context=context,
+                facade=facade,
+                status_bar=status_bar,
+                dialog=dialog,
+                navigation=navigation,
+                parent=window,
+            )
+            for view in grid_views
+        ]
         self._shortcut = ShortcutController(
             window,
             window_manager,
@@ -176,10 +187,10 @@ class InteractionManager(QObject):
         return self._export
 
     def context_menu(self) -> ContextMenuController:
-        return self._context_menu
+        return self._context_menus[0]
 
     def drag_drop(self) -> DragDropController:
-        return self._drag_drop
+        return self._drag_drop[0]
 
     def preference_controller(self) -> PreferenceController:
         return self._preference_controller
@@ -192,4 +203,3 @@ class InteractionManager(QObject):
         """Release resources held by interaction controllers."""
 
         self._shortcut.shutdown()
-

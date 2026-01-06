@@ -117,8 +117,14 @@ class Ui_MainWindow(object):
         self.preview_window = PreviewWindow(MainWindow)
         self.map_view = PhotoMapView()
 
-        self.gallery_page = GalleryPageWidget()
-        self.grid_view = self.gallery_page.grid_view
+        self.library_gallery_page = GalleryPageWidget()
+        self.library_grid_view = self.library_gallery_page.grid_view
+
+        self.album_gallery_page = GalleryPageWidget()
+        self.album_grid_view = self.album_gallery_page.grid_view
+        # Backwards compatibility for legacy references
+        self.gallery_page = self.album_gallery_page
+        self.grid_view = self.album_grid_view
 
         shared_image_viewer = GLImageViewer()
         self.detail_page = DetailPageWidget(MainWindow, image_viewer=shared_image_viewer)
@@ -181,14 +187,15 @@ class Ui_MainWindow(object):
         map_layout.addWidget(self.map_view)
         self.map_page = map_page
 
-        self.view_stack.addWidget(self.gallery_page)
+        self.view_stack.addWidget(self.library_gallery_page)
+        self.view_stack.addWidget(self.album_gallery_page)
         self.view_stack.addWidget(self.map_page)
         self.view_stack.addWidget(self.detail_page)
 
         self.albums_dashboard_page = AlbumsDashboard(library, MainWindow)
         self.view_stack.addWidget(self.albums_dashboard_page)
 
-        self.view_stack.setCurrentWidget(self.gallery_page)
+        self.view_stack.setCurrentWidget(self.library_gallery_page)
         right_layout.addWidget(self.view_stack)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
