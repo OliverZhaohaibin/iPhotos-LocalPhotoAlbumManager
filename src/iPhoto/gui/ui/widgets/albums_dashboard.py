@@ -40,7 +40,7 @@ from ....cache.index_store import IndexStore
 from ....config import WORK_DIR_NAME
 from ....media_classifier import get_media_type, MediaType
 from ....models.album import Album
-from ..tasks.thumbnail_loader import ThumbnailJob, generate_cache_path
+from ..tasks.thumbnail_loader import ThumbnailJob, generate_cache_path, stat_mtime_ns
 from .flow_layout import FlowLayout
 from ..icon import load_icon
 
@@ -339,7 +339,7 @@ class DashboardThumbnailLoader(QObject):
     """Simplified thumbnail loader for dashboard cards."""
 
     thumbnailReady = Signal(Path, QPixmap)  # album_root, pixmap
-    _delivered = Signal(tuple, QImage, str)  # key, image, rel
+    _delivered = Signal(tuple, QImage, str)  # key (album_root_str, rel, width, height, stamp), image, rel
 
     def __init__(self, parent: QObject | None = None, library_root: Optional[Path] = None) -> None:
         super().__init__(parent)
@@ -369,9 +369,7 @@ class DashboardThumbnailLoader(QObject):
             stat = image_path.stat()
         except OSError:
             return
-        stamp = getattr(stat, "st_mtime_ns", None)
-        if stamp is None:
-            stamp = int(stat.st_mtime * 1_000_000_000)
+        stamp = stat_mtime_ns(stat)
 
         # Use standardized generator with absolute path
         cache_path = generate_cache_path(effective_library_root, image_path, size, stamp)
@@ -428,10 +426,7 @@ class DashboardThumbnailLoader(QObject):
         roots = self._key_to_root.get(base_key)
         if not roots:
             return
-        try:
-            album_root = roots.popleft()
-        except IndexError:
-            return
+        album_root = roots.popleft()
         if not roots:
             self._key_to_root.pop(base_key, None)
 
@@ -444,7 +439,7 @@ class DashboardThumbnailLoader(QObject):
 
     def _album_root_str(self, album_root: Path) -> str:
         cached = self._resolved_roots.get(album_root)
-        if cached is not None:
+        if cached:
             return cached
         try:
             resolved_path = album_root.resolve()
