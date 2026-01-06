@@ -86,9 +86,10 @@ class _StubFacade:
         self,
         library_root: Path,
         title: str,
+        filter_mode: Optional[str] = None,
     ) -> bool:
         """Switch to library model without reloading data."""
-        self.library_model_switch_calls.append((library_root, title))
+        self.library_model_switch_calls.append((library_root, title, filter_mode))
         if self._has_cached_data:
             # Simulate successful switch - update current_album
             album = SimpleNamespace(root=library_root.resolve(), manifest={"title": title})
@@ -503,8 +504,10 @@ def test_physical_album_to_all_photos_uses_cached_data_optimization(
     assert len(facade.library_model_switch_calls) == 1
     assert facade.library_model_switch_calls[0][0] == tmp_path  # library root
     assert facade.library_model_switch_calls[0][1] == "All Photos"
+    assert facade.library_model_switch_calls[0][2] is None  # filter_mode for All Photos
     assert controller.static_selection() == "All Photos"
-    assert asset_model.filter_mode is None  # All Photos has no filter
+    # Note: filter_mode on asset_model is NOT set directly now - the facade handles it
+    # So we only verify the facade was called with the correct filter_mode
 
 
 def test_physical_album_to_all_photos_fallback_without_cached_data(

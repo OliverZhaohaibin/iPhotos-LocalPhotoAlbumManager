@@ -348,17 +348,22 @@ class NavigationController:
 
             if not is_same_root:
                 # Switching from a physical album - need to switch to library model
+                # CRITICAL: The facade applies the filter BEFORE switching models
+                # to prevent the View from rendering all items before filtering.
                 if not self._facade.switch_to_library_model_for_static_collection(
-                    target_root, title
+                    target_root, title, filter_mode
                 ):
                     # Fallback to standard path if the optimized switch failed
                     self._open_static_collection_standard_path(
                         target_root, title, filter_mode
                     )
                     return
-
-            self._asset_model.set_filter_mode(filter_mode)
-            self._asset_model.ensure_chronological_order()
+                # Filter was already applied by the facade, just ensure sort order
+                self._asset_model.ensure_chronological_order()
+            else:
+                # Same root - apply filter directly (model already bound to View)
+                self._asset_model.set_filter_mode(filter_mode)
+                self._asset_model.ensure_chronological_order()
 
             # Manually update UI state since open_album() was skipped
             if self._facade.current_album:

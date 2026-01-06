@@ -211,6 +211,7 @@ class AppFacade(QObject):
         self,
         library_root: Path,
         title: str,
+        filter_mode: Optional[str] = None,
     ) -> bool:
         """Switch to the library model without reloading data.
 
@@ -219,6 +220,11 @@ class AppFacade(QObject):
         library model already has valid cached data. It avoids the expensive
         model reset, data reload, and UI rebuild by simply switching the active
         model reference.
+
+        CRITICAL: The filter is applied BEFORE switching models to prevent
+        the View from attempting to render all library items (potentially 50k+)
+        before the filter takes effect. This eliminates the UI freeze/lag that
+        would otherwise occur during the intermediate layout calculation.
 
         Returns ``True`` if the switch was successful, ``False`` if the standard
         path should be used instead.
@@ -237,6 +243,12 @@ class AppFacade(QObject):
 
         self._current_album = album
         album.manifest = {**album.manifest, "title": title}
+
+        # PERFORMANCE CRITICAL: Apply the filter to the library model BEFORE
+        # switching. This ensures when the View binds to _library_list_model,
+        # it's already in the correct filtered state (empty or filtered subset),
+        # avoiding expensive intermediate layout calculation of all items.
+        self._library_list_model.set_filter_mode(filter_mode)
 
         # Switch to library model if not already active
         if self._active_model is not self._library_list_model:
