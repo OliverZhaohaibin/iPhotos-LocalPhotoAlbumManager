@@ -1,8 +1,7 @@
 """Dashboard view displaying all user albums."""
 
 from __future__ import annotations
-
-import hashlib
+from collections import deque
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -41,7 +40,7 @@ from ....cache.index_store import IndexStore
 from ....config import WORK_DIR_NAME
 from ....media_classifier import get_media_type, MediaType
 from ....models.album import Album
-from ..tasks.thumbnail_loader import ThumbnailJob, generate_cache_path
+from ..tasks.thumbnail_loader import ThumbnailJob, generate_cache_path, stat_mtime_ns
 from .flow_layout import FlowLayout
 from ..icon import load_icon
 
@@ -296,7 +295,11 @@ class AlbumDataWorker(QRunnable):
             count = store.count_album_assets(album_path, include_subalbums=True) if album_path else store.count()
             
             # Get first asset for cover fallback
-            for row in store.read_album_assets(album_path) if album_path else store.read_all():
+            for row in (
+                store.read_album_assets(album_path, include_subalbums=True)
+                if album_path
+                else store.read_all()
+            ):
                 if isinstance(row, dict):
                     rel = row.get("rel", "")
                     if isinstance(rel, str) and rel:
@@ -340,14 +343,15 @@ class DashboardThumbnailLoader(QObject):
     """Simplified thumbnail loader for dashboard cards."""
 
     thumbnailReady = Signal(Path, QPixmap)  # album_root, pixmap
-    _delivered = Signal(str, QImage, str)  # key, image, rel
+    _delivered = Signal(tuple, QImage, str)  # key (album_root_str, rel, width, height, stamp), image, rel
 
     def __init__(self, parent: QObject | None = None, library_root: Optional[Path] = None) -> None:
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
         self._delivered.connect(self._handle_result)
-        # Map unique keys to album roots
-        self._key_to_root: dict[str, Path] = {}
+        # Map base keys (album_root_str, rel, width, height) to queued album root Paths
+        self._key_to_root: dict[tuple[str, str, int, int], deque[Path]] = {}
+        self._resolved_roots: dict[Path, str] = {}
         self._library_root = library_root
 
     def request_with_absolute_key(self, album_root: Path, image_path: Path, size: QSize) -> None:
@@ -369,7 +373,7 @@ class DashboardThumbnailLoader(QObject):
             stat = image_path.stat()
         except OSError:
             return
-        stamp = int(stat.st_mtime * 1_000_000_000)
+        stamp = stat_mtime_ns(stat)
 
         # Use standardized generator with absolute path
         cache_path = generate_cache_path(effective_library_root, image_path, size, stamp)
@@ -381,8 +385,9 @@ class DashboardThumbnailLoader(QObject):
                 return
 
         # Store mapping
-        key_str = self._make_key_str(unique_rel, size, stamp)
-        self._key_to_root[key_str] = album_root
+        job_root_str = self._album_root_str(album_root)
+        base_key: tuple[str, str, int, int] = (job_root_str, unique_rel, size.width(), size.height())
+        self._key_to_root.setdefault(base_key, deque()).append(album_root)
 
         media_type = get_media_type(image_path)
         is_image = media_type == MediaType.IMAGE
@@ -416,21 +421,37 @@ class DashboardThumbnailLoader(QObject):
         )
         self._pool.start(job)
 
-    def _make_key(self, rel: str, size: QSize, stamp: int) -> str:
-        # Used by ThumbnailJob to emit signal
-        return self._make_key_str(rel, size, stamp)
+    def _handle_result(
+        self, full_key: tuple[str, str, int, int, int], image: Optional[QImage], rel: str
+    ) -> None:
+        # Use the base key (without timestamp) by slicing off the stamp so sidecar or filesystem
+        # timestamp changes do not prevent delivered thumbnails from matching pending requests.
+        base_key = full_key[:-1]
+        roots = self._key_to_root.get(base_key)
+        if not roots:
+            return
+        album_root = roots.popleft()
+        if not roots:
+            self._key_to_root.pop(base_key, None)
 
-    def _make_key_str(self, rel: str, size: QSize, stamp: int) -> str:
-        return f"{rel}::{size.width()}::{size.height()}::{stamp}"
-
-    def _handle_result(self, key: str, image: Optional[QImage], rel: str) -> None:
-        album_root = self._key_to_root.pop(key, None)
-        if not album_root or image is None:
+        if image is None:
             return
 
         pixmap = QPixmap.fromImage(image)
         if not pixmap.isNull():
             self.thumbnailReady.emit(album_root, pixmap)
+
+    def _album_root_str(self, album_root: Path) -> str:
+        cached = self._resolved_roots.get(album_root)
+        if cached is not None:
+            return cached
+        try:
+            resolved_path = album_root.resolve()
+        except OSError:
+            resolved_path = album_root
+        resolved = str(resolved_path)
+        self._resolved_roots[album_root] = resolved
+        return resolved
 
 
 class AlbumsDashboard(QWidget):

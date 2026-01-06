@@ -62,6 +62,13 @@ def safe_unlink(path: Path) -> None:
         pass
 
 
+def stat_mtime_ns(stat_result: os.stat_result) -> int:
+    stamp = getattr(stat_result, "st_mtime_ns", None)
+    if stamp is None:
+        stamp = int(stat_result.st_mtime * 1_000_000_000)
+    return int(stamp)
+
+
 def generate_cache_path(library_root: Path, abs_path: Path, size: QSize, stamp: int) -> Path:
     """
     Generate the file path for a cached thumbnail image.
@@ -140,9 +147,7 @@ class ThumbnailJob(QRunnable):
             self._handle_missing()
             return
 
-        stamp_ns = getattr(stat_result, "st_mtime_ns", None)
-        if stamp_ns is None:
-            stamp_ns = int(stat_result.st_mtime * 1_000_000_000)
+        stamp_ns = stat_mtime_ns(stat_result)
 
         # Check sidecar
         sidecar_path = sidecar.sidecar_path_for_asset(self._abs_path)
