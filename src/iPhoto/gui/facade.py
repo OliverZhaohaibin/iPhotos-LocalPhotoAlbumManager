@@ -244,6 +244,18 @@ class AppFacade(QObject):
         self._current_album = album
         album.manifest = {**album.manifest, "title": title}
 
+        # CRITICAL: Sync favorites from manifest to database before applying filters.
+        # Without this, the "favorites" filter would not find any items because
+        # is_favorite column in DB wouldn't be set. The full backend.open_album()
+        # does this, but Album.open() alone does not.
+        try:
+            store = backend.IndexStore(library_root)
+            store.sync_favorites(album.manifest.get("featured", []))
+        except Exception:
+            # Log but don't fail - sync errors shouldn't break navigation.
+            # Favorites may not work correctly, but other views will still function.
+            pass
+
         # PERFORMANCE CRITICAL: Apply the filter to the library model BEFORE
         # switching. This ensures when the View binds to _library_list_model,
         # it's already in the correct filtered state (empty or filtered subset),
