@@ -62,7 +62,7 @@ def safe_unlink(path: Path) -> None:
         pass
 
 
-def stat_mtime_ns(stat_result) -> int:
+def stat_mtime_ns(stat_result: os.stat_result) -> int:
     stamp = getattr(stat_result, "st_mtime_ns", None)
     if stamp is None:
         stamp = int(stat_result.st_mtime * 1_000_000_000)

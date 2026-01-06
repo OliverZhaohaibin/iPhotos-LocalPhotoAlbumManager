@@ -345,7 +345,7 @@ class DashboardThumbnailLoader(QObject):
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
         self._delivered.connect(self._handle_result)
-        # Map base keys (album_root_str, rel, width, height) to pending album roots
+        # Map base keys (album_root_str, rel, width, height) to queued album root Paths
         self._key_to_root: dict[tuple[str, str, int, int], deque[Path]] = {}
         self._resolved_roots: dict[Path, str] = {}
         self._library_root = library_root
@@ -420,8 +420,8 @@ class DashboardThumbnailLoader(QObject):
     def _handle_result(
         self, full_key: tuple[str, str, int, int, int], image: Optional[QImage], rel: str
     ) -> None:
-        # Use the base key (without timestamp) so sidecar or filesystem timestamp changes
-        # do not prevent delivered thumbnails from matching pending requests.
+        # Use the base key (without timestamp) by slicing off the stamp so sidecar or filesystem
+        # timestamp changes do not prevent delivered thumbnails from matching pending requests.
         base_key = full_key[:-1]
         roots = self._key_to_root.get(base_key)
         if not roots:
