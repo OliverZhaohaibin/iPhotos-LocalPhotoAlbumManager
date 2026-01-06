@@ -1,8 +1,6 @@
 """Dashboard view displaying all user albums."""
 
 from __future__ import annotations
-
-import hashlib
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -340,14 +338,14 @@ class DashboardThumbnailLoader(QObject):
     """Simplified thumbnail loader for dashboard cards."""
 
     thumbnailReady = Signal(Path, QPixmap)  # album_root, pixmap
-    _delivered = Signal(str, QImage, str)  # key, image, rel
+    _delivered = Signal(object, QImage, str)  # key, image, rel
 
     def __init__(self, parent: QObject | None = None, library_root: Optional[Path] = None) -> None:
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
         self._delivered.connect(self._handle_result)
         # Map unique keys to album roots
-        self._key_to_root: dict[str, Path] = {}
+        self._key_to_root: dict[tuple[str, str, int, int], list[Path]] = {}
         self._library_root = library_root
 
     def request_with_absolute_key(self, album_root: Path, image_path: Path, size: QSize) -> None:
@@ -369,7 +367,9 @@ class DashboardThumbnailLoader(QObject):
             stat = image_path.stat()
         except OSError:
             return
-        stamp = int(stat.st_mtime * 1_000_000_000)
+        stamp = getattr(stat, "st_mtime_ns", None)
+        if stamp is None:
+            stamp = int(stat.st_mtime * 1_000_000_000)
 
         # Use standardized generator with absolute path
         cache_path = generate_cache_path(effective_library_root, image_path, size, stamp)
@@ -381,8 +381,9 @@ class DashboardThumbnailLoader(QObject):
                 return
 
         # Store mapping
-        key_str = self._make_key_str(unique_rel, size, stamp)
-        self._key_to_root[key_str] = album_root
+        job_root_str = str(album_root.resolve())
+        base_key = (job_root_str, unique_rel, size.width(), size.height())
+        self._key_to_root.setdefault(base_key, []).append(album_root)
 
         media_type = get_media_type(image_path)
         is_image = media_type == MediaType.IMAGE
@@ -416,16 +417,17 @@ class DashboardThumbnailLoader(QObject):
         )
         self._pool.start(job)
 
-    def _make_key(self, rel: str, size: QSize, stamp: int) -> str:
-        # Used by ThumbnailJob to emit signal
-        return self._make_key_str(rel, size, stamp)
+    def _handle_result(
+        self, key: tuple[str, str, int, int, int], image: Optional[QImage], rel: str
+    ) -> None:
+        roots = self._key_to_root.get(key[:-1])
+        if not roots:
+            return
+        album_root = roots.pop(0)
+        if not roots:
+            self._key_to_root.pop(key[:-1], None)
 
-    def _make_key_str(self, rel: str, size: QSize, stamp: int) -> str:
-        return f"{rel}::{size.width()}::{size.height()}::{stamp}"
-
-    def _handle_result(self, key: str, image: Optional[QImage], rel: str) -> None:
-        album_root = self._key_to_root.pop(key, None)
-        if not album_root or image is None:
+        if image is None:
             return
 
         pixmap = QPixmap.fromImage(image)
