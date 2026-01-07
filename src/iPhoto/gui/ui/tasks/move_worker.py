@@ -472,6 +472,8 @@ class MoveWorker(QRunnable):
                 except Exception:
                     return None
                 else:
+                    if relative_str.startswith(".."):
+                        return None
                     return Path(relative_str).as_posix()
         return relative.as_posix()
 
