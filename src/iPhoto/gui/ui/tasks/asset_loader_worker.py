@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 import xxhash
 from datetime import datetime, timezone
 import copy
@@ -262,6 +263,11 @@ def build_asset_entry(
             if location_name and store:
                 try:
                     store.update_location(rel, location_name)
+                except sqlite3.OperationalError:
+                    LOGGER.debug(
+                        "Skipping location cache update for %s due to locked database",
+                        rel,
+                    )
                 except Exception:
                     # Log write failures during read operations to aid debugging, but do not crash
                     LOGGER.warning(
