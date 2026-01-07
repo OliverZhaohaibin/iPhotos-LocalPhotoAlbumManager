@@ -510,36 +510,101 @@ class AssetListModel(QAbstractListModel):
         if diff.is_empty_to_empty:
             return False
 
-        # Apply removals
-        for index in diff.removed_indices:
-            if not (0 <= index < len(current_rows)):
-                continue
-            row_snapshot = current_rows[index]
-            rel_key = normalise_rel_value(row_snapshot.get("rel"))
-            abs_key = row_snapshot.get("abs")
-            self.beginRemoveRows(QModelIndex(), index, index)
-            current_rows.pop(index)
-            self.endRemoveRows()
-            self._state_manager.on_external_row_removed(index, rel_key)
-            if rel_key:
-                self._cache_manager.remove_thumbnail(rel_key)
-                self._cache_manager.remove_placeholder(rel_key)
-            if abs_key:
-                self._cache_manager.remove_recently_removed(str(abs_key))
+        def _collapse_indices(descending_indices: List[int]) -> List[Tuple[int, int]]:
+            """Return contiguous ranges from a descending list of indices."""
+            if not descending_indices:
+                return []
+            ranges: List[Tuple[int, int]] = []
+            start = end = descending_indices[0]
+            for idx in descending_indices[1:]:
+                if idx == start - 1:
+                    start = idx
+                else:
+                    ranges.append((min(start, end), max(start, end)))
+                    start = end = idx
+            ranges.append((min(start, end), max(start, end)))
+            return ranges
 
-        # Apply insertions
+        # Apply removals in contiguous batches to reduce signal churn
+        for start, end in _collapse_indices(diff.removed_indices):
+            if start >= len(current_rows):
+                continue
+            end = min(end, len(current_rows) - 1)
+            if start > end or start < 0:
+                continue
+
+            removed_pairs = [
+                (idx, current_rows[idx])
+                for idx in range(start, end + 1)
+                if 0 <= idx < len(current_rows)
+            ]
+            if not removed_pairs:
+                continue
+
+            self.beginRemoveRows(QModelIndex(), start, end)
+            del current_rows[start : end + 1]
+            self.endRemoveRows()
+
+            for idx, row_snapshot in reversed(removed_pairs):
+                rel_key = normalise_rel_value(row_snapshot.get("rel"))
+                abs_key = row_snapshot.get("abs")
+                self._state_manager.on_external_row_removed(idx, rel_key)
+                if rel_key:
+                    self._cache_manager.remove_thumbnail(rel_key)
+                    self._cache_manager.remove_placeholder(rel_key)
+                if abs_key:
+                    self._cache_manager.remove_recently_removed(str(abs_key))
+
+        # Apply insertions in contiguous batches to reduce signal churn
+        batched_inserts: List[Tuple[int, List[Tuple[Dict[str, object], Optional[str]]]]] = []
+        pending_start: Optional[int] = None
+        pending_items: List[Tuple[Dict[str, object], Optional[str]]] = []
+
+        def flush_pending() -> None:
+            nonlocal pending_start, pending_items
+            if pending_start is None or not pending_items:
+                pending_start = None
+                pending_items = []
+                return
+            batched_inserts.append((pending_start, list(pending_items)))
+            pending_start = None
+            pending_items = []
+
         for insert_index, row_data, rel_key in diff.inserted_items:
-            position = max(0, min(insert_index, len(current_rows)))
-            self.beginInsertRows(QModelIndex(), position, position)
-            current_rows.insert(position, row_data)
+            position = max(0, min(insert_index, len(current_rows) + len(pending_items)))
+            if pending_start is None:
+                pending_start = position
+                pending_items.append((row_data, rel_key))
+                continue
+
+            expected_position = pending_start + len(pending_items)
+            if position == expected_position:
+                pending_items.append((row_data, rel_key))
+                continue
+
+            flush_pending()
+            pending_start = position
+            pending_items.append((row_data, rel_key))
+
+        flush_pending()
+
+        for start, items in batched_inserts:
+            if not items:
+                continue
+            start = max(0, min(start, len(current_rows)))
+            end = start + len(items) - 1
+            self.beginInsertRows(QModelIndex(), start, end)
+            for offset, (row_data, rel_key) in enumerate(items):
+                position = start + offset
+                current_rows.insert(position, row_data)
+                if rel_key:
+                    self._cache_manager.remove_thumbnail(rel_key)
+                    self._cache_manager.remove_placeholder(rel_key)
+                abs_value = row_data.get("abs")
+                if abs_value:
+                    self._cache_manager.remove_recently_removed(str(abs_value))
             self.endInsertRows()
-            self._state_manager.on_external_row_inserted(position)
-            if rel_key:
-                self._cache_manager.remove_thumbnail(rel_key)
-                self._cache_manager.remove_placeholder(rel_key)
-            abs_value = row_data.get("abs")
-            if abs_value:
-                self._cache_manager.remove_recently_removed(str(abs_value))
+            self._state_manager.on_external_row_inserted(start, len(items))
 
         # Apply updates
         if diff.structure_changed:

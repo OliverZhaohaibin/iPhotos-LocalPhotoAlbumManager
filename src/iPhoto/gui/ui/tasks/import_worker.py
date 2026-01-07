@@ -46,6 +46,7 @@ class ImportWorker(QRunnable):
         self._signals = signals
         self._is_cancelled = False
         self._library_root = library_root
+        self._had_incremental_error = False
 
     @property
     def signals(self) -> ImportSignals:
@@ -106,14 +107,32 @@ class ImportWorker(QRunnable):
         rescan_success = False
         if imported and not self._is_cancelled:
             try:
-                # We still do a full rescan/pair at the end to ensure consistency (like Live Photo pairing)
-                # that might span across chunks, and to catch any edge cases.
-                # However, since we've been incrementally updating, the UI should already show most items.
-                backend.rescan(self._destination, library_root=self._library_root)
+                if self._had_incremental_error:
+                    backend.rescan(self._destination, library_root=self._library_root)
+                else:
+                    backend.pair(self._destination, library_root=self._library_root)
             except IPhotoError as exc:
                 self._signals.error.emit(str(exc))
+                if not self._had_incremental_error:
+                    try:
+                        backend.rescan(
+                            self._destination, library_root=self._library_root
+                        )
+                    except Exception as fallback_exc:  # pragma: no cover - defensive fallback
+                        self._signals.error.emit(str(fallback_exc))
+                    else:
+                        rescan_success = True
             except Exception as exc:  # pragma: no cover - defensive fallback
                 self._signals.error.emit(str(exc))
+                if not self._had_incremental_error:
+                    try:
+                        backend.rescan(
+                            self._destination, library_root=self._library_root
+                        )
+                    except Exception as fallback_exc:  # pragma: no cover - defensive fallback
+                        self._signals.error.emit(str(fallback_exc))
+                    else:
+                        rescan_success = True
             else:
                 rescan_success = True
 
@@ -129,4 +148,5 @@ class ImportWorker(QRunnable):
             )
         except Exception as exc:
             # Log error but don't fail the whole import; final rescan might fix it
+            self._had_incremental_error = True
             self._signals.error.emit(f"Incremental scan failed: {exc}")
