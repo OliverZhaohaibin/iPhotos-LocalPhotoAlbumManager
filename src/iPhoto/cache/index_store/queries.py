@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-ESCAPE_CLAUSE = "ESCAPE '\\\\'"
+ESCAPE_CLAUSE = "ESCAPE '\\'"
 
 
 def normalize_path(path_str: str) -> str:
