@@ -9,7 +9,6 @@ import time
 from PySide6.QtCore import QObject, QRunnable, Signal
 
 from .... import app as backend
-from ....errors import IPhotoError
 
 # Max updates per second for progress signal
 MAX_UPDATES_PER_SEC = 10
@@ -105,34 +104,21 @@ class ImportWorker(QRunnable):
 
         # Final full rescan/link check if not cancelled
         rescan_success = False
+
         if imported and not self._is_cancelled:
             try:
                 if self._had_incremental_error:
                     backend.rescan(self._destination, library_root=self._library_root)
                 else:
                     backend.pair(self._destination, library_root=self._library_root)
-            except IPhotoError as exc:
-                self._signals.error.emit(str(exc))
-                if not self._had_incremental_error:
-                    try:
-                        backend.rescan(
-                            self._destination, library_root=self._library_root
-                        )
-                    except Exception as fallback_exc:  # pragma: no cover - defensive fallback
-                        self._signals.error.emit(str(fallback_exc))
-                    else:
-                        rescan_success = True
             except Exception as exc:  # pragma: no cover - defensive fallback
                 self._signals.error.emit(str(exc))
-                if not self._had_incremental_error:
-                    try:
-                        backend.rescan(
-                            self._destination, library_root=self._library_root
-                        )
-                    except Exception as fallback_exc:  # pragma: no cover - defensive fallback
-                        self._signals.error.emit(str(fallback_exc))
-                    else:
-                        rescan_success = True
+                try:
+                    backend.rescan(self._destination, library_root=self._library_root)
+                except Exception as fallback_exc:  # pragma: no cover - defensive fallback
+                    self._signals.error.emit(str(fallback_exc))
+                else:
+                    rescan_success = True
             else:
                 rescan_success = True
 

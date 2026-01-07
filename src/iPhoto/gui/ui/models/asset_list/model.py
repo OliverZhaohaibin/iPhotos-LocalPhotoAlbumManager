@@ -512,17 +512,18 @@ class AssetListModel(QAbstractListModel):
 
         def _collapse_indices(descending_indices: List[int]) -> List[Tuple[int, int]]:
             """Return contiguous ranges from a descending list of indices."""
-            if not descending_indices:
+            ordered = sorted(descending_indices, reverse=True)
+            if not ordered:
                 return []
             ranges: List[Tuple[int, int]] = []
-            start = end = descending_indices[0]
-            for idx in descending_indices[1:]:
-                if idx == start - 1:
-                    start = idx
+            range_start = range_end = ordered[0]
+            for idx in ordered[1:]:
+                if idx == range_start - 1:
+                    range_start = idx
                 else:
-                    ranges.append((min(start, end), max(start, end)))
-                    start = end = idx
-            ranges.append((min(start, end), max(start, end)))
+                    ranges.append((min(range_start, range_end), max(range_start, range_end)))
+                    range_start = range_end = idx
+            ranges.append((min(range_start, range_end), max(range_start, range_end)))
             return ranges
 
         # Apply removals in contiguous batches to reduce signal churn
@@ -530,7 +531,7 @@ class AssetListModel(QAbstractListModel):
             if start >= len(current_rows):
                 continue
             end = min(end, len(current_rows) - 1)
-            if start > end or start < 0:
+            if start < 0 or end < start:
                 continue
 
             removed_pairs = [
@@ -556,55 +557,43 @@ class AssetListModel(QAbstractListModel):
                     self._cache_manager.remove_recently_removed(str(abs_key))
 
         # Apply insertions in contiguous batches to reduce signal churn
-        batched_inserts: List[Tuple[int, List[Tuple[Dict[str, object], Optional[str]]]]] = []
-        pending_start: Optional[int] = None
-        pending_items: List[Tuple[Dict[str, object], Optional[str]]] = []
+        insert_items = sorted(diff.inserted_items, key=lambda item: item[0])
+        insert_pos = 0
+        MAX_INSERT_BATCH = 256
+        while insert_pos < len(insert_items):
+            insert_index, row_data, rel_key = insert_items[insert_pos]
+            position = max(0, min(insert_index, len(current_rows)))
+            batch: List[Tuple[Dict[str, object], Optional[str]]] = [(row_data, rel_key)]
 
-        def flush_pending() -> None:
-            nonlocal pending_start, pending_items
-            if pending_start is None or not pending_items:
-                pending_start = None
-                pending_items = []
-                return
-            batched_inserts.append((pending_start, list(pending_items)))
-            pending_start = None
-            pending_items = []
+            expected_position = position + 1
+            insert_pos += 1
+            while insert_pos < len(insert_items):
+                next_index, next_row, next_rel = insert_items[insert_pos]
+                if next_index != expected_position:
+                    break
+                batch.append((next_row, next_rel))
+                expected_position += 1
+                insert_pos += 1
 
-        for insert_index, row_data, rel_key in diff.inserted_items:
-            position = max(0, min(insert_index, len(current_rows) + len(pending_items)))
-            if pending_start is None:
-                pending_start = position
-                pending_items.append((row_data, rel_key))
-                continue
-
-            expected_position = pending_start + len(pending_items)
-            if position == expected_position:
-                pending_items.append((row_data, rel_key))
-                continue
-
-            flush_pending()
-            pending_start = position
-            pending_items.append((row_data, rel_key))
-
-        flush_pending()
-
-        for start, items in batched_inserts:
-            if not items:
-                continue
-            start = max(0, min(start, len(current_rows)))
-            end = start + len(items) - 1
-            self.beginInsertRows(QModelIndex(), start, end)
-            for offset, (row_data, rel_key) in enumerate(items):
-                position = start + offset
-                current_rows.insert(position, row_data)
-                if rel_key:
-                    self._cache_manager.remove_thumbnail(rel_key)
-                    self._cache_manager.remove_placeholder(rel_key)
-                abs_value = row_data.get("abs")
-                if abs_value:
-                    self._cache_manager.remove_recently_removed(str(abs_value))
-            self.endInsertRows()
-            self._state_manager.on_external_row_inserted(start, len(items))
+            start_position = position
+            chunk_offset = 0
+            while chunk_offset < len(batch):
+                chunk = batch[chunk_offset : chunk_offset + MAX_INSERT_BATCH]
+                chunk_start = start_position + chunk_offset
+                chunk_end = chunk_start + len(chunk) - 1
+                self.beginInsertRows(QModelIndex(), chunk_start, chunk_end)
+                for offset, (row_data, rel_key) in enumerate(chunk):
+                    current_rows.insert(chunk_start + offset, row_data)
+                    if rel_key:
+                        self._cache_manager.remove_thumbnail(rel_key)
+                        self._cache_manager.remove_placeholder(rel_key)
+                    abs_value = row_data.get("abs")
+                    if abs_value:
+                        self._cache_manager.remove_recently_removed(str(abs_value))
+                self.endInsertRows()
+                for offset in range(len(chunk)):
+                    self._state_manager.on_external_row_inserted(chunk_start + offset)
+                chunk_offset += len(chunk)
 
         # Apply updates
         if diff.structure_changed:
