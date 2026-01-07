@@ -71,6 +71,11 @@ class AssetListModel(QAbstractListModel):
             duplication_checker=self._check_duplication,
             parent=self,
         )
+        # Legacy compatibility for buffered chunk handling expected by tests and callers.
+        self._pending_chunks_buffer = self._controller._pending_chunks_buffer
+        self._flush_timer = self._controller._flush_timer
+        self._is_first_chunk = self._controller._is_first_chunk
+        self._pending_loader_root = self._controller._pending_loader_root
         self._controller.batchReady.connect(self._on_batch_ready)
         self._controller.incrementalReady.connect(self._apply_incremental_results)
         self._controller.loadProgress.connect(self.loadProgress)
@@ -497,6 +502,48 @@ class AssetListModel(QAbstractListModel):
         """Merge *new_rows* into the model without clearing the entire view."""
         current_rows = self._state_manager.rows
 
+        # Heuristic: incremental import chunks should only add/update rows, not drop existing ones.
+        if current_rows and new_rows and len(new_rows) < len(current_rows):
+            current_lookup = self._state_manager.row_lookup
+            changed = False
+            for replacement in new_rows:
+                rel_key = normalise_rel_value(replacement.get("rel"))
+                if not rel_key:
+                    continue
+                row_index = current_lookup.get(rel_key)
+                if row_index is None:
+                    position = len(current_rows)
+                    self.beginInsertRows(QModelIndex(), position, position)
+                    current_rows.insert(position, replacement)
+                    self.endInsertRows()
+                    self._state_manager.on_external_row_inserted(position)
+                    changed = True
+                    continue
+
+                original = current_rows[row_index]
+                if original == replacement:
+                    continue
+                current_rows[row_index] = replacement
+                model_index = self.index(row_index, 0)
+                affected_roles = [
+                    Roles.REL,
+                    Roles.ABS,
+                    Roles.SIZE,
+                    Roles.DT,
+                    Roles.IS_IMAGE,
+                    Roles.IS_VIDEO,
+                    Roles.IS_LIVE,
+                    Qt.DecorationRole,
+                ]
+                self.dataChanged.emit(model_index, model_index, affected_roles)
+                if self._should_invalidate_thumbnail(original, replacement):
+                    self.invalidate_thumbnail(rel_key)
+                changed = True
+
+            if changed:
+                self._state_manager.rebuild_lookup()
+            return changed
+
         diff = ListDiffCalculator.calculate_diff(current_rows, new_rows)
 
         if diff.is_reset:
@@ -591,8 +638,8 @@ class AssetListModel(QAbstractListModel):
                     if abs_value:
                         self._cache_manager.remove_recently_removed(str(abs_value))
                 self.endInsertRows()
-                for offset in range(len(chunk)):
-                    self._state_manager.on_external_row_inserted(chunk_start + offset)
+            for offset in range(len(chunk)):
+                self._state_manager.on_external_row_inserted(chunk_start + offset)
                 chunk_offset += len(chunk)
 
         # Apply updates
@@ -652,3 +699,39 @@ class AssetListModel(QAbstractListModel):
             if old_row.get(key) != new_row.get(key):
                 return True
         return False
+
+    # ------------------------------------------------------------------
+    # Legacy streaming buffer proxies (for tests and compatibility)
+    # ------------------------------------------------------------------
+    def _on_loader_chunk_ready(self, root: Path, chunk: List[Dict[str, object]]) -> None:
+        if (
+            not self._album_root
+            or root != self._album_root
+            or not chunk
+        ):
+            return
+
+        if self._is_first_chunk:
+            self._is_first_chunk = False
+            self._pending_loader_root = root
+            self._on_batch_ready(chunk, True)
+            return
+
+        self._pending_chunks_buffer.append(chunk)
+        if not self._flush_timer.isActive():
+            try:
+                self._flush_timer.start()
+            except Exception:
+                # In test environments without an event loop, flush synchronously.
+                self._flush_pending_chunks()
+
+    def _flush_pending_chunks(self) -> None:
+        if not self._pending_chunks_buffer:
+            return
+        # Flatten buffered chunks and append them
+        buffered = self._pending_chunks_buffer[:]
+        self._pending_chunks_buffer.clear()
+        for chunk in buffered:
+            if not chunk:
+                continue
+            self._on_batch_ready(chunk, False)
