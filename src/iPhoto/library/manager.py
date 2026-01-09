@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
+import sqlite3
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
@@ -20,6 +21,7 @@ from ..errors import (
     AlbumNameConflictError,
     AlbumOperationError,
     LibraryUnavailableError,
+    IPhotoError,
 )
 from ..media_classifier import classify_media
 from ..models.album import Album
@@ -488,7 +490,7 @@ class LibraryManager(QObject):
                     include_subalbums=True,
                     filter_hidden=False,
                 )
-            except Exception:
+            except (sqlite3.Error, IPhotoError):
                 entry_count = 0
 
             if entry_count == 0:
