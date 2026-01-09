@@ -86,8 +86,7 @@ def open_album(
     # If using global DB, we need to filter by album path
     album_path = _compute_album_path(root, library_root)
     
-    rows: List[dict] | None
-    rows = None
+    rows: List[dict] | None = None
     # Read rows from the database, filtered by album if using global DB
     if hydrate_index:
         if album_path:
@@ -101,7 +100,8 @@ def open_album(
                 album_path=album_path,
                 include_subalbums=True,
             )
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Index count failed for %s; assuming empty index: %s", root, exc)
             existing_count = 0
 
         if existing_count == 0 and autoscan:
@@ -145,8 +145,8 @@ def open_album(
     # Keep favorites aligned with the manifest even when we skip hydration.
     try:
         store.sync_favorites(album.manifest.get("featured", []))
-    except Exception:
-        pass
+    except Exception as exc:
+        LOGGER.warning("Failed to sync favorites for %s: %s", root, exc)
     
     return album
 
