@@ -49,12 +49,6 @@ def _compute_album_path(root: Path, library_root: Optional[Path]) -> Optional[st
         library_root,
         rel,
     )
-    LOGGER.debug(
-        "Computed album path: root=%s, library_root=%s, rel=%s",
-        root,
-        library_root,
-        rel,
-    )
     return rel
 
 
@@ -86,7 +80,7 @@ def open_album(
     # If using global DB, we need to filter by album path
     album_path = _compute_album_path(root, library_root)
     
-    rows: List[dict] | None = None
+    rows: list[dict] | None = None
     # Read rows from the database, filtered by album if using global DB
     if hydrate_index:
         if album_path:
