@@ -1,4 +1,102 @@
-# Migration Guide: Using the Refactored Components
+# Migration Guide
+
+## Migrating from V2.00 to V3.00
+
+### 🚀 What's Changed in V3.00
+
+iPhoto v3.00 introduces a major backend migration from JSON-based indexing to a **global SQLite database architecture**. This change brings massive performance improvements for large libraries.
+
+### Key Changes
+
+1. **Global Database Architecture**
+   - Replaced: Per-album `.iphoto/index.jsonl` files
+   - New: Single `<LibraryRoot>/.iphoto/global_index.db` SQLite database
+   - All asset metadata now stored in one centralized database
+
+2. **Modular Index Store**
+   - The 1100+ line `index_store.py` has been refactored into 5 focused modules
+   - 100% backward compatible API - existing code continues to work
+
+3. **Performance Improvements**
+   - Instant queries regardless of library size
+   - Multi-column indexes for fast filtering and sorting
+   - WAL mode for better concurrency and crash recovery
+
+### Migration Process
+
+**The migration is automatic!** When you first open your library with V3.00:
+
+1. iPhoto detects old `.iphoto/index.jsonl` files (if they exist)
+2. Automatically creates the new global database
+3. Performs a fresh scan to populate the database
+4. Old `index.jsonl` files can be safely deleted (but are kept for rollback purposes)
+
+**No manual steps required.** Your albums, manifests, and edits remain untouched.
+
+### For End Users
+
+- ✅ **No action needed** - just update and run
+- ✅ Albums and edits are preserved
+- ✅ First scan may take time for large libraries (one-time operation)
+- ✅ Future scans will be significantly faster
+
+### For Developers
+
+If you're working with the iPhoto codebase:
+
+#### Using the Global Repository Pattern
+
+```python
+# Old way (still works, but creates per-album database)
+from iPhoto.cache.index_store import IndexStore
+store = IndexStore(album_root)
+
+# New way (recommended - uses global singleton)
+from iPhoto.cache.index_store import get_global_repository
+repo = get_global_repository(library_root)
+
+# Query assets across entire library
+all_assets = list(repo.read_all())
+
+# Query specific album
+album_assets = list(repo.read_by_album("2023/Vacation", include_subalbums=True))
+
+# Use transactions for atomic operations
+with repo.transaction():
+    repo.upsert_row("photo.jpg", {"ts": 123456, ...})
+    repo.upsert_row("video.mov", {"ts": 123457, ...})
+```
+
+#### Database Location
+
+```
+Old V2.00:
+  Album1/.iphoto/index.jsonl
+  Album2/.iphoto/index.jsonl
+  Album3/.iphoto/index.jsonl
+
+New V3.00:
+  LibraryRoot/.iphoto/global_index.db  # Single database for all albums
+```
+
+#### API Compatibility
+
+The `IndexStore` class remains available for backward compatibility:
+
+```python
+# This still works exactly as before
+from iPhoto.cache.index_store import IndexStore
+
+store = IndexStore(album_root)
+store.write_rows(rows)
+assets = list(store.read_all())
+```
+
+However, for new code, use `AssetRepository` with the global repository pattern.
+
+---
+
+## Migration Guide: Using the Refactored Components
 
 ## For Users of index_store.py
 
