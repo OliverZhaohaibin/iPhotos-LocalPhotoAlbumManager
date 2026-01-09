@@ -145,6 +145,31 @@ class PlaylistController(QObject):
             return False
         return self.set_current(row) is not None
 
+    def set_current_by_path(self, path: Path) -> bool:
+        """Select the asset identified by *path* when it exists in the model."""
+
+        if self._model is None:
+            return False
+
+        target = self._safe_resolve(path)
+        current = self.current_source()
+        if current is not None and self._paths_equal(current, target):
+            return True
+
+        count = self._model.rowCount()
+        for row in range(count):
+            index = self._model.index(row, 0)
+            raw = index.data(Roles.ABS)
+            if not raw:
+                continue
+            try:
+                candidate = self._safe_resolve(Path(raw))
+            except TypeError:
+                continue
+            if self._paths_equal(candidate, target):
+                return self.set_current(row) is not None
+        return False
+
     def previous_row(self) -> int:
         """Return the previously active row, or ``-1`` if unavailable."""
 
@@ -281,3 +306,17 @@ class PlaylistController(QObject):
             if _consider(candidate):
                 return
         self.clear()
+
+    @staticmethod
+    def _paths_equal(left: Path, right: Path) -> bool:
+        try:
+            return left.resolve() == right.resolve()
+        except OSError:
+            return left == right
+
+    @staticmethod
+    def _safe_resolve(path: Path) -> Path:
+        try:
+            return path.resolve()
+        except OSError:
+            return path
