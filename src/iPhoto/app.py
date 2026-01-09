@@ -26,6 +26,12 @@ from .utils.logging import get_logger
 LOGGER = get_logger()
 
 
+def _is_index_recoverable_error(exc: Exception) -> bool:
+    """Return ``True`` when *exc* stems from recoverable index state."""
+
+    return isinstance(exc, (sqlite3.Error, IndexCorruptedError, ManifestInvalidError))
+
+
 def _compute_album_path(root: Path, library_root: Optional[Path]) -> Optional[str]:
     """Return library-relative album path when root is inside library_root.
 
@@ -97,9 +103,7 @@ def open_album(
                 include_subalbums=True,
             )
         except Exception as exc:
-            if not isinstance(
-                exc, (sqlite3.Error, IndexCorruptedError, ManifestInvalidError)
-            ):
+            if not _is_index_recoverable_error(exc):
                 raise
             LOGGER.warning(
                 "Index count failed for %s [%s]; assuming empty index: %s",
@@ -151,9 +155,7 @@ def open_album(
     try:
         store.sync_favorites(album.manifest.get("featured", []))
     except Exception as exc:
-        if not isinstance(
-            exc, (sqlite3.Error, IndexCorruptedError, ManifestInvalidError)
-        ):
+        if not _is_index_recoverable_error(exc):
             raise
         LOGGER.warning(
             "sync_favorites failed for %s [%s]: %s",
