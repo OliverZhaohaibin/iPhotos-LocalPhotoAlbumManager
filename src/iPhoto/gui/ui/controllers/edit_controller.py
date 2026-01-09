@@ -690,7 +690,9 @@ class EditController(QObject):
         self._current_mode.enter()
 
     def _handle_playlist_change(self) -> None:
-        if not self._view_controller.is_edit_view_active() or self._suppress_playlist_changes:
+        if not self._view_controller.is_edit_view_active():
+            return
+        if self._suppress_playlist_changes:
             return
         playlist_source = self._playlist.current_source()
         if playlist_source is not None and self._current_source is not None:
@@ -727,6 +729,8 @@ class EditController(QObject):
             return
         if self._current_source and self._playlist.set_current_by_path(self._current_source):
             return
+        # If the active asset vanished during the reload, exit edit mode to avoid
+        # leaving the UI bound to stale state.
         self.leave_edit_mode(animate=False)
 
     def _current_album_root(self) -> Optional[Path]:
