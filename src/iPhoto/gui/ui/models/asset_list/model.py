@@ -84,6 +84,7 @@ class AssetListModel(QAbstractListModel):
 
         self._facade.linksUpdated.connect(self.handle_links_updated)
         self._facade.assetUpdated.connect(self.handle_asset_updated)
+        self._optimistic_refresh_requested = False
 
     def _check_duplication(self, rel: str, abs_key: Optional[str]) -> bool:
         """Callback for Controller to check if an item exists in the model."""
@@ -332,9 +333,42 @@ class AssetListModel(QAbstractListModel):
         self._cache_manager.clear_recently_removed()
         self._controller.start_load()
 
+    def request_optimistic_refresh(self) -> None:
+        """Keep existing rows visible while upcoming reset batches arrive.
+
+        The flag stays active until an optimistic reset batch is attempted or
+        the load cycle finishes, preventing the gallery from flickering during
+        import-triggered refreshes.
+        """
+
+        self._optimistic_refresh_requested = True
+
+    def _try_optimistic_refresh(self, chunk: List[Dict[str, object]], is_reset: bool) -> bool:
+        """
+        Apply incremental rows without clearing existing items during reset batches.
+
+        Returns ``True`` when the optimistic merge applied changes, ``False`` otherwise.
+        """
+
+        if (
+            not is_reset
+            or not self._optimistic_refresh_requested
+            or not self._state_manager.rows
+        ):
+            return False
+
+        applied = self._apply_incremental_rows(chunk)
+        self._optimistic_refresh_requested = False
+        return applied
+
     def _on_batch_ready(self, chunk: List[Dict[str, object]], is_reset: bool) -> None:
         """Handle incoming data batch from Controller."""
         if not chunk:
+            if is_reset and self._optimistic_refresh_requested:
+                self._optimistic_refresh_requested = False
+            return
+
+        if self._try_optimistic_refresh(chunk, is_reset):
             return
 
         if is_reset:
@@ -357,6 +391,7 @@ class AssetListModel(QAbstractListModel):
 
     def _on_controller_load_finished(self, root: Path, success: bool) -> None:
         """Handle load completion."""
+        self._optimistic_refresh_requested = False
         # Check for pending reload in state manager
         should_restart = self._state_manager.consume_pending_reload(
             self._album_root, root
