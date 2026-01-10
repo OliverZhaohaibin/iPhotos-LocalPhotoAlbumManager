@@ -1,7 +1,7 @@
 
 import pytest
 import io
-from PIL import Image, ImageOps
+from PIL import Image
 from iPhoto.utils.image_loader import generate_micro_thumbnail
 
 def create_test_image_with_exif(orientation=6):
