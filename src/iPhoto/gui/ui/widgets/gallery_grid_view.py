@@ -18,8 +18,9 @@ if TYPE_CHECKING:
     from ..theme_manager import ThemeColors
 
 # QQuickWidget defaults to the platform's scene graph backend (Direct3D on Windows).
-# Frameless, translucent windows render the gallery as a black rectangle under D3D,
-# so force a software renderer on Windows to avoid GPU backend conflicts.
+# Frameless, translucent windows render the gallery as a black rectangle under D3D.
+# Forcing a software renderer on Windows avoids the GPU backend conflicts that
+# cause the black frame while keeping other platforms unchanged.
 if sys.platform.startswith("win"):
     QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.Software)
 
@@ -124,8 +125,8 @@ class GalleryQuickWidget(QQuickWidget):
         self.engine().addImportPath(str(qml_dir))
         root_context = self.rootContext()
         if root_context:
-            # Provide a default so QML bindings do not fail before a model is set.
-            root_context.setContextProperty("assetModel", None)
+            # Provide a placeholder so QML bindings stay valid until a model is attached.
+            root_context.setContextProperty("assetModel", [])
 
         # Load the QML component
         self.setSource(QUrl.fromLocalFile(str(qml_path)))
