@@ -19,12 +19,20 @@ from PySide6.QtCore import (
     QItemSelectionModel,
     QEvent,
 )
-from PySide6.QtGui import QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QSurfaceFormat
+from PySide6.QtGui import (
+    QColor,
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QPalette,
+    QSurfaceFormat,
+)
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout
 
 from ..models.roles import Roles
 from ..qml.thumbnail_provider import ThumbnailProvider
+from ..theme_manager import ThemeColors
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +246,7 @@ class GalleryQuickWidget(QQuickWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._theme_colors: ThemeColors | None = None
 
         # Disable the alpha buffer to prevent transparency issues with the DWM
         # when using a frameless window configuration.
@@ -246,7 +255,11 @@ class GalleryQuickWidget(QQuickWidget):
         self.setFormat(gl_format)
 
         # Force opaque background
-        self.setClearColor(QColor("#2b2b2b"))
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        default_bg = self.palette().color(QPalette.ColorRole.Base)
+        if not default_bg.isValid():
+            default_bg = QColor("#2b2b2b")
+        self._apply_background_color(default_bg)
         self.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
         self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
@@ -308,6 +321,7 @@ class GalleryQuickWidget(QQuickWidget):
             logger.error("GalleryQuickWidget: Failed to load root object from QML")
             return
 
+        self._sync_theme_to_qml()
         root.itemClicked.connect(self._on_item_clicked)
         root.itemDoubleClicked.connect(self._on_item_double_clicked)
         root.currentIndexChanged.connect(self._on_current_index_changed)
@@ -359,6 +373,40 @@ class GalleryQuickWidget(QQuickWidget):
         # Currently, only QML -> Python synchronization is supported via signals. Implementing
         # the reverse direction would require exposing a root-level QML API to set the
         # GridView's `currentIndex` property from Python.
+
+    def apply_theme(self, colors: ThemeColors) -> None:
+        """Apply theme colors to the gallery view and QML surface."""
+        self._theme_colors = colors
+        self._apply_background_color(colors.window_background)
+        self._sync_theme_to_qml()
+
+    def _apply_background_color(self, color: QColor) -> None:
+        """Ensure an opaque background is painted even before QML renders."""
+        self.setClearColor(color)
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, color)
+        palette.setColor(QPalette.ColorRole.Base, color)
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+
+    def _sync_theme_to_qml(self) -> None:
+        """Push stored theme colours into the QML root if available."""
+        if self._theme_colors is None:
+            return
+
+        item_bg = QColor(self._theme_colors.window_background)
+        # Keep subtle contrast between grid background and tile backgrounds.
+        if self._theme_colors.is_dark:
+            item_bg = item_bg.darker(115)
+        else:
+            item_bg = item_bg.darker(105)
+
+        root = self.rootObject()
+        if root:
+            root.setProperty("backgroundColor", self._theme_colors.window_background)
+            root.setProperty("itemBackgroundColor", item_bg)
+            root.setProperty("selectionBorderColor", self._theme_colors.accent_color)
+            root.setProperty("currentBorderColor", self._theme_colors.text_primary)
 
     # ------------------------------------------------------------------
     # QML Signal Handlers
