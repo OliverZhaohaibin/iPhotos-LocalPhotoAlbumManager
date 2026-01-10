@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Callable, List, Optional, TYPE_CHECKING
@@ -9,7 +10,7 @@ from typing import Callable, List, Optional, TYPE_CHECKING
 from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QImage, QPalette, QPixmap, QSurfaceFormat
 from PySide6.QtQml import QQmlApplicationEngine
-from PySide6.QtQuick import QQuickImageProvider
+from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
 from PySide6.QtQuickWidgets import QQuickWidget
 
 if TYPE_CHECKING:
@@ -34,23 +35,27 @@ class ThumbnailImageProvider(QQuickImageProvider):
 
     def requestPixmap(self, id: str, size: QSize, requestedSize: QSize) -> QPixmap:
         """Return the thumbnail pixmap for the given relative path."""
-        # Parse the id - it includes the rel path and optionally a version query parameter
-        rel = id.split('?')[0] if '?' in id else id
+        try:
+            # Parse the id - it includes the rel path and optionally a version query parameter
+            rel = id.split('?')[0] if '?' in id else id
 
-        if not self._model or not self._cache_manager:
-            return QPixmap()
+            if not self._model or not self._cache_manager:
+                return QPixmap()
 
-        # Try to get from cache first
-        pixmap = self._cache_manager.thumbnail_for(rel)
-        if pixmap is not None:
-            return pixmap
+            # Try to get from cache first
+            pixmap = self._cache_manager.thumbnail_for(rel)
+            if pixmap is not None:
+                return pixmap
 
-        # If not in cache, return a placeholder (thumbnail will be loaded async)
-        # _placeholder_for is a private method that takes (rel, is_video) args
-        # We default to is_video=False since we don't know the media type from just rel path
-        placeholder = self._cache_manager._placeholder_for(rel, False)
-        if placeholder is not None:
-            return placeholder
+            # If not in cache, return a placeholder (thumbnail will be loaded async)
+            # _placeholder_for is a private method that takes (rel, is_video) args
+            # We default to is_video=False since we don't know the media type from just rel path
+            placeholder = self._cache_manager._placeholder_for(rel, False)
+            if placeholder is not None:
+                return placeholder
+        except Exception:
+            # Fallback for any error during lookup
+            logging.exception("Error loading thumbnail for id: %s", id)
 
         # Return empty pixmap as fallback
         return QPixmap()
@@ -73,15 +78,21 @@ class GalleryQuickWidget(QQuickWidget):
     def __init__(self, parent=None) -> None:  # type: ignore[override]
         super().__init__(parent)
 
-        # Disable alpha buffer to prevent transparency issues with DWM
+        # Enable 8-bit alpha buffer for proper blending and to avoid transparency issues with DWM
         fmt = QSurfaceFormat()
-        fmt.setAlphaBufferSize(0)
+        fmt.setAlphaBufferSize(8)
         self.setFormat(fmt)
 
         # Configure the widget for opaque rendering
-        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop, False)
+        # WA_AlwaysStackOnTop is required to ensure the QQuickWidget renders correctly
+        # when embedded in a window with WA_TranslucentBackground enabled.
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setAutoFillBackground(True)
+
+        # Force a clear color immediately to prevent transparency during initialization
+        self.setClearColor(QColor("#2b2b2b"))
 
         # Set resize mode to follow widget size
         self.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
@@ -111,6 +122,9 @@ class GalleryQuickWidget(QQuickWidget):
 
         # Connect to the status changed signal for error handling
         self.statusChanged.connect(self._on_status_changed)
+        quick_window = self.quickWindow()
+        if quick_window is not None:
+            quick_window.sceneGraphError.connect(self._on_scene_graph_error)
 
         # Connect QML signals to Python after component loads
         self._connect_qml_signals()
@@ -120,6 +134,10 @@ class GalleryQuickWidget(QQuickWidget):
         if status == QQuickWidget.Status.Error:
             for error in self.errors():
                 print(f"QML Error: {error.toString()}")
+
+    def _on_scene_graph_error(self, error: QQuickWindow.SceneGraphError, message: str) -> None:
+        """Handle OpenGL errors from the scene graph."""
+        print(f"SceneGraph Error ({error}): {message}")
 
     def _connect_qml_signals(self) -> None:
         """Connect QML signals to Python slots."""

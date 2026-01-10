@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from .gallery_grid_view import GalleryQuickWidget
@@ -17,6 +18,9 @@ class GalleryPageWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+
+        # Force a native window to improve composition with QQuickWidget
+        self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
 
         self.grid_view = GalleryQuickWidget()
         self.grid_view.setObjectName("galleryGridView")
