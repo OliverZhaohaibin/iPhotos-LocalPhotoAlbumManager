@@ -162,13 +162,6 @@ class GalleryQuickWidget(QQuickWidget):
         self._sync_theme_to_qml()
         self.setClearColor(opaque_bg)
 
-    def paintEvent(self, event) -> None:
-        """Manually fill background before QML rendering to prevent transparency issues on Windows."""
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), self.palette().color(QPalette.ColorRole.Window))
-        painter.end()
-        super().paintEvent(event)
-
     def _apply_background_color(self, color: QColor) -> None:
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Window, color)
