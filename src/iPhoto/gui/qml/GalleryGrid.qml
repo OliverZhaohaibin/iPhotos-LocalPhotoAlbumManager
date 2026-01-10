@@ -90,6 +90,7 @@ Rectangle {
             if (last === -1) last = grid.count - 1
 
             if (first !== -1 && last !== -1) {
+                // Debounce or just emit? Python side debounces usually.
                 root.visibleRowsChanged(first, last)
             }
         }
@@ -174,12 +175,13 @@ Rectangle {
                         if (mouse.button === Qt.LeftButton) {
                             if (root.selectionMode) {
                                 model.isSelected = !model.isSelected
-                                root.itemClicked(index, mouse.modifiers)
                             } else {
                                 grid.currentIndex = index
                                 root.itemClicked(index, mouse.modifiers)
                             }
                         } else if (mouse.button === Qt.RightButton) {
+                            // Emit global coordinates for context menu
+                            // mapToGlobal returns point relative to screen
                             var globalPt = mapToGlobal(mouse.x, mouse.y)
                             root.showContextMenu(index, globalPt.x, globalPt.y)
                         }
@@ -189,6 +191,10 @@ Rectangle {
                         if (mouse.button === Qt.LeftButton) {
                             root.itemDoubleClicked(index)
                         }
+                    }
+
+                    onPressAndHold: (mouse) => {
+                        // Long press support (optional)
                     }
                 }
             }
