@@ -55,7 +55,9 @@ class ThumbnailImageProvider(QQuickImageProvider):
             return pixmap
 
         # If not in cache, return a placeholder (thumbnail will be loaded async)
-        placeholder = self._cache_manager.placeholder_for(rel)
+        # _placeholder_for is a private method that takes (rel, is_video) args
+        # We default to is_video=False since we don't know the media type from just rel path
+        placeholder = self._cache_manager._placeholder_for(rel, False)
         if placeholder is not None:
             return placeholder
 
