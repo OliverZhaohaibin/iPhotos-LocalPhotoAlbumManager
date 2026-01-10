@@ -15,7 +15,7 @@ from PySide6.QtCore import (
     Signal,
     QUrl,
 )
-from PySide6.QtGui import QImage, QPalette, QPixmap, QColor, QSurfaceFormat
+from PySide6.QtGui import QImage, QPalette, QPixmap, QColor, QSurfaceFormat, QPainter
 from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtQuickWidgets import QQuickWidget
 
@@ -324,6 +324,16 @@ class GalleryQuickWidget(QQuickWidget):
         root.setProperty("itemBackgroundColor", item_bg)
         root.setProperty("selectionBorderColor", colors.accent_color)
         root.setProperty("currentBorderColor", colors.text_primary)
+
+    # ------------------------------------------------------------------
+    # QWidget overrides
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        """Ensure an opaque fill is drawn before the QML scene paints."""
+
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self.palette().color(QPalette.ColorRole.Window))
+        painter.end()
+        super().paintEvent(event)
 
 
 __all__ = ["GalleryQuickWidget"]
