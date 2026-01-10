@@ -34,11 +34,13 @@ class ThumbnailImageProvider(QQuickImageProvider):
 
     def requestPixmap(self, id: str, size: QSize, requestedSize: QSize) -> QPixmap:
         """Return the thumbnail pixmap for the given relative path."""
+        print(f"DEBUG: requestPixmap called for {id}")
         try:
             # Parse the id - it includes the rel path and optionally a version query parameter
             rel = id.split('?')[0] if '?' in id else id
 
             if not self._model or not self._cache_manager:
+                print("DEBUG: requestPixmap failed - model or cache manager missing")
                 return QPixmap()
 
             # Try to get from cache first
@@ -75,6 +77,7 @@ class GalleryQuickWidget(QQuickWidget):
     visibleRowsChanged = Signal(int, int)
 
     def __init__(self, parent=None) -> None:  # type: ignore[override]
+        print(f"DEBUG: GalleryQuickWidget.__init__ called. Parent: {parent}")
         super().__init__(parent)
 
         # Disable alpha buffer to prevent transparency issues with DWM
@@ -126,13 +129,19 @@ class GalleryQuickWidget(QQuickWidget):
 
     def _on_status_changed(self, status: QQuickWidget.Status) -> None:
         """Handle status changes during QML loading."""
+        print(f"DEBUG: GalleryQuickWidget status changed to: {status}")
         if status == QQuickWidget.Status.Error:
             for error in self.errors():
                 print(f"QML Error: {error.toString()}")
 
     def _on_scene_graph_error(self, error: QQuickWindow.SceneGraphError, message: str) -> None:
         """Handle OpenGL errors from the scene graph."""
-        print(f"SceneGraph Error ({error}): {message}")
+        print(f"DEBUG: SceneGraph Error ({error}): {message}")
+
+    def paintEvent(self, event) -> None:
+        """Debug paint event."""
+        # print("DEBUG: GalleryQuickWidget paintEvent")  # Too spammy usually, uncomment if needed
+        super().paintEvent(event)
 
     def _connect_qml_signals(self) -> None:
         """Connect QML signals to Python slots."""
@@ -209,6 +218,7 @@ class GalleryQuickWidget(QQuickWidget):
 
     def setModel(self, model) -> None:  # type: ignore[override]
         """Set the data model for the grid view."""
+        print(f"DEBUG: GalleryQuickWidget.setModel called with {model}")
         self._model = model
 
         # Update the thumbnail provider with the model

@@ -219,7 +219,9 @@ class AssetListModel(QAbstractListModel):
     def rowCount(self, parent: QModelIndex | None = None) -> int:  # type: ignore[override]
         if parent is not None and parent.isValid():  # pragma: no cover - tree fallback
             return 0
-        return self._state_manager.row_count()
+        count = self._state_manager.row_count()
+        # print(f"DEBUG: AssetListModel.rowCount returning {count}") # Too spammy
+        return count
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):  # type: ignore[override]
         rows = self._state_manager.rows
@@ -354,6 +356,7 @@ class AssetListModel(QAbstractListModel):
     # ------------------------------------------------------------------
     def start_load(self) -> None:
         """Start loading data."""
+        print(f"DEBUG: AssetListModel.start_load called for {self._album_root}")
         self._state_manager.clear_reload_pending()
         self._cache_manager.clear_recently_removed()
         self._controller.start_load()

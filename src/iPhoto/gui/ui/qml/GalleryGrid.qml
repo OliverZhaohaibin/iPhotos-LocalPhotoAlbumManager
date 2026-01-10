@@ -20,6 +20,13 @@ Rectangle {
     signal visibleRowsChanged(int first, int last)
     signal filesDropped(var urls)
 
+    Component.onCompleted: {
+        console.log("DEBUG: GalleryGrid.qml loaded successfully")
+    }
+
+    onWidthChanged: console.log("DEBUG: GalleryGrid width changed to " + width)
+    onHeightChanged: console.log("DEBUG: GalleryGrid height changed to " + height)
+
     property int minItemWidth: 192
     property int itemGap: 2
     property int safetyMargin: 10
