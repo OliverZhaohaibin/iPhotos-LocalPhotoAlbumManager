@@ -8,7 +8,7 @@ from functools import partial
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QCoreApplication, QMimeData, QObject, QPoint, QUrl, Qt
+from PySide6.QtCore import QCoreApplication, QMimeData, QModelIndex, QObject, QPoint, QUrl, Qt
 from PySide6.QtGui import QGuiApplication, QPalette
 from PySide6.QtWidgets import QMenu
 
@@ -47,7 +47,10 @@ class ContextMenuController(QObject):
         self._selection_controller = selection_controller
         self._export_callback = export_callback
 
-        self._grid_view.customContextMenuRequested.connect(self._handle_context_menu)
+        if hasattr(self._grid_view, "contextMenuRequested"):
+            self._grid_view.contextMenuRequested.connect(self._handle_qml_context_menu)
+        else:
+            self._grid_view.customContextMenuRequested.connect(self._handle_context_menu)
 
     # ------------------------------------------------------------------
     # Context menu workflow
@@ -56,6 +59,17 @@ class ContextMenuController(QObject):
         """Construct and display a context menu based on where the user right-clicked."""
 
         index = self._grid_view.indexAt(point)
+        global_pos = self._grid_view.viewport().mapToGlobal(point)
+        self._show_context_menu(index, global_pos)
+
+    def _handle_qml_context_menu(self, index: QModelIndex, global_pos: QPoint) -> None:
+        """Handle context menu requests coming from the QML gallery."""
+
+        self._show_context_menu(index, global_pos)
+
+    def _show_context_menu(self, index: QModelIndex, global_pos: QPoint) -> None:
+        """Build and show the context menu using *index* at *global_pos*."""
+
         menu = QMenu(self._grid_view)
         # Menus inherit ``WA_TranslucentBackground`` from the frameless window shell.  The flag is
         # essential for rendering rounded corners, so we keep it enabled and rely on the palette-
@@ -153,7 +167,6 @@ class ContextMenuController(QObject):
             paste_action.triggered.connect(self._paste_from_clipboard)
             open_folder_action.triggered.connect(self._open_current_folder)
 
-        global_pos = self._grid_view.viewport().mapToGlobal(point)
         menu.exec(global_pos)
 
     def delete_selection(self) -> bool:

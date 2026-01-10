@@ -29,7 +29,7 @@ class AssetRowAdapter:
         if role == Roles.REL:
             return row["rel"]
         if role == Roles.ABS:
-            return row["abs"]
+            return str(row["abs"])
         if role == Roles.ASSET_ID:
             return row["id"]
         if role == Roles.IS_IMAGE:
@@ -58,6 +58,10 @@ class AssetRowAdapter:
             return row["featured"]
         if role == Roles.IS_CURRENT:
             return bool(row.get("is_current", False))
+        if role == Roles.IS_SELECTED:
+            return bool(row.get("is_selected", False))
+        if role == Roles.THUMBNAIL_REV:
+            return int(row.get("thumbnail_rev", 0))
         if role == Roles.INFO:
             return dict(row)
         if role == Roles.MICRO_THUMBNAIL:

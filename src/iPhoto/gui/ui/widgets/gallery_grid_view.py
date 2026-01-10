@@ -1,194 +1,311 @@
-"""Pre-configured grid view for the gallery layout."""
+"""QML-driven gallery grid view."""
 
 from __future__ import annotations
 
-from OpenGL import GL as gl
-from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QPaintEvent, QPalette, QSurfaceFormat, QColor, QGuiApplication
-from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtWidgets import QAbstractItemView, QListView
+from pathlib import Path
+from typing import Iterable, Optional, TYPE_CHECKING
 
-from ..styles import modern_scrollbar_style
-from .asset_grid import AssetGrid
+from PySide6.QtCore import (
+    QModelIndex,
+    QItemSelection,
+    QItemSelectionModel,
+    QPoint,
+    QSize,
+    Qt,
+    Signal,
+    QUrl,
+)
+from PySide6.QtGui import QImage, QPalette, QPixmap, QColor
+from PySide6.QtQuick import QQuickImageProvider
+from PySide6.QtQuickWidgets import QQuickWidget
 
+from ..models.roles import Roles
+from ..theme_manager import ThemeColors
 
-class GalleryViewport(QOpenGLWidget):
-    """OpenGL viewport that ensures an opaque background."""
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._bg_color: QColor | None = None
-
-        # Disable the alpha buffer to prevent transparency issues with the DWM
-        # when using a frameless window configuration.
-        gl_format = QSurfaceFormat()
-        gl_format.setAlphaBufferSize(0)
-        self.setFormat(gl_format)
-
-    def set_background_color(self, color: QColor) -> None:
-        """Set the background color for the viewport."""
-        self._bg_color = color
-        self.update()
-
-    def paintGL(self) -> None:
-        """Clear the background to the theme's base color with full opacity."""
-        self.clear_background()
-
-    def clear_background(self) -> None:
-        """Explicitly clear the viewport background."""
-        if self._bg_color:
-            base_color = self._bg_color
-        else:
-            base_color = self.palette().color(QPalette.ColorRole.Base)
-
-        # Ensure we have a context before issuing GL commands
-        self.makeCurrent()
-        gl.glClearColor(base_color.redF(), base_color.greenF(), base_color.blueF(), 1.0)
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+if TYPE_CHECKING:  # pragma: no cover - import for typing only
+    from ..models.asset_list.model import AssetListModel
+    from ..models.asset_model import AssetModel
 
 
-class GalleryGridView(AssetGrid):
-    """Dense icon-mode grid tuned for album browsing."""
+class _ThumbnailImageProvider(QQuickImageProvider):
+    """Expose cached thumbnails to QML via the ``image://thumbnails`` scheme."""
 
-    # Minimum width (and height) for grid items in pixels
-    MIN_ITEM_WIDTH = 192
+    def __init__(self, model: "AssetListModel") -> None:
+        super().__init__(QQuickImageProvider.Image)
+        self._model = model
 
-    # Gap between grid items (provides 1px padding on each side)
-    ITEM_GAP = 2
+    def requestImage(self, identifier: str, size: QSize, requestedSize: QSize) -> tuple[QImage, QSize]:  # type: ignore[override]  # pragma: no cover - exercised via QML
+        rel = identifier.split("?")[0].lstrip("/")
+        pixmap = self._model.thumbnail_for_rel(rel)
+        if not isinstance(pixmap, QPixmap):
+            return QImage(), requestedSize
+        image = pixmap.toImage()
+        if size is not None:
+            size.setWidth(image.width())
+            size.setHeight(image.height())
+        return image, image.size()
 
-    # Safety margin to prevent layout engine from dropping columns due to rounding
-    # errors or strict boundary checks. This accounts for frame borders and
-    # potential internal margins.
-    SAFETY_MARGIN = 10
+
+class GalleryQuickWidget(QQuickWidget):
+    """Gallery view backed by a QML grid."""
+
+    itemClicked = Signal(QModelIndex)
+    itemDoubleClicked = Signal(QModelIndex)
+    requestPreview = Signal(QModelIndex)
+    previewReleased = Signal()
+    previewCancelled = Signal()
+    visibleRowsChanged = Signal(int, int)
+    contextMenuRequested = Signal(QModelIndex, QPoint)
 
     def __init__(self, parent=None) -> None:  # type: ignore[override]
         super().__init__(parent)
+        self._model: Optional["AssetModel"] = None
+        self._selection_model: Optional[QItemSelectionModel] = None
         self._selection_mode_enabled = False
-        self.setSelectionMode(QListView.SelectionMode.SingleSelection)
-        self.setViewMode(QListView.ViewMode.IconMode)
-        # Defer initial size calculation to resizeEvent to avoid rendering the
-        # default 192px layout before the viewport dimensions are known.
-        self.setSpacing(0)
-        self.setUniformItemSizes(True)
-        self.setResizeMode(QListView.ResizeMode.Adjust)
-        self.setMovement(QListView.Movement.Static)
-        self.setFlow(QListView.Flow.LeftToRight)
-        self.setWrapping(True)
-        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setWordWrap(False)
-        self.setSelectionRectVisible(False)
+        self._external_drop_handler = None
+        self._external_drop_validator = None
+        self._theme_colors: Optional[ThemeColors] = None
+        self._qml_loaded = False
+        base_dir = Path(__file__).resolve().parents[2]
+        self._qml_path = base_dir / "qml" / "GalleryGrid.qml"
 
-        # Enable hardware acceleration for the viewport to improve scrolling performance
-        gl_viewport = GalleryViewport()
-        self.setViewport(gl_viewport)
+        self.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
+        self.setClearColor(QColor(Qt.GlobalColor.transparent))
 
-        self._updating_style = False
-        self._apply_scrollbar_style()
-
-    def paintEvent(self, event: QPaintEvent) -> None:  # type: ignore[override]
-        """Override paintEvent to force a GL clear before items are drawn."""
-        viewport = self.viewport()
-        if isinstance(viewport, GalleryViewport):
-            viewport.clear_background()
-        super().paintEvent(event)
-
-    def resizeEvent(self, event) -> None:  # type: ignore[override]
-        super().resizeEvent(event)
-        viewport_width = self.viewport().width()
-        if viewport_width <= 0:
-            return
-
-
-        # Determine how many columns can fit with the minimum size constraint.
-        # We model the grid cell as (item_width + gap), which provides 1px padding
-        # on each side of the item, resulting in a visual 2px gutter between items.
-        # We subtract SAFETY_MARGIN to align with the cell_size calculation below,
-        # ensuring we don't calculate a column count that immediately fails the
-        # minimum size check.
-        available_width = viewport_width - self.SAFETY_MARGIN
-        num_cols = max(1, int(available_width / (self.MIN_ITEM_WIDTH + self.ITEM_GAP)))
-
-        # Calculate the expanded cell size that will fill the available width.
-        # We subtract SAFETY_MARGIN from the viewport width to prevent the layout
-        # engine from dropping the last column due to rounding errors or strict
-        # boundary checks.
-        cell_size = int((viewport_width - self.SAFETY_MARGIN) / num_cols)
-        new_item_width = cell_size - self.ITEM_GAP
-        if new_item_width < self.MIN_ITEM_WIDTH:
-            return  # Don't update if it would make items too small
-
-        current_size = self.iconSize().width()
-        if current_size != new_item_width:
-            new_size = QSize(new_item_width, new_item_width)
-            self.setIconSize(new_size)
-            self.setGridSize(QSize(cell_size, cell_size))
-
-            delegate = self.itemDelegate()
-            if hasattr(delegate, "set_base_size"):
-                delegate.set_base_size(new_item_width)
-
-    def changeEvent(self, event: QEvent) -> None:
-        if event.type() == QEvent.Type.PaletteChange:
-            if not self._updating_style:
-                self._apply_scrollbar_style()
-        super().changeEvent(event)
-
-    def _apply_scrollbar_style(self) -> None:
-        # Fetch the global application palette to ensure we get the fresh theme colors,
-        # ignoring any local stylesheet overrides that self.palette() might reflect.
-        app = QGuiApplication.instance()
-        palette = app.palette() if app else self.palette()
-
-        text_color = palette.color(QPalette.ColorRole.WindowText)
-        base_color = palette.color(QPalette.ColorRole.Base)
-
-        # Propagate background color to the viewport
-        viewport = self.viewport()
-        if isinstance(viewport, GalleryViewport):
-            viewport.set_background_color(base_color)
-
-        # We need to enforce the background color on the GalleryGridView (and its viewport)
-        # because QOpenGLWidget in a translucent window context defaults to transparent.
-        # By adding a background-color rule to the stylesheet, we ensure it's painted opaque.
-        style = modern_scrollbar_style(text_color)
-        bg_style = f"QListView {{ background-color: {base_color.name()}; }}"
-
-        full_style = f"{style}\n{bg_style}"
-
-        if self.styleSheet() == full_style:
-            return
-
-        self._updating_style = True
-        try:
-            self.setStyleSheet(full_style)
-        finally:
-            self._updating_style = False
+        engine = self.engine()
+        if engine is not None:
+            engine.addImportPath(str(self._qml_path.parent))
+        self._engine = engine
 
     # ------------------------------------------------------------------
-    # Selection mode toggling
+    # Model + selection handling
     # ------------------------------------------------------------------
+    def setModel(self, model: "AssetModel") -> None:  # type: ignore[override]
+        self._model = model
+        self._selection_model = QItemSelectionModel(model, self)
+        self._selection_model.selectionChanged.connect(self._sync_selection_roles)
+        self._selection_model.currentChanged.connect(self._sync_current_role)
+
+        if self._engine is not None:
+            self._engine.rootContext().setContextProperty("assetModel", model)
+            provider_model = self._resolve_source_model(model)
+            if provider_model is not None:
+                self._engine.addImageProvider("thumbnails", _ThumbnailImageProvider(provider_model))
+
+        if not self._qml_loaded:
+            self._load_qml()
+        else:
+            self._connect_qml_signals()
+            self._sync_theme_to_qml()
+
+    def selectionModel(self) -> Optional[QItemSelectionModel]:  # type: ignore[override]
+        return self._selection_model
+
+    def clearSelection(self) -> None:  # type: ignore[override]
+        if self._selection_model is None:
+            return
+        self._selection_model.clearSelection()
+        self._sync_all_selection_roles()
+
     def selection_mode_active(self) -> bool:
-        """Return ``True`` when multi-selection mode is currently enabled."""
+        """Return ``True`` when multi-selection mode is enabled."""
 
         return self._selection_mode_enabled
 
     def set_selection_mode_enabled(self, enabled: bool) -> None:
-        """Switch between the default single selection and multi-selection mode."""
+        """Switch between single and multi-selection modes."""
 
-        desired_state = bool(enabled)
-        if self._selection_mode_enabled == desired_state:
+        desired = bool(enabled)
+        if self._selection_mode_enabled == desired:
             return
-        self._selection_mode_enabled = desired_state
-        if desired_state:
-            self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-            self.setSelectionRectVisible(True)
+        self._selection_mode_enabled = desired
+        root = self.rootObject()
+        if root is not None:
+            root.setProperty("selectionMode", desired)
+
+    # ------------------------------------------------------------------
+    # External drop support
+    # ------------------------------------------------------------------
+    def configure_external_drop(self, *, handler=None, validator=None) -> None:
+        """Register drop callbacks used by :class:`DragDropController`."""
+
+        self._external_drop_handler = handler
+        self._external_drop_validator = validator
+        self.setAcceptDrops(self._external_drop_handler is not None)
+
+    # ------------------------------------------------------------------
+    # Theme handling
+    # ------------------------------------------------------------------
+    def apply_theme(self, colors: ThemeColors) -> None:
+        """Apply theme colors to both the widget and underlying QML."""
+
+        self._theme_colors = colors
+        self._apply_background_color(colors.window_background)
+        self._sync_theme_to_qml()
+        self.setClearColor(colors.window_background)
+
+    def _apply_background_color(self, color: QColor) -> None:
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, color)
+        palette.setColor(QPalette.ColorRole.Base, color)
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _load_qml(self) -> None:
+        if self._engine is None:
+            return
+        self.setSource(QUrl.fromLocalFile(str(self._qml_path)))
+        self._qml_loaded = True
+        self._connect_qml_signals()
+        self._sync_theme_to_qml()
+
+    def _connect_qml_signals(self) -> None:
+        root = self.rootObject()
+        if root is None:
+            return
+        try:
+            root.itemClicked.disconnect()
+        except Exception:
+            pass
+        try:
+            root.itemDoubleClicked.disconnect()
+        except Exception:
+            pass
+        try:
+            root.currentIndexChanged.disconnect()
+        except Exception:
+            pass
+        try:
+            root.visibleRowsChanged.disconnect()
+        except Exception:
+            pass
+        try:
+            root.showContextMenu.disconnect()
+        except Exception:
+            pass
+        try:
+            root.filesDropped.disconnect()
+        except Exception:
+            pass
+        root.itemClicked.connect(self._on_qml_item_clicked)
+        root.itemDoubleClicked.connect(self._on_qml_item_double_clicked)
+        root.currentIndexChanged.connect(self._on_qml_current_changed)
+        root.visibleRowsChanged.connect(self.visibleRowsChanged)
+        root.showContextMenu.connect(self._on_qml_context_menu)
+        root.filesDropped.connect(self._on_qml_files_dropped)
+
+    def _on_qml_item_clicked(self, row: int, modifiers: int) -> None:
+        index = self._index_for_row(row)
+        if not index.isValid() or self._selection_model is None:
+            return
+
+        modifiers_enum = Qt.KeyboardModifier(modifiers)
+        if self._selection_mode_enabled or modifiers_enum & Qt.KeyboardModifier.ControlModifier:
+            command = (
+                QItemSelectionModel.SelectionFlag.Deselect
+                if self._selection_model.isSelected(index)
+                else QItemSelectionModel.SelectionFlag.Select
+            )
+            self._selection_model.select(index, command | QItemSelectionModel.SelectionFlag.Current)
         else:
-            self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-            self.setSelectionRectVisible(False)
-        # Long-press previews interfere with multi-selection because the delayed
-        # activation steals focus from the selection rubber band. Disabling the
-        # preview gesture keeps the pointer interactions unambiguous.
-        self.set_preview_enabled(not desired_state)
+            self._selection_model.setCurrentIndex(
+                index,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Select,
+            )
+        self.itemClicked.emit(index)
+
+    def _on_qml_item_double_clicked(self, row: int) -> None:
+        index = self._index_for_row(row)
+        if index.isValid():
+            self.itemDoubleClicked.emit(index)
+
+    def _on_qml_current_changed(self, row: int) -> None:
+        if self._selection_model is None:
+            return
+        index = self._index_for_row(row)
+        if index.isValid():
+            self._selection_model.setCurrentIndex(
+                index,
+                QItemSelectionModel.SelectionFlag.NoUpdate,
+            )
+
+    def _on_qml_context_menu(self, row: int, global_x: int, global_y: int) -> None:
+        index = self._index_for_row(row)
+        self.contextMenuRequested.emit(index, QPoint(global_x, global_y))
+
+    def _on_qml_files_dropped(self, urls: Iterable[str]) -> None:
+        if self._external_drop_handler is None:
+            return
+
+        paths = []
+        for url in urls:
+            qurl = QUrl(url)
+            if qurl.isLocalFile():
+                paths.append(Path(qurl.toLocalFile()))
+        if not paths:
+            return
+        if self._external_drop_validator is not None and not self._external_drop_validator(paths):
+            return
+        self._external_drop_handler(paths)
+
+    def _sync_selection_roles(self, selected: QItemSelection, deselected: QItemSelection) -> None:
+        if self._model is None:
+            return
+        for index in deselected.indexes():
+            self._model.setData(index, False, Roles.IS_SELECTED)
+        for index in selected.indexes():
+            self._model.setData(index, True, Roles.IS_SELECTED)
+
+    def _sync_all_selection_roles(self) -> None:
+        if self._selection_model is None or self._model is None:
+            return
+        rows = self._selection_model.model().rowCount()
+        for row in range(rows):
+            index = self._selection_model.model().index(row, 0)
+            self._model.setData(index, self._selection_model.isSelected(index), Roles.IS_SELECTED)
+
+    def _sync_current_role(self, current: QModelIndex, previous: QModelIndex) -> None:
+        if self._model is None:
+            return
+        if previous.isValid():
+            self._model.setData(previous, False, Roles.IS_CURRENT)
+        if current.isValid():
+            self._model.setData(current, True, Roles.IS_CURRENT)
+
+    def _index_for_row(self, row: int) -> QModelIndex:
+        if self._model is None:
+            return QModelIndex()
+        index = self._model.index(row, 0)
+        return index if index.isValid() else QModelIndex()
+
+    def _resolve_source_model(self, model: "AssetModel") -> Optional["AssetListModel"]:
+        source = getattr(model, "source_model", None)
+        if callable(source):
+            try:
+                resolved = source()
+            except Exception:
+                return None
+            return resolved
+        return None
+
+    def _sync_theme_to_qml(self) -> None:
+        if self._theme_colors is None:
+            return
+        root = self.rootObject()
+        if root is None:
+            return
+
+        colors = self._theme_colors
+        item_bg = colors.window_background.darker(115 if colors.is_dark else 105)
+
+        root.setProperty("backgroundColor", colors.window_background)
+        root.setProperty("itemBackgroundColor", item_bg)
+        root.setProperty("selectionBorderColor", colors.accent_color)
+        root.setProperty("currentBorderColor", colors.text_primary)
+
+
+__all__ = ["GalleryQuickWidget"]

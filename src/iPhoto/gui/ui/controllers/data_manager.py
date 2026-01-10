@@ -10,6 +10,7 @@ from ..media import MediaController, PlaylistController
 from ..models.asset_model import AssetModel
 from ..models.spacer_proxy_model import SpacerProxyModel
 from ..widgets.asset_delegate import AssetGridDelegate
+from ..widgets.gallery_grid_view import GalleryQuickWidget
 
 if TYPE_CHECKING:  # pragma: no cover - import used for typing only
     from ..ui_main_window import Ui_MainWindow
@@ -68,9 +69,12 @@ class DataManager(QObject):
         """Attach models and delegates to the widgets constructed by the UI."""
 
         ui.grid_view.setModel(self._asset_model)
-        self._grid_delegate = AssetGridDelegate(ui.grid_view)
-        ui.grid_view.setItemDelegate(self._grid_delegate)
-        ui.grid_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        if isinstance(ui.grid_view, GalleryQuickWidget):
+            self._grid_delegate = None
+        else:
+            self._grid_delegate = AssetGridDelegate(ui.grid_view)
+            ui.grid_view.setItemDelegate(self._grid_delegate)
+            ui.grid_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         ui.filmstrip_view.setModel(self._filmstrip_model)
         ui.filmstrip_view.setItemDelegate(
@@ -82,4 +86,3 @@ class DataManager(QObject):
 
         ui.player_bar.setEnabled(False)
         ui.selection_button.setEnabled(False)
-

@@ -60,6 +60,8 @@ class PreviewController(QObject):
         if not preview_raw:
             return
         preview_path = Path(str(preview_raw))
+        if not hasattr(view, "visualRect") or not hasattr(view, "viewport"):
+            return
         rect = view.visualRect(index)
         global_rect = QRect(view.viewport().mapToGlobal(rect.topLeft()), rect.size())
         self._preview_window.show_preview(preview_path, global_rect)

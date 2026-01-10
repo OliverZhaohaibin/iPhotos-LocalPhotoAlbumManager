@@ -229,19 +229,43 @@ class AssetListModel(QAbstractListModel):
         rows = self._state_manager.rows
         if not index.isValid() or not (0 <= index.row() < len(rows)):
             return False
-        if role != Roles.IS_CURRENT:
-            return super().setData(index, value, role)
-
-        normalized = bool(value)
-        row = rows[index.row()]
-        if bool(row.get("is_current", False)) == normalized:
+        if role == Roles.IS_CURRENT:
+            normalized = bool(value)
+            row = rows[index.row()]
+            if bool(row.get("is_current", False)) == normalized:
+                return True
+            row["is_current"] = normalized
+            self.dataChanged.emit(index, index, [Roles.IS_CURRENT])
             return True
-        row["is_current"] = normalized
-        self.dataChanged.emit(index, index, [Roles.IS_CURRENT])
-        return True
+
+        if role == Roles.IS_SELECTED:
+            normalized = bool(value)
+            row = rows[index.row()]
+            if bool(row.get("is_selected", False)) == normalized:
+                return True
+            row["is_selected"] = normalized
+            self.dataChanged.emit(index, index, [Roles.IS_SELECTED])
+            return True
+
+        return super().setData(index, value, role)
 
     def thumbnail_loader(self) -> ThumbnailLoader:
         return self._cache_manager.thumbnail_loader()
+
+    def thumbnail_for_rel(self, rel: str) -> Optional[QPixmap]:
+        """Return a cached thumbnail for *rel* if available."""
+
+        rel_key = normalise_rel_value(rel)
+        if not rel_key:
+            return None
+        row_index = self._state_manager.row_lookup.get(rel_key)
+        rows = self._state_manager.rows
+        if row_index is None or not (0 <= row_index < len(rows)):
+            return None
+        return self._cache_manager.resolve_thumbnail(
+            rows[row_index],
+            ThumbnailLoader.Priority.NORMAL,
+        )
 
     def get_internal_row(self, row_index: int) -> Optional[Dict[str, object]]:
         """Return the raw dictionary for *row_index* to bypass the Qt role API."""
@@ -254,15 +278,23 @@ class AssetListModel(QAbstractListModel):
         """Remove cached thumbnails and notify views for *rel*."""
         if not rel:
             return None
-        self._cache_manager.remove_thumbnail(rel)
+        rel_key = normalise_rel_value(rel)
+        if not rel_key:
+            return None
+        self._cache_manager.remove_thumbnail(rel_key)
         loader = self._cache_manager.thumbnail_loader()
-        loader.invalidate(rel)
-        row_index = self._state_manager.row_lookup.get(rel)
+        loader.invalidate(rel_key)
+        row_index = self._state_manager.row_lookup.get(rel_key)
         rows = self._state_manager.rows
         if row_index is None or not (0 <= row_index < len(rows)):
             return None
+        rows[row_index]["thumbnail_rev"] = rows[row_index].get("thumbnail_rev", 0) + 1
         model_index = self.index(row_index, 0)
-        self.dataChanged.emit(model_index, model_index, [Qt.DecorationRole])
+        self.dataChanged.emit(
+            model_index,
+            model_index,
+            [Qt.DecorationRole, Roles.THUMBNAIL_REV],
+        )
         return model_index
 
     # ------------------------------------------------------------------

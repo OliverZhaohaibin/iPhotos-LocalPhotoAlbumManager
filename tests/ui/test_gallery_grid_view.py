@@ -1,150 +1,177 @@
+"""Unit tests for GalleryQuickWidget theme functionality."""
+
+from unittest.mock import MagicMock, patch, call
+
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QStandardItem, QStandardItemModel, QPixmap
-from PySide6.QtWidgets import QApplication
 
-from src.iPhoto.gui.ui.widgets.gallery_grid_view import GalleryGridView
-from src.iPhoto.gui.ui.widgets.asset_delegate import AssetGridDelegate
-from src.iPhoto.gui.ui.models.roles import Roles
+IMPORT_ERROR = None
+try:
+    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtWidgets import QApplication
+except Exception as exc:  # pragma: no cover - missing Qt dependencies
+    IMPORT_ERROR = exc
+    QColor = QPalette = QApplication = None
 
-# Attempt to patch load_icon in asset_delegate if it exists
-def patch_delegate_icons(monkeypatch):
-    # AssetGridDelegate doesn't use load_icon anymore, so this patch is likely obsolete.
-    # We'll wrap it in try-except to avoid breaking tests if the import path is invalid.
-    try:
-        from PySide6.QtGui import QIcon
-        def mock_load_icon(*args, **kwargs):
-            return QIcon()
+try:
+    from src.iPhoto.gui.ui.widgets.gallery_grid_view import GalleryQuickWidget
+except Exception as exc:  # pragma: no cover - missing optional deps
+    IMPORT_ERROR = exc
+    GalleryQuickWidget = None
 
-        # Patch where it is used. AssetGridDelegate imports it as `from ..icons import load_icon`
-        monkeypatch.setattr("src.iPhoto.gui.ui.widgets.asset_delegate.load_icon", mock_load_icon)
-    except (ImportError, AttributeError) as e:
-        print(f"patch_delegate_icons: Could not patch load_icon: {e}")
+try:
+    from src.iPhoto.gui.ui.theme_manager import LIGHT_THEME, DARK_THEME
+except Exception as exc:  # pragma: no cover - missing optional deps
+    IMPORT_ERROR = IMPORT_ERROR or exc
+    LIGHT_THEME = DARK_THEME = None
 
-@pytest.fixture(scope="module")
-def qapp_instance():
-    import os
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+@pytest.fixture(scope="session", autouse=True)
+def _skip_if_unavailable():
+    if IMPORT_ERROR:
+        pytest.skip(f"GalleryQuickWidget unavailable: {IMPORT_ERROR}")
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Create QApplication instance for tests."""
+    if IMPORT_ERROR:
+        pytest.skip(f"GalleryQuickWidget unavailable: {IMPORT_ERROR}")
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
     yield app
 
-def test_gallery_responsive_layout(qapp_instance, monkeypatch):
-    patch_delegate_icons(monkeypatch)
 
-    # Setup view
-    view = GalleryGridView()
-    delegate = AssetGridDelegate(view)
-    view.setItemDelegate(delegate)
+@pytest.fixture
+def gallery_widget(qapp):
+    """Create a GalleryQuickWidget for testing."""
+    if IMPORT_ERROR:
+        pytest.skip(f"GalleryQuickWidget unavailable: {IMPORT_ERROR}")
+    widget = GalleryQuickWidget()
+    widget._engine = MagicMock()
+    yield widget
+    widget.deleteLater()
 
-    model = QStandardItemModel()
-    for i in range(12):
-        item = QStandardItem()
-        item.setData(False, Roles.IS_SPACER)
-        pix = QPixmap(100, 100)
-        pix.fill(Qt.red)
-        item.setData(pix, Qt.DecorationRole)
-        model.appendRow(item)
 
-    view.setModel(model)
-    view.show()
+def test_apply_theme_stores_colors(gallery_widget):
+    """Test that apply_theme correctly stores theme colors."""
+    assert gallery_widget._theme_colors is None
 
-    # Helper to calculate expectation
-    def get_expectations(viewport_w):
-        min_w = GalleryGridView.MIN_ITEM_WIDTH
-        gap = GalleryGridView.ITEM_GAP
-        # Use the safety margin from the implementation
-        safety = GalleryGridView.SAFETY_MARGIN
-        # Code uses safety margin for column count too (Bug fix)
-        avail = viewport_w - safety
-        cols = max(1, int(avail / (min_w + gap)))
-        # Code uses safety margin for cell size calculation
-        cell = int(avail / cols)
-        item = cell - gap
-        return cols, cell, item
+    gallery_widget.apply_theme(LIGHT_THEME)
 
-    # -------------------------------------------------------------------------
-    # Test Case 1: Standard scaling
-    # -------------------------------------------------------------------------
-    view.resize(800, 1200)
-    qapp_instance.processEvents()
-    view.doItemsLayout()
-    qapp_instance.processEvents()
+    assert gallery_widget._theme_colors == LIGHT_THEME
 
-    vp_w = view.viewport().width()
-    cols, cell, item = get_expectations(vp_w)
 
-    assert view.gridSize().width() == cell
-    assert view.iconSize().width() == item
-    assert delegate._base_size == item
+def test_apply_theme_updates_palette(gallery_widget):
+    """Test that apply_theme updates the widget palette."""
+    gallery_widget.apply_theme(LIGHT_THEME)
 
-    # Check gap is strictly 2px
-    r0 = view.visualRect(model.index(0, 0))
-    r1 = view.visualRect(model.index(1, 0))
-    gap = r1.x() - (r0.x() + r0.width())
-    assert gap == 2
+    palette = gallery_widget.palette()
+    assert palette.color(QPalette.ColorRole.Window) == LIGHT_THEME.window_background
+    assert palette.color(QPalette.ColorRole.Base) == LIGHT_THEME.window_background
 
-    # -------------------------------------------------------------------------
-    # Test Case 2: Edge case handling (prevent column drop)
-    # Width 784.
-    # -------------------------------------------------------------------------
-    view.resize(784, 1200)
-    qapp_instance.processEvents()
-    view.doItemsLayout()
-    qapp_instance.processEvents()
 
-    vp_w = view.viewport().width()
-    cols, cell, item = get_expectations(vp_w)
+def test_apply_theme_sets_clear_color(gallery_widget):
+    """Test that apply_theme sets the clear color."""
+    with patch.object(gallery_widget, "setClearColor") as mock_set_clear:
+        gallery_widget.apply_theme(LIGHT_THEME)
+        mock_set_clear.assert_called_with(LIGHT_THEME.window_background)
 
-    assert view.gridSize().width() == cell
 
-    # Verify no wrap (all items up to `cols` are on first row)
-    # index is 0-based. items 0 to cols-1 should be on row 0.
-    last_item_idx = cols - 1
-    r_last = view.visualRect(model.index(last_item_idx, 0))
-    r0 = view.visualRect(model.index(0, 0))
-    assert r_last.y() == r0.y()
+def test_apply_background_color_sets_palette(gallery_widget):
+    """Test that _apply_background_color correctly sets palette colors."""
+    test_color = QColor("#123456")
+    gallery_widget._apply_background_color(test_color)
 
-    # -------------------------------------------------------------------------
-    # Test Case 3: Expanding back to more columns
-    # -------------------------------------------------------------------------
-    view.resize(790, 1200)
-    qapp_instance.processEvents()
-    view.doItemsLayout()
-    qapp_instance.processEvents()
+    palette = gallery_widget.palette()
+    assert palette.color(QPalette.ColorRole.Window) == test_color
+    assert palette.color(QPalette.ColorRole.Base) == test_color
 
-    vp_w = view.viewport().width()
-    cols, cell, item = get_expectations(vp_w)
 
-    assert view.gridSize().width() == cell
+def test_apply_background_color_enables_autofill(gallery_widget):
+    """Test that _apply_background_color enables auto fill background."""
+    test_color = QColor("#123456")
+    gallery_widget._apply_background_color(test_color)
 
-    last_item_idx = cols - 1
-    r_last = view.visualRect(model.index(last_item_idx, 0))
-    r0 = view.visualRect(model.index(0, 0))
-    assert r_last.y() == r0.y()
+    assert gallery_widget.autoFillBackground() is True
 
-    # -------------------------------------------------------------------------
-    # Test Case 4: Dead Zone check (Bug Fix Verification)
-    # Width 582px triggers the dead zone where:
-    #   Old logic: 582 / 194 = 3 cols. (582-10)/3 = 190.6 < 192. Reject.
-    #   New logic: (582-10) / 194 = 2 cols. (582-10)/2 = 286. Item 284. Accept.
-    # -------------------------------------------------------------------------
-    view.resize(582, 1200)
-    qapp_instance.processEvents()
-    view.doItemsLayout()
-    qapp_instance.processEvents()
 
-    vp_w = view.viewport().width()
-    cols, cell, item = get_expectations(vp_w)
+def test_sync_theme_to_qml_light_theme(gallery_widget):
+    """Test that _sync_theme_to_qml correctly calculates colors for light theme."""
+    mock_root = MagicMock()
+    gallery_widget.rootObject = MagicMock(return_value=mock_root)
 
-    # Assert that we DO get an update (item size matches expectation)
-    # If the bug were present, the item size would remain from previous step (Test Case 3)
-    # Test Case 3 ended with ~790px -> 4 cols.
-    # If update rejected, we would still have 4 cols logic on 582px? No, QListView would reflow.
-    # But GridSize would be from Test Case 3 (approx 196px).
-    # New expectation is 2 cols -> Cell ~288px.
+    gallery_widget.apply_theme(LIGHT_THEME)
 
-    assert cols == 2
-    assert view.gridSize().width() == cell
-    assert view.iconSize().width() == item
+    calls = mock_root.setProperty.call_args_list
+    bg_call = [call for call in calls if call[0][0] == "backgroundColor"][0]
+    assert bg_call[0][1] == LIGHT_THEME.window_background
+
+    item_bg_call = [call for call in calls if call[0][0] == "itemBackgroundColor"][0]
+    item_bg = item_bg_call[0][1]
+    expected_item_bg = QColor(LIGHT_THEME.window_background).darker(105)
+    assert item_bg.red() == expected_item_bg.red()
+    assert item_bg.green() == expected_item_bg.green()
+    assert item_bg.blue() == expected_item_bg.blue()
+
+    selection_call = [call for call in calls if call[0][0] == "selectionBorderColor"][0]
+    assert selection_call[0][1] == LIGHT_THEME.accent_color
+
+    current_call = [call for call in calls if call[0][0] == "currentBorderColor"][0]
+    assert current_call[0][1] == LIGHT_THEME.text_primary
+
+
+def test_sync_theme_to_qml_dark_theme(gallery_widget):
+    """Test that _sync_theme_to_qml correctly calculates colors for dark theme."""
+    mock_root = MagicMock()
+    gallery_widget.rootObject = MagicMock(return_value=mock_root)
+
+    gallery_widget.apply_theme(DARK_THEME)
+
+    calls = mock_root.setProperty.call_args_list
+    item_bg_call = [call for call in calls if call[0][0] == "itemBackgroundColor"][0]
+    item_bg = item_bg_call[0][1]
+    expected_item_bg = QColor(DARK_THEME.window_background).darker(115)
+    assert item_bg.red() == expected_item_bg.red()
+    assert item_bg.green() == expected_item_bg.green()
+    assert item_bg.blue() == expected_item_bg.blue()
+
+
+def test_sync_theme_to_qml_no_root_object(gallery_widget):
+    """Test that _sync_theme_to_qml handles missing root object gracefully."""
+    gallery_widget.rootObject = MagicMock(return_value=None)
+
+    gallery_widget.apply_theme(LIGHT_THEME)
+
+    assert gallery_widget._theme_colors == LIGHT_THEME
+
+
+def test_sync_theme_to_qml_no_theme_colors(gallery_widget):
+    """Test that _sync_theme_to_qml handles missing theme colors gracefully."""
+    mock_root = MagicMock()
+    gallery_widget.rootObject = MagicMock(return_value=mock_root)
+
+    gallery_widget._sync_theme_to_qml()
+
+    mock_root.setProperty.assert_not_called()
+
+
+def test_theme_switch_updates_colors(gallery_widget):
+    """Test that switching themes updates all colors correctly."""
+    mock_root = MagicMock()
+    gallery_widget.rootObject = MagicMock(return_value=mock_root)
+
+    gallery_widget.apply_theme(LIGHT_THEME)
+    light_palette = gallery_widget.palette()
+    light_bg = light_palette.color(QPalette.ColorRole.Window)
+
+    mock_root.setProperty.reset_mock()
+
+    gallery_widget.apply_theme(DARK_THEME)
+    dark_palette = gallery_widget.palette()
+    dark_bg = dark_palette.color(QPalette.ColorRole.Window)
+
+    assert light_bg != dark_bg
+    assert dark_bg == DARK_THEME.window_background
+
+    assert mock_root.setProperty.call_count >= 4
