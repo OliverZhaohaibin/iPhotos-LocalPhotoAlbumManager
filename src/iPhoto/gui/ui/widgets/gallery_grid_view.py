@@ -19,9 +19,10 @@ if TYPE_CHECKING:
 
 # QQuickWidget defaults to the platform's scene graph backend (Direct3D on Windows).
 # Frameless, translucent windows render the gallery as a black rectangle under D3D,
-# so force the OpenGL path to ensure thumbnails are painted when running on Windows.
+# so force a software renderer on Windows to avoid GPU backend conflicts.
 if sys.platform.startswith("win"):
-    QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
+    QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.Software)
+    QQuickWidget.setGraphicsApi(QSGRendererInterface.GraphicsApi.Software)
 
 class ThumbnailImageProvider(QQuickImageProvider):
     """QML image provider that serves thumbnails from the asset model's cache."""
@@ -122,6 +123,10 @@ class GalleryQuickWidget(QQuickWidget):
 
         # Set up the QML context
         self.engine().addImportPath(str(qml_dir))
+        root_context = self.rootContext()
+        if root_context:
+            # Provide a default so QML bindings do not fail before a model is set.
+            root_context.setContextProperty("assetModel", None)
 
         # Load the QML component
         self.setSource(QUrl.fromLocalFile(str(qml_path)))
