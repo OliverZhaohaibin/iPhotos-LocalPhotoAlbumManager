@@ -59,11 +59,7 @@ class ThumbnailImageProvider(QQuickImageProvider):
             pass
 
         # Return empty pixmap as fallback
-        # Debug: Return Red pixmap on failure to see if rendering works
-        print("DEBUG: Returning RED placeholder pixmap")
-        red = QPixmap(100, 100)
-        red.fill(QColor("red"))
-        return red
+        return QPixmap()
 
 
 class GalleryQuickWidget(QQuickWidget):
