@@ -15,7 +15,7 @@ from PySide6.QtCore import (
     Signal,
     QUrl,
 )
-from PySide6.QtGui import QImage, QPalette, QPixmap, QColor
+from PySide6.QtGui import QImage, QPalette, QPixmap, QColor, QSurfaceFormat
 from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtQuickWidgets import QQuickWidget
 
@@ -34,16 +34,22 @@ class _ThumbnailImageProvider(QQuickImageProvider):
         super().__init__(QQuickImageProvider.Image)
         self._model = model
 
-    def requestImage(self, identifier: str, size: QSize, requestedSize: QSize) -> tuple[QImage, QSize]:  # type: ignore[override]  # pragma: no cover - exercised via QML
+    def requestImage(  # type: ignore[override]  # pragma: no cover - exercised via QML
+        self, identifier: str, size: QSize, requestedSize: QSize
+    ) -> QImage:
         rel = identifier.split("?")[0].lstrip("/")
         pixmap = self._model.thumbnail_for_rel(rel)
         if not isinstance(pixmap, QPixmap):
-            return QImage(), requestedSize
+            image = QImage()
+            if size is not None:
+                size.setWidth(0)
+                size.setHeight(0)
+            return image
         image = pixmap.toImage()
         if size is not None:
             size.setWidth(image.width())
             size.setHeight(image.height())
-        return image, image.size()
+        return image
 
 
 class GalleryQuickWidget(QQuickWidget):
@@ -66,11 +72,18 @@ class GalleryQuickWidget(QQuickWidget):
         self._external_drop_validator = None
         self._theme_colors: Optional[ThemeColors] = None
         self._qml_loaded = False
+        self._qml_signals_connected = False
         base_dir = Path(__file__).resolve().parents[2]
         self._qml_path = base_dir / "qml" / "GalleryGrid.qml"
 
+        surface_format = QSurfaceFormat()
+        surface_format.setAlphaBufferSize(0)
+        self.setFormat(surface_format)
+
         self.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
-        self.setClearColor(QColor(Qt.GlobalColor.transparent))
+        base_color = self.palette().color(QPalette.ColorRole.Window)
+        self.setClearColor(base_color)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
 
         engine = self.engine()
         if engine is not None:
@@ -159,43 +172,35 @@ class GalleryQuickWidget(QQuickWidget):
             return
         self.setSource(QUrl.fromLocalFile(str(self._qml_path)))
         self._qml_loaded = True
+        self._qml_signals_connected = False
+        root = self.rootObject()
+        if root is not None and self._theme_colors is None:
+            base_color = self.palette().color(QPalette.ColorRole.Window)
+            self.setClearColor(base_color)
+            root.setProperty("backgroundColor", base_color)
+            root.setProperty("itemBackgroundColor", base_color)
         self._connect_qml_signals()
         self._sync_theme_to_qml()
 
     def _connect_qml_signals(self) -> None:
         root = self.rootObject()
-        if root is None:
+        if root is None or self._qml_signals_connected:
             return
-        try:
-            root.itemClicked.disconnect()
-        except Exception:
-            pass
-        try:
-            root.itemDoubleClicked.disconnect()
-        except Exception:
-            pass
-        try:
-            root.currentIndexChanged.disconnect()
-        except Exception:
-            pass
-        try:
-            root.visibleRowsChanged.disconnect()
-        except Exception:
-            pass
-        try:
-            root.showContextMenu.disconnect()
-        except Exception:
-            pass
-        try:
-            root.filesDropped.disconnect()
-        except Exception:
-            pass
-        root.itemClicked.connect(self._on_qml_item_clicked)
-        root.itemDoubleClicked.connect(self._on_qml_item_double_clicked)
-        root.currentIndexChanged.connect(self._on_qml_current_changed)
-        root.visibleRowsChanged.connect(self.visibleRowsChanged)
-        root.showContextMenu.connect(self._on_qml_context_menu)
-        root.filesDropped.connect(self._on_qml_files_dropped)
+        root.itemClicked.connect(self._on_qml_item_clicked, Qt.ConnectionType.UniqueConnection)
+        root.itemDoubleClicked.connect(
+            self._on_qml_item_double_clicked, Qt.ConnectionType.UniqueConnection
+        )
+        root.currentIndexChanged.connect(
+            self._on_qml_current_changed, Qt.ConnectionType.UniqueConnection
+        )
+        root.visibleRowsChanged.connect(
+            self.visibleRowsChanged, Qt.ConnectionType.UniqueConnection
+        )
+        root.showContextMenu.connect(
+            self._on_qml_context_menu, Qt.ConnectionType.UniqueConnection
+        )
+        root.filesDropped.connect(self._on_qml_files_dropped, Qt.ConnectionType.UniqueConnection)
+        self._qml_signals_connected = True
 
     def _on_qml_item_clicked(self, row: int, modifiers: int) -> None:
         index = self._index_for_row(row)
@@ -302,6 +307,7 @@ class GalleryQuickWidget(QQuickWidget):
         colors = self._theme_colors
         item_bg = colors.window_background.darker(115 if colors.is_dark else 105)
 
+        self.setClearColor(colors.window_background)
         root.setProperty("backgroundColor", colors.window_background)
         root.setProperty("itemBackgroundColor", item_bg)
         root.setProperty("selectionBorderColor", colors.accent_color)
