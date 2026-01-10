@@ -68,6 +68,6 @@ def test_generate_micro_thumbnail_small_png():
         assert thumb_bytes is not None
 
         with Image.open(io.BytesIO(thumb_bytes)) as thumb:
-             assert thumb.size == (16, 16)
+            assert thumb.size == (16, 16)
     finally:
         os.unlink(tmp_path)
