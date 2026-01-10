@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Union
 
 from PySide6.QtCore import QModelIndex, QTimer
 
@@ -10,6 +11,7 @@ from ...facade import AppFacade
 from ..media import MediaController, PlaylistController
 from ..models.asset_model import AssetModel, Roles
 from ..widgets.asset_grid import AssetGrid
+from ..widgets.gallery_grid_view import GalleryQuickWidget
 from .detail_ui_controller import DetailUIController
 from .playback_state_manager import PlaybackStateManager
 from .preview_controller import PreviewController
@@ -24,7 +26,7 @@ class PlaybackController:
         model: AssetModel,
         media: MediaController,
         playlist: PlaylistController,
-        grid_view: AssetGrid,
+        grid_view: Union[AssetGrid, GalleryQuickWidget],
         view_controller: ViewController,
         detail_ui: DetailUIController,
         state_manager: PlaybackStateManager,

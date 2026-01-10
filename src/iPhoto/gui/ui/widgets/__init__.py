@@ -3,7 +3,7 @@
 from .album_sidebar import AlbumSidebar
 from .asset_delegate import AssetGridDelegate
 from .asset_grid import AssetGrid
-from .gallery_grid_view import GalleryGridView
+from .gallery_grid_view import GalleryGridView, GalleryQuickWidget
 from .chrome_status_bar import ChromeStatusBar
 from .custom_title_bar import CustomTitleBar
 from .detail_page import DetailPageWidget
@@ -27,6 +27,7 @@ __all__ = [
     "ChromeStatusBar",
     "CustomTitleBar",
     "GalleryGridView",
+    "GalleryQuickWidget",
     "GalleryPageWidget",
     "FilmstripView",
     "ImageViewer",

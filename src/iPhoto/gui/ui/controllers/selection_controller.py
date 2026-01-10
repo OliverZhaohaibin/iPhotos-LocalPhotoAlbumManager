@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
 from PySide6.QtCore import QModelIndex, QObject, QCoreApplication, Signal
 from PySide6.QtWidgets import QPushButton
 
 from ..widgets.asset_grid import AssetGrid
+from ..widgets.gallery_grid_view import GalleryQuickWidget
 from ..widgets.asset_delegate import AssetGridDelegate
 from .preview_controller import PreviewController
 from .playback_controller import PlaybackController
@@ -21,7 +22,7 @@ class SelectionController(QObject):
     def __init__(
         self,
         selection_button: QPushButton,
-        grid_view: AssetGrid,
+        grid_view: Union[AssetGrid, GalleryQuickWidget],
         grid_delegate: AssetGridDelegate | None,
         preview_controller: PreviewController,
         playback_controller: PlaybackController,
