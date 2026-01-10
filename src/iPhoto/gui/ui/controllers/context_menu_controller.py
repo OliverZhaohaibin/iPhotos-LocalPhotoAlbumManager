@@ -6,7 +6,7 @@ import subprocess
 import sys
 from functools import partial
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 from PySide6.QtCore import QCoreApplication, QMimeData, QObject, QPoint, QUrl, Qt
 from PySide6.QtGui import QGuiApplication, QPalette
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QMenu
 from ...facade import AppFacade
 from ..models.asset_model import AssetModel, Roles
 from ..widgets.asset_grid import AssetGrid
+from ..widgets.gallery_grid_view import GalleryQuickWidget
 from ..widgets.notification_toast import NotificationToast
 from .navigation_controller import NavigationController
 from .selection_controller import SelectionController
@@ -27,7 +28,7 @@ class ContextMenuController(QObject):
     def __init__(
         self,
         *,
-        grid_view: AssetGrid,
+        grid_view: Union[AssetGrid, GalleryQuickWidget],
         asset_model: AssetModel,
         facade: AppFacade,
         navigation: NavigationController,

@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QPalette
 
 from ..icon import load_icon
 from ..widgets.collapsible_section import CollapsibleSection
+from ..widgets.gallery_grid_view import GalleryQuickWidget
 from ..window_shell import RoundedWindowShell
 from ..theme_manager import ThemeManager, ThemeColors, DARK_THEME
 from ..palette import SIDEBAR_SELECTED_BACKGROUND, SIDEBAR_ICON_COLOR
@@ -102,6 +103,11 @@ class WindowThemeController(QObject):
 
         # Update window title label color directly
         self._ui.window_title_label.setStyleSheet(f"color: {fg_color};")
+
+        # Apply theme to QML gallery grid view
+        grid_view = getattr(self._ui, "grid_view", None)
+        if isinstance(grid_view, GalleryQuickWidget):
+            grid_view.apply_theme(colors)
 
         # Sidebar (Navigation)
         # Apply theme-aware background to ensure visual hierarchy (Light Blue in Light Mode, Gray in Dark Mode).

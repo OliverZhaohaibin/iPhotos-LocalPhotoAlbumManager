@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Union
 
 from PySide6.QtCore import QObject
 
@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover - fallback for ``python -m`` usage
     from src.iPhoto.appctx import AppContext
 from ...facade import AppFacade
 from ..widgets.asset_grid import AssetGrid
+from ..widgets.gallery_grid_view import GalleryQuickWidget
 from ..widgets.album_sidebar import AlbumSidebar
 from .dialog_controller import DialogController
 from .navigation_controller import NavigationController
@@ -26,7 +27,7 @@ class DragDropController(QObject):
     def __init__(
         self,
         *,
-        grid_view: AssetGrid,
+        grid_view: Union[AssetGrid, GalleryQuickWidget],
         sidebar: AlbumSidebar,
         context: AppContext,
         facade: AppFacade,
