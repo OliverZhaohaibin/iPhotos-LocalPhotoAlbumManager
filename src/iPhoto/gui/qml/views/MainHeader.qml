@@ -32,79 +32,67 @@ Rectangle {
         spacing: Styles.Theme.spacingMedium
         
         // Menu bar placeholder (will be replaced with actual QML menus)
-        Row {
+        MenuBar {
             id: menuBar
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 0
-            
-            // File menu
-            MenuBarItem {
-                id: fileMenuItem
-                text: qsTr("&File")
-                
-                Menu {
-                    id: fileMenu
-                    
-                    MenuItem {
-                        text: qsTr("Open Album Folder…")
-                        onTriggered: root.openAlbumRequested()
-                    }
-                    MenuSeparator {}
-                    MenuItem {
-                        text: qsTr("Set Basic Library…")
-                    }
-                    MenuSeparator {}
-                    MenuItem {
-                        text: qsTr("Export All Edited")
-                    }
-                    MenuItem {
-                        text: qsTr("Export Selected")
-                    }
-                    MenuSeparator {}
-                    MenuItem {
-                        text: qsTr("Rebuild Live Links")
-                    }
+            contentItem: Row {
+                spacing: 0
+                Repeater {
+                    model: menuBar.menus
+                    MenuBarItem { menu: modelData }
                 }
             }
-            
-            // Settings menu
-            MenuBarItem {
-                id: settingsMenuItem
-                text: qsTr("&Settings")
-                
+
+            Menu {
+                title: qsTr("&File")
+                MenuItem {
+                    text: qsTr("Open Album Folder…")
+                    onTriggered: root.openAlbumRequested()
+                }
+                MenuSeparator {}
+                MenuItem {
+                    text: qsTr("Set Basic Library…")
+                    onTriggered: root.openAlbumRequested()
+                }
+                MenuSeparator {}
+                MenuItem { text: qsTr("Export All Edited") }
+                MenuItem { text: qsTr("Export Selected") }
+                MenuSeparator {}
+                MenuItem { text: qsTr("Rebuild Live Links") }
+            }
+
+            Menu {
+                title: qsTr("&Settings")
+                MenuItem {
+                    text: qsTr("Set Basic Library…")
+                    onTriggered: root.openAlbumRequested()
+                }
+                MenuSeparator {}
+                MenuItem {
+                    text: qsTr("Show Filmstrip")
+                    checkable: true
+                    checked: true
+                }
+                MenuSeparator {}
+
                 Menu {
-                    id: settingsMenu
-                    
+                    title: qsTr("Appearance")
+
                     MenuItem {
-                        text: qsTr("Set Basic Library…")
-                    }
-                    MenuSeparator {}
-                    MenuItem {
-                        text: qsTr("Show Filmstrip")
+                        text: qsTr("System Default")
                         checkable: true
                         checked: true
+                        onTriggered: root.themeChanged("system")
                     }
-                    MenuSeparator {}
-                    
-                    Menu {
-                        title: qsTr("Appearance")
-                        
-                        MenuItem {
-                            text: qsTr("System Default")
-                            checkable: true
-                            checked: true
-                            onTriggered: root.themeChanged("system")
-                        }
-                        MenuItem {
-                            text: qsTr("Light Mode")
-                            checkable: true
-                            onTriggered: root.themeChanged("light")
-                        }
-                        MenuItem {
-                            text: qsTr("Dark Mode")
-                            checkable: true
-                            onTriggered: root.themeChanged("dark")
-                        }
+                    MenuItem {
+                        text: qsTr("Light Mode")
+                        checkable: true
+                        onTriggered: root.themeChanged("light")
+                    }
+                    MenuItem {
+                        text: qsTr("Dark Mode")
+                        checkable: true
+                        onTriggered: root.themeChanged("dark")
                     }
                 }
             }

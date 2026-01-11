@@ -163,6 +163,13 @@ class AssetController(QObject):
         self._selected_indices.clear()
         self.selectionChanged.emit()
 
+    @Slot(int, int)
+    def prioritizeRows(self, first: int, last: int) -> None:
+        """Hint the model to prioritise thumbnail loading for visible rows."""
+
+        if hasattr(self._model, "prioritize_rows"):
+            self._model.prioritize_rows(first, last)  # type: ignore[attr-defined]
+
     @Slot(int)
     def openDetail(self, index: int) -> None:  # noqa: N802 - Qt slot naming
         """Open the detail view for an asset.
