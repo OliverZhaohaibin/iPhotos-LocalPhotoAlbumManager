@@ -342,11 +342,9 @@ def main(argv: list[str] | None = None) -> int:
 
     arguments = list(sys.argv if argv is None else argv)
 
-    # Set the Quick Controls style to Basic to allow customization
-    os.environ["QT_QUICK_CONTROLS_STYLE"] = "Basic"
-
     # Use QApplication to enable native file dialogs while running QML
-    QQuickStyle.setStyle(os.environ.get("QT_QUICK_CONTROLS_STYLE", "Basic"))
+    style_name = os.environ.get("QT_QUICK_CONTROLS_STYLE", "Basic")
+    QQuickStyle.setStyle(style_name)
     app = QApplication(arguments)
 
     # Create application context
