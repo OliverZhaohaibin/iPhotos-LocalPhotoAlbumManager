@@ -204,10 +204,14 @@ Rectangle {
                             root.staticNodeSelected(display)
                         }
                     } else {
-                        var pathStr = path.toString()
-                        root.currentSelection = pathStr
-                        root.currentStaticSelection = ""
-                        root.albumSelected(pathStr)
+                        if (path !== undefined && path !== null) {
+                            var pathStr = path.toString()
+                            root.currentSelection = pathStr
+                            root.currentStaticSelection = ""
+                            root.albumSelected(pathStr)
+                        } else {
+                            console.warn("AlbumSidebar: path is undefined for node " + display)
+                        }
                     }
                 }
             }

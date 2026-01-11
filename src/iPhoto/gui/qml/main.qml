@@ -120,17 +120,17 @@ ApplicationWindow {
             SplitView.maximumWidth: Styles.Theme.sidebarMaxWidth
             
             // Connect to controller if available
-            model: typeof albumController !== "undefined" ? albumController.model : null
+            model: (typeof albumController !== "undefined" && albumController) ? albumController.model : null
             
             onAlbumSelected: function(path) {
-                if (typeof navigationController !== "undefined") {
+                if (typeof navigationController !== "undefined" && navigationController) {
                     navigationController.openAlbum(path)
                 }
                 viewStack.currentIndex = 0  // Show gallery
             }
             
             onAllPhotosSelected: {
-                if (typeof navigationController !== "undefined") {
+                if (typeof navigationController !== "undefined" && navigationController) {
                     navigationController.openAllPhotos()
                 }
                 viewStack.currentIndex = 0
@@ -142,7 +142,7 @@ ApplicationWindow {
                 } else if (title === "Albums") {
                     viewStack.currentIndex = 3  // Show albums dashboard
                 } else {
-                    if (typeof navigationController !== "undefined") {
+                    if (typeof navigationController !== "undefined" && navigationController) {
                         navigationController.openStaticNode(title)
                     }
                     viewStack.currentIndex = 0
@@ -182,10 +182,10 @@ ApplicationWindow {
                         id: galleryView
                         
                         // Connect to controller if available
-                        model: typeof assetController !== "undefined" ? assetController.model : null
+                        model: (typeof assetController !== "undefined" && assetController) ? assetController.model : null
                         
                         onItemClicked: function(index, modifiers) {
-                            if (typeof selectionController !== "undefined") {
+                            if (typeof selectionController !== "undefined" && selectionController) {
                                 selectionController.handleItemClick(index, modifiers)
                             }
                         }
@@ -276,19 +276,19 @@ ApplicationWindow {
             // is registered. A more declarative approach would require the controller
             // to always exist, which isn't guaranteed during development/testing.
             Component.onCompleted: {
-                if (typeof editSession !== "undefined") {
-                    brilliance = Qt.binding(function() { return editSession.brilliance })
-                    exposure = Qt.binding(function() { return editSession.exposure })
-                    highlights = Qt.binding(function() { return editSession.highlights })
-                    shadows = Qt.binding(function() { return editSession.shadows })
-                    contrast = Qt.binding(function() { return editSession.contrast })
-                    brightness = Qt.binding(function() { return editSession.brightness })
-                    blackPoint = Qt.binding(function() { return editSession.blackPoint })
+                if (typeof editSession !== "undefined" && editSession) {
+                    brilliance = Qt.binding(function() { return editSession ? editSession.brilliance : 0 })
+                    exposure = Qt.binding(function() { return editSession ? editSession.exposure : 0 })
+                    highlights = Qt.binding(function() { return editSession ? editSession.highlights : 0 })
+                    shadows = Qt.binding(function() { return editSession ? editSession.shadows : 0 })
+                    contrast = Qt.binding(function() { return editSession ? editSession.contrast : 0 })
+                    brightness = Qt.binding(function() { return editSession ? editSession.brightness : 0 })
+                    blackPoint = Qt.binding(function() { return editSession ? editSession.blackPoint : 0 })
                     
-                    saturation = Qt.binding(function() { return editSession.saturation })
-                    vibrance = Qt.binding(function() { return editSession.vibrance })
-                    warmth = Qt.binding(function() { return editSession.warmth })
-                    tint = Qt.binding(function() { return editSession.tint })
+                    saturation = Qt.binding(function() { return editSession ? editSession.saturation : 0 })
+                    vibrance = Qt.binding(function() { return editSession ? editSession.vibrance : 0 })
+                    warmth = Qt.binding(function() { return editSession ? editSession.warmth : 0 })
+                    tint = Qt.binding(function() { return editSession ? editSession.tint : 0 })
                 }
             }
             
@@ -337,10 +337,10 @@ ApplicationWindow {
         id: statusBar
         
         // Connect to status controller if available
-        itemCount: typeof assetController !== "undefined" ? assetController.totalCount : 0
+        itemCount: (typeof assetController !== "undefined" && assetController) ? assetController.totalCount : 0
         
         Component.onCompleted: {
-            if (typeof statusController !== "undefined") {
+            if (typeof statusController !== "undefined" && statusController) {
                 statusController.messageChanged.connect(function(msg, timeout) {
                     statusBar.showMessage(msg, timeout)
                 })
