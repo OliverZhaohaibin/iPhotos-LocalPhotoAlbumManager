@@ -82,11 +82,11 @@ class _NavigationController(QObject):
         normalized = title.casefold()
         filter_mode = None
         if normalized == "videos":
-            filter_mode = "video"
+            filter_mode = "videos"
         elif normalized == "live photos":
             filter_mode = "live"
         elif normalized == "favorites":
-            filter_mode = "favorite"
+            filter_mode = "favorites"
 
         if filter_mode is not None:
             switched = self._context.facade.switch_to_library_model_for_static_collection(
