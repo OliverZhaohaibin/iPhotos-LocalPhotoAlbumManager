@@ -64,8 +64,7 @@ Item {
                     id: itemText
                     anchors.centerIn: parent
                     text: modelData
-                    font.family: Styles.Theme.bodyFont.family
-                    font.pixelSize: Styles.Theme.bodyFont.pixelSize
+                    font: Styles.Theme.bodyFont
                     font.weight: index === root.currentIndex ? Font.DemiBold : Font.Normal
                     color: index === root.currentIndex ? Styles.Theme.textInverse : Styles.Theme.text
                     
