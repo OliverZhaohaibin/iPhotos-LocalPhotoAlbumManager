@@ -187,8 +187,7 @@ Rectangle {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: model.displayName || model.title || ""
-                    font.family: Styles.Theme.bodyFont.family
-                    font.pixelSize: Styles.Theme.bodyFont.pixelSize
+                    font: Styles.Theme.bodyFont
                     font.weight: delegateRoot.nodeType === "header" ? Font.DemiBold : Font.Normal
                     font.italic: delegateRoot.nodeType === "action"
                     color: delegateRoot.isSelected ? Styles.Theme.sidebarTextSelected : Styles.Theme.sidebarText
