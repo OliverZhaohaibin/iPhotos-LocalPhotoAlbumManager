@@ -36,13 +36,6 @@ Rectangle {
         MenuBar {
             id: menuBar
             anchors.verticalCenter: parent.verticalCenter
-            contentItem: Row {
-                spacing: 0
-                Repeater {
-                    model: menuBar.menus
-                    MenuBarItem { menu: modelData }
-                }
-            }
 
             Menu {
                 title: qsTr("&File")

@@ -86,7 +86,8 @@ Rectangle {
             required property var path
 
             implicitHeight: 32
-            width: TreeView.view.width
+            implicitWidth: TreeView.view ? TreeView.view.width : Styles.Theme.sidebarMinWidth
+            width: implicitWidth
 
             property string nodeKey: nodeType ? nodeType.toString().toLowerCase() : ""
             property bool isStatic: nodeKey.indexOf("static") !== -1
@@ -136,7 +137,11 @@ Rectangle {
                         anchors.fill: parent
                         anchors.margins: -4
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: TreeView.view.toggleExpanded(index)
+                        onClicked: {
+                            if (TreeView.view) {
+                                TreeView.view.toggleExpanded(index)
+                            }
+                        }
                     }
                 }
 
