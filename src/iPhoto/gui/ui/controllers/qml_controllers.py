@@ -114,6 +114,15 @@ class AssetController(QObject):
         """The asset list model for QML binding."""
         return self._model
 
+    @Slot(QObject)
+    def setModel(self, model: "AssetListModel") -> None:
+        """Replace the backing model when the active album changes."""
+
+        if model is None or model is self._model:
+            return
+        self._model = model
+        self.modelChanged.emit()
+
     @Property(int, notify=totalCountChanged)
     def totalCount(self) -> int:
         """Total number of assets in the model."""

@@ -319,8 +319,10 @@ class QMLApplication:
         """Update QML bindings when the active asset model switches."""
         controller = self._controllers.get("asset")
         if controller is not None:
-            controller._model = model  # type: ignore[attr-defined]
-            controller.modelChanged.emit()  # type: ignore[attr-defined]
+            try:
+                controller.setModel(model)  # type: ignore[attr-defined]
+            except AttributeError:
+                pass
         provider = getattr(self, "_thumbnail_provider", None)
         if provider is not None:
             provider.set_model(model)

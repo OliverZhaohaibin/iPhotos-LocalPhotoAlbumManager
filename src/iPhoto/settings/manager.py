@@ -10,7 +10,7 @@ from typing import Any
 
 try:  # PySide may omit QJSValue in some environments
     from PySide6.QtCore import QJSValue
-except Exception:  # pragma: no cover - fallback for non-Qt contexts
+except ImportError:  # pragma: no cover - fallback for non-Qt contexts
     QJSValue = None  # type: ignore[misc,assignment]
 
 from PySide6.QtCore import QObject, Signal, Slot
@@ -93,7 +93,7 @@ class SettingsManager(QObject):
             if QJSValue is not None and isinstance(payload, QJSValue):
                 try:
                     payload = payload.toVariant()
-                except Exception:
+                except (AttributeError, RuntimeError, TypeError):
                     # Fallback: treat as primitive to avoid serialisation failures
                     return None
 
