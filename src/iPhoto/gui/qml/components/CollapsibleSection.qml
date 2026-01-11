@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Collapsible section container for organizing edit controls.
@@ -25,7 +25,7 @@ Item {
     
     Behavior on implicitHeight {
         NumberAnimation { 
-            duration: Theme.animationNormal 
+            duration: Styles.Theme.animationNormal 
             easing.type: Easing.OutQuad
         }
     }
@@ -35,27 +35,27 @@ Item {
         id: header
         width: parent.width
         height: 36
-        color: headerMouse.containsMouse ? Theme.sidebarHover : "transparent"
+        color: headerMouse.containsMouse ? Styles.Theme.sidebarHover : "transparent"
         
         Row {
             anchors.fill: parent
-            anchors.leftMargin: Theme.spacingLarge
-            anchors.rightMargin: Theme.spacingLarge
-            spacing: Theme.spacingSmall
+            anchors.leftMargin: Styles.Theme.spacingLarge
+            anchors.rightMargin: Styles.Theme.spacingLarge
+            spacing: Styles.Theme.spacingSmall
             
             // Disclosure triangle
             Image {
                 id: disclosureIcon
                 anchors.verticalCenter: parent.verticalCenter
-                width: Theme.iconSizeSmall
-                height: Theme.iconSizeSmall
+                width: Styles.Theme.iconSizeSmall
+                height: Styles.Theme.iconSizeSmall
                 source: "qrc:/icons/chevron.right.svg"
                 rotation: root.expanded ? 90 : 0
                 opacity: 0.7
                 
                 Behavior on rotation {
                     NumberAnimation { 
-                        duration: Theme.animationFast 
+                        duration: Styles.Theme.animationFast 
                         easing.type: Easing.OutQuad
                     }
                 }
@@ -64,9 +64,9 @@ Item {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.title
-                font: Theme.bodyFont
+                font: Styles.Theme.bodyFont
                 font.weight: Font.DemiBold
-                color: Theme.text
+                color: Styles.Theme.text
             }
         }
         
@@ -89,16 +89,16 @@ Item {
         visible: opacity > 0
         
         Behavior on opacity {
-            NumberAnimation { duration: Theme.animationFast }
+            NumberAnimation { duration: Styles.Theme.animationFast }
         }
         
         Column {
             id: contentColumn
             width: parent.width
-            spacing: Theme.spacingSmall
-            padding: Theme.spacingMedium
-            leftPadding: Theme.spacingLarge
-            rightPadding: Theme.spacingLarge
+            spacing: Styles.Theme.spacingSmall
+            padding: Styles.Theme.spacingMedium
+            leftPadding: Styles.Theme.spacingLarge
+            rightPadding: Styles.Theme.spacingLarge
             
             Loader {
                 id: contentLoader
@@ -113,7 +113,7 @@ Item {
         anchors.bottom: parent.bottom
         width: parent.width
         height: 1
-        color: Theme.headerSeparator
+        color: Styles.Theme.headerSeparator
         opacity: 0.5
     }
 }

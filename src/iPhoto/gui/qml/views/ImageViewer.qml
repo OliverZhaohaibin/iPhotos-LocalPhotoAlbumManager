@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Image viewer component with pan, zoom, and gesture support.
@@ -31,7 +31,7 @@ Rectangle {
     signal clicked()
     signal doubleClicked()
     
-    color: Theme.viewerBackground
+    color: Styles.Theme.viewerBackground
     
     // Content container with pan support
     Flickable {
@@ -72,7 +72,7 @@ Rectangle {
                 transformOrigin: Item.Center
                 
                 Behavior on scale {
-                    NumberAnimation { duration: Theme.animationNormal }
+                    NumberAnimation { duration: Styles.Theme.animationNormal }
                 }
             }
         }
@@ -96,20 +96,20 @@ Rectangle {
         
         Column {
             anchors.centerIn: parent
-            spacing: Theme.spacingMedium
+            spacing: Styles.Theme.spacingMedium
             
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: "⚠"
                 font.pixelSize: 48
-                color: Theme.textSecondary
+                color: Styles.Theme.textSecondary
             }
             
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: qsTr("Unable to load image")
-                font: Theme.bodyFont
-                color: Theme.textSecondary
+                font: Styles.Theme.bodyFont
+                color: Styles.Theme.textSecondary
             }
         }
     }

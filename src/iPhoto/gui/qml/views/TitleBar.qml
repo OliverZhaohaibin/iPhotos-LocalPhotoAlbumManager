@@ -1,7 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
-import "../components"
+import "../styles" as Styles
+import "../components" as Components
 
 /**
  * Custom title bar with window controls (traffic lights).
@@ -25,15 +25,15 @@ Rectangle {
     signal dragMoved(point pos)
     
     implicitWidth: parent ? parent.width : 400
-    implicitHeight: Theme.titleBarHeight
+    implicitHeight: Styles.Theme.titleBarHeight
     
-    color: Theme.titleBarBackground
+    color: Styles.Theme.titleBarBackground
     
     // Drag area
     MouseArea {
         id: dragArea
         anchors.fill: parent
-        anchors.rightMargin: windowControls.width + Theme.spacingLarge
+        anchors.rightMargin: windowControls.width + Styles.Theme.spacingLarge
         
         property point clickPos
         
@@ -54,19 +54,19 @@ Rectangle {
     
     Row {
         anchors.fill: parent
-        anchors.leftMargin: Theme.spacingLarge
-        anchors.rightMargin: Theme.spacingLarge
+        anchors.leftMargin: Styles.Theme.spacingLarge
+        anchors.rightMargin: Styles.Theme.spacingLarge
         anchors.topMargin: 10
         anchors.bottomMargin: 6
-        spacing: Theme.spacingMedium
+        spacing: Styles.Theme.spacingMedium
         
         // Window title
         Text {
             id: titleLabel
             anchors.verticalCenter: parent.verticalCenter
             text: root.windowTitle
-            font: Theme.titleFont
-            color: Theme.text
+            font: Styles.Theme.titleFont
+            color: Styles.Theme.text
             elide: Text.ElideRight
             width: parent.width - windowControls.width - parent.spacing
         }
@@ -175,6 +175,6 @@ Rectangle {
         anchors.bottom: parent.bottom
         width: parent.width
         height: 1
-        color: Theme.headerSeparator
+        color: Styles.Theme.headerSeparator
     }
 }

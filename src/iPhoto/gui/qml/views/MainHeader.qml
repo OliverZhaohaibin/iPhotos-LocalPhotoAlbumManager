@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Main header bar with menu and toolbar buttons.
@@ -23,13 +23,13 @@ Rectangle {
     implicitWidth: parent ? parent.width : 400
     implicitHeight: 36
     
-    color: Theme.titleBarBackground
+    color: Styles.Theme.titleBarBackground
     
     Row {
         anchors.fill: parent
-        anchors.leftMargin: Theme.spacingMedium
-        anchors.rightMargin: Theme.spacingMedium
-        spacing: Theme.spacingMedium
+        anchors.leftMargin: Styles.Theme.spacingMedium
+        anchors.rightMargin: Styles.Theme.spacingMedium
+        spacing: Styles.Theme.spacingMedium
         
         // Menu bar placeholder (will be replaced with actual QML menus)
         Row {
@@ -120,7 +120,7 @@ Rectangle {
         Row {
             id: toolbarButtons
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Theme.spacingSmall
+            spacing: Styles.Theme.spacingSmall
             
             // Rescan button
             ToolButton {
@@ -128,15 +128,15 @@ Rectangle {
                 onClicked: root.rescanRequested()
                 
                 background: Rectangle {
-                    color: parent.pressed ? Theme.buttonPressed :
-                           parent.hovered ? Theme.buttonHover : "transparent"
-                    radius: Theme.borderRadius
+                    color: parent.pressed ? Styles.Theme.buttonPressed :
+                           parent.hovered ? Styles.Theme.buttonHover : "transparent"
+                    radius: Styles.Theme.borderRadius
                 }
                 
                 contentItem: Text {
                     text: parent.text
-                    font: Theme.bodyFont
-                    color: Theme.text
+                    font: Styles.Theme.bodyFont
+                    color: Styles.Theme.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -150,16 +150,16 @@ Rectangle {
                 onCheckedChanged: root.selectionModeToggled(checked)
                 
                 background: Rectangle {
-                    color: parent.checked ? Theme.sidebarSelected :
-                           parent.pressed ? Theme.buttonPressed :
-                           parent.hovered ? Theme.buttonHover : "transparent"
-                    radius: Theme.borderRadius
+                    color: parent.checked ? Styles.Theme.sidebarSelected :
+                           parent.pressed ? Styles.Theme.buttonPressed :
+                           parent.hovered ? Styles.Theme.buttonHover : "transparent"
+                    radius: Styles.Theme.borderRadius
                 }
                 
                 contentItem: Text {
                     text: parent.text
-                    font: Theme.bodyFont
-                    color: parent.checked ? Theme.sidebarTextSelected : Theme.text
+                    font: Styles.Theme.bodyFont
+                    color: parent.checked ? Styles.Theme.sidebarTextSelected : Styles.Theme.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }

@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Icon-only button for toolbar actions.
@@ -15,29 +15,29 @@ ToolButton {
     id: control
     
     property string iconSource: ""
-    property int iconSize: Theme.iconSize
-    property color iconColor: Theme.text
+    property int iconSize: Styles.Theme.iconSize
+    property color iconColor: Styles.Theme.text
     property string tooltipText: ""
     
-    implicitWidth: Theme.controlHeight
-    implicitHeight: Theme.controlHeight
+    implicitWidth: Styles.Theme.controlHeight
+    implicitHeight: Styles.Theme.controlHeight
     
     checkable: false
     
     background: Rectangle {
-        implicitWidth: Theme.controlHeight
-        implicitHeight: Theme.controlHeight
+        implicitWidth: Styles.Theme.controlHeight
+        implicitHeight: Styles.Theme.controlHeight
         
         color: {
-            if (control.pressed) return Theme.buttonPressed
-            if (control.hovered || control.checked) return Theme.buttonHover
+            if (control.pressed) return Styles.Theme.buttonPressed
+            if (control.hovered || control.checked) return Styles.Theme.buttonHover
             return "transparent"
         }
         
-        radius: Theme.borderRadius
+        radius: Styles.Theme.borderRadius
         
         Behavior on color { 
-            ColorAnimation { duration: Theme.animationFast } 
+            ColorAnimation { duration: Styles.Theme.animationFast } 
         }
     }
     
@@ -60,16 +60,16 @@ ToolButton {
         delay: 500
         
         background: Rectangle {
-            color: Theme.dialogBackground
-            border.color: Theme.dialogBorder
+            color: Styles.Theme.dialogBackground
+            border.color: Styles.Theme.dialogBorder
             border.width: 1
-            radius: Theme.borderRadius
+            radius: Styles.Theme.borderRadius
         }
         
         contentItem: Text {
             text: control.ToolTip.text
-            font: Theme.smallFont
-            color: Theme.text
+            font: Styles.Theme.smallFont
+            color: Styles.Theme.text
         }
     }
     

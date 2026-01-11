@@ -1,8 +1,8 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
-import "../styles"
-import "../components"
+import "../styles" as Styles
+import "../components" as Components
 
 /**
  * Detail view for displaying and editing a single asset.
@@ -37,7 +37,7 @@ Rectangle {
     signal zoomOutClicked()
     signal zoomSliderChanged(int value)
     
-    color: Theme.viewerBackground
+    color: Styles.Theme.viewerBackground
     
     // Header
     Rectangle {
@@ -46,17 +46,17 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 56
-        color: Theme.viewerSurface
+        color: Styles.Theme.viewerSurface
         visible: !root.editMode
         
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: Theme.spacingLarge
-            anchors.rightMargin: Theme.spacingLarge
-            spacing: Theme.spacingMedium
+            anchors.leftMargin: Styles.Theme.spacingLarge
+            anchors.rightMargin: Styles.Theme.spacingLarge
+            spacing: Styles.Theme.spacingMedium
             
             // Back button
-            IconButton {
+            Components.IconButton {
                 iconSource: "qrc:/icons/chevron.left.svg"
                 tooltipText: qsTr("Return to grid view")
                 onClicked: root.backClicked()
@@ -66,19 +66,19 @@ Rectangle {
             Row {
                 id: zoomControls
                 visible: root.zoomControlsVisible
-                spacing: Theme.spacingSmall
-                Layout.leftMargin: Theme.spacingMedium
+                spacing: Styles.Theme.spacingSmall
+                Layout.leftMargin: Styles.Theme.spacingMedium
                 
-                IconButton {
+                Components.IconButton {
                     iconSource: "qrc:/icons/minus.svg"
                     tooltipText: qsTr("Zoom Out")
-                    iconSize: Theme.iconSizeSmall
+                    iconSize: Styles.Theme.iconSizeSmall
                     implicitWidth: 20
                     implicitHeight: 20
                     onClicked: root.zoomOutClicked()
                 }
                 
-                Slider {
+                Components.Slider {
                     id: zoomSlider
                     width: 90
                     from: 10
@@ -93,10 +93,10 @@ Rectangle {
                     }
                 }
                 
-                IconButton {
+                Components.IconButton {
                     iconSource: "qrc:/icons/plus.svg"
                     tooltipText: qsTr("Zoom In")
-                    iconSize: Theme.iconSizeSmall
+                    iconSize: Styles.Theme.iconSizeSmall
                     implicitWidth: 20
                     implicitHeight: 20
                     onClicked: root.zoomInClicked()
@@ -115,16 +115,16 @@ Rectangle {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: root.locationText
-                        font: Theme.titleFont
-                        color: Theme.text
+                        font: Styles.Theme.titleFont
+                        color: Styles.Theme.text
                         visible: text !== ""
                     }
                     
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: root.timestampText
-                        font: Theme.bodyFont
-                        color: Theme.textSecondary
+                        font: Styles.Theme.bodyFont
+                        color: Styles.Theme.textSecondary
                         visible: text !== ""
                     }
                 }
@@ -132,21 +132,21 @@ Rectangle {
             
             // Action buttons
             Row {
-                spacing: Theme.spacingMedium
+                spacing: Styles.Theme.spacingMedium
                 
-                IconButton {
+                Components.IconButton {
                     iconSource: "qrc:/icons/info.circle.svg"
                     tooltipText: qsTr("Info")
                     onClicked: root.infoClicked()
                 }
                 
-                IconButton {
+                Components.IconButton {
                     iconSource: "qrc:/icons/square.and.arrow.up.svg"
                     tooltipText: qsTr("Share")
                     onClicked: root.shareClicked()
                 }
                 
-                IconButton {
+                Components.IconButton {
                     iconSource: root.isFavorite ? 
                                "qrc:/icons/suit.heart.fill.svg" : 
                                "qrc:/icons/suit.heart.svg"
@@ -154,13 +154,13 @@ Rectangle {
                     onClicked: root.favoriteClicked()
                 }
                 
-                IconButton {
+                Components.IconButton {
                     iconSource: "qrc:/icons/rotate.left.svg"
                     tooltipText: qsTr("Rotate Left")
                     onClicked: root.rotateLeftClicked()
                 }
                 
-                Button {
+                Components.Button {
                     text: qsTr("Edit")
                     enabled: root.hasContent
                     onClicked: root.editClicked()
@@ -173,7 +173,7 @@ Rectangle {
             anchors.bottom: parent.bottom
             width: parent.width
             height: 2
-            color: Theme.headerSeparator
+            color: Styles.Theme.headerSeparator
         }
     }
     
@@ -193,8 +193,8 @@ Rectangle {
             Text {
                 anchors.centerIn: parent
                 text: qsTr("Select a photo or video to preview")
-                font: Theme.bodyFont
-                color: Theme.textSecondary
+                font: Styles.Theme.bodyFont
+                color: Styles.Theme.textSecondary
             }
         }
         
@@ -212,29 +212,29 @@ Rectangle {
             id: liveBadge
             anchors.top: parent.top
             anchors.left: parent.left
-            anchors.margins: Theme.spacingLarge
-            width: liveText.width + Theme.spacingMedium * 2
+            anchors.margins: Styles.Theme.spacingLarge
+            width: liveText.width + Styles.Theme.spacingMedium * 2
             height: 28
             radius: 14
-            color: Theme.videoBadgeBackground
+            color: Styles.Theme.videoBadgeBackground
             visible: false  // Set by controller
             
             Row {
                 anchors.centerIn: parent
-                spacing: Theme.spacingSmall
+                spacing: Styles.Theme.spacingSmall
                 
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 10
                     height: 10
                     radius: 5
-                    color: Theme.liveBadgeBackground
+                    color: Styles.Theme.liveBadgeBackground
                 }
                 
                 Text {
                     id: liveText
                     text: "LIVE"
-                    font: Theme.smallFont
+                    font: Styles.Theme.smallFont
                     font.bold: true
                     color: "white"
                 }

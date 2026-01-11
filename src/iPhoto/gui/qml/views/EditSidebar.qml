@@ -1,7 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
-import "../components"
+import "../styles" as Styles
+import "../components" as Components
 
 /**
  * Edit sidebar containing adjustment controls organized in collapsible sections.
@@ -56,7 +56,7 @@ Rectangle {
     implicitWidth: 280
     implicitHeight: parent ? parent.height : 600
     
-    color: Theme.sidebarBackground
+    color: Styles.Theme.sidebarBackground
     
     // Left border
     Rectangle {
@@ -64,7 +64,7 @@ Rectangle {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         width: 1
-        color: Theme.headerSeparator
+        color: Styles.Theme.headerSeparator
     }
     
     Flickable {
@@ -79,16 +79,16 @@ Rectangle {
             spacing: 0
             
             // Light Section
-            CollapsibleSection {
+            Components.CollapsibleSection {
                 title: qsTr("Light")
                 width: parent.width
                 expanded: true
                 
                 Column {
                     width: parent.width
-                    spacing: Theme.spacingSmall
+                    spacing: Styles.Theme.spacingSmall
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Brilliance")
                         value: root.brilliance
                         from: -100
@@ -96,7 +96,7 @@ Rectangle {
                         onValueChanged: function(v) { root.brillianceChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Exposure")
                         value: root.exposure
                         from: -100
@@ -104,7 +104,7 @@ Rectangle {
                         onValueChanged: function(v) { root.exposureChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Highlights")
                         value: root.highlights
                         from: -100
@@ -112,7 +112,7 @@ Rectangle {
                         onValueChanged: function(v) { root.highlightsChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Shadows")
                         value: root.shadows
                         from: -100
@@ -120,7 +120,7 @@ Rectangle {
                         onValueChanged: function(v) { root.shadowsChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Contrast")
                         value: root.contrast
                         from: -100
@@ -128,7 +128,7 @@ Rectangle {
                         onValueChanged: function(v) { root.contrastChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Brightness")
                         value: root.brightness
                         from: -100
@@ -136,7 +136,7 @@ Rectangle {
                         onValueChanged: function(v) { root.brightnessChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Black Point")
                         value: root.blackPoint
                         from: -100
@@ -147,16 +147,16 @@ Rectangle {
             }
             
             // Color Section
-            CollapsibleSection {
+            Components.CollapsibleSection {
                 title: qsTr("Color")
                 width: parent.width
                 expanded: true
                 
                 Column {
                     width: parent.width
-                    spacing: Theme.spacingSmall
+                    spacing: Styles.Theme.spacingSmall
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Saturation")
                         value: root.saturation
                         from: -100
@@ -164,7 +164,7 @@ Rectangle {
                         onValueChanged: function(v) { root.saturationChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Vibrance")
                         value: root.vibrance
                         from: -100
@@ -172,7 +172,7 @@ Rectangle {
                         onValueChanged: function(v) { root.vibranceChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Warmth")
                         value: root.warmth
                         from: -100
@@ -180,7 +180,7 @@ Rectangle {
                         onValueChanged: function(v) { root.warmthChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Tint")
                         value: root.tint
                         from: -100
@@ -191,16 +191,16 @@ Rectangle {
             }
             
             // Black & White Section
-            CollapsibleSection {
+            Components.CollapsibleSection {
                 title: qsTr("Black & White")
                 width: parent.width
                 expanded: false
                 
                 Column {
                     width: parent.width
-                    spacing: Theme.spacingSmall
+                    spacing: Styles.Theme.spacingSmall
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Intensity")
                         value: root.intensity
                         from: 0
@@ -209,7 +209,7 @@ Rectangle {
                         onValueChanged: function(v) { root.intensityChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Neutrals")
                         value: root.neutrals
                         from: -100
@@ -217,7 +217,7 @@ Rectangle {
                         onValueChanged: function(v) { root.neutralsChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Tone")
                         value: root.tone
                         from: -100
@@ -225,7 +225,7 @@ Rectangle {
                         onValueChanged: function(v) { root.toneChanged(v) }
                     }
                     
-                    SliderRow {
+                    Components.SliderRow {
                         label: qsTr("Grain")
                         value: root.grain
                         from: 0
@@ -242,7 +242,7 @@ Rectangle {
             
             contentItem: Rectangle {
                 radius: 3
-                color: Theme.scrollbarHandle
+                color: Styles.Theme.scrollbarHandle
                 opacity: parent.active ? 1.0 : 0.5
             }
         }

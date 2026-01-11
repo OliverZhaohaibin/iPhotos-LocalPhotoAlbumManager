@@ -1,8 +1,8 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
-import "../styles"
-import "../components"
+import "../styles" as Styles
+import "../components" as Components
 
 /**
  * Media player control bar for video and Live Photo playback.
@@ -35,7 +35,7 @@ Rectangle {
     implicitWidth: parent ? parent.width : 400
     implicitHeight: 48
     
-    color: Theme.viewerSurface
+    color: Styles.Theme.viewerSurface
     
     // Format time helper
     function formatTime(ms) {
@@ -48,12 +48,12 @@ Rectangle {
     
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.spacingLarge
-        anchors.rightMargin: Theme.spacingLarge
-        spacing: Theme.spacingMedium
+        anchors.leftMargin: Styles.Theme.spacingLarge
+        anchors.rightMargin: Styles.Theme.spacingLarge
+        spacing: Styles.Theme.spacingMedium
         
         // Play/Pause button
-        IconButton {
+        Components.IconButton {
             iconSource: root.playing ? 
                        "qrc:/icons/pause.fill.svg" : 
                        "qrc:/icons/play.fill.svg"
@@ -64,14 +64,14 @@ Rectangle {
         // Current time
         Text {
             text: formatTime(root.currentTime)
-            font: Theme.smallFont
-            color: Theme.textSecondary
+            font: Styles.Theme.smallFont
+            color: Styles.Theme.textSecondary
             Layout.minimumWidth: 40
             horizontalAlignment: Text.AlignRight
         }
         
         // Seek slider
-        Slider {
+        Components.Slider {
             id: seekSlider
             Layout.fillWidth: true
             from: 0
@@ -90,14 +90,14 @@ Rectangle {
                 width: seekSlider.availableWidth
                 height: 4
                 radius: 2
-                color: Theme.sliderTrack
+                color: Styles.Theme.sliderTrack
                 
                 // Played portion
                 Rectangle {
                     width: seekSlider.visualPosition * parent.width
                     height: parent.height
                     radius: parent.radius
-                    color: Theme.accent
+                    color: Styles.Theme.accent
                 }
                 
                 // Buffer indicator (if needed)
@@ -105,7 +105,7 @@ Rectangle {
                 //     width: bufferedPosition * parent.width
                 //     height: parent.height
                 //     radius: parent.radius
-                //     color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.3)
+                //     color: Qt.rgba(Styles.Theme.accent.r, Styles.Theme.accent.g, Styles.Theme.accent.b, 0.3)
                 // }
             }
             
@@ -115,11 +115,11 @@ Rectangle {
                 width: 14
                 height: 14
                 radius: 7
-                color: seekSlider.pressed ? Theme.accentPressed : Theme.sliderHandle
+                color: seekSlider.pressed ? Styles.Theme.accentPressed : Styles.Theme.sliderHandle
                 visible: seekSlider.hovered || seekSlider.pressed
                 
                 Behavior on color {
-                    ColorAnimation { duration: Theme.animationFast }
+                    ColorAnimation { duration: Styles.Theme.animationFast }
                 }
             }
         }
@@ -127,19 +127,19 @@ Rectangle {
         // Duration
         Text {
             text: formatTime(root.duration)
-            font: Theme.smallFont
-            color: Theme.textSecondary
+            font: Styles.Theme.smallFont
+            color: Styles.Theme.textSecondary
             Layout.minimumWidth: 40
         }
         
         // Volume controls
         Row {
             visible: root.showVolume
-            spacing: Theme.spacingSmall
-            Layout.leftMargin: Theme.spacingMedium
+            spacing: Styles.Theme.spacingSmall
+            Layout.leftMargin: Styles.Theme.spacingMedium
             
             // Mute button
-            IconButton {
+            Components.IconButton {
                 iconSource: {
                     if (root.muted || root.volume === 0) {
                         return "qrc:/icons/speaker.slash.fill.svg"
@@ -156,7 +156,7 @@ Rectangle {
             }
             
             // Volume slider
-            Slider {
+            Components.Slider {
                 id: volumeSlider
                 width: 80
                 from: 0
@@ -175,13 +175,13 @@ Rectangle {
                     width: volumeSlider.availableWidth
                     height: 3
                     radius: 1.5
-                    color: Theme.sliderTrack
+                    color: Styles.Theme.sliderTrack
                     
                     Rectangle {
                         width: volumeSlider.visualPosition * parent.width
                         height: parent.height
                         radius: parent.radius
-                        color: Theme.sliderFill
+                        color: Styles.Theme.sliderFill
                     }
                 }
                 
@@ -191,7 +191,7 @@ Rectangle {
                     width: 10
                     height: 10
                     radius: 5
-                    color: volumeSlider.pressed ? Theme.accentPressed : Theme.sliderHandle
+                    color: volumeSlider.pressed ? Styles.Theme.accentPressed : Styles.Theme.sliderHandle
                 }
             }
         }
@@ -202,7 +202,7 @@ Rectangle {
         anchors.top: parent.top
         width: parent.width
         height: 1
-        color: Theme.headerSeparator
+        color: Styles.Theme.headerSeparator
     }
     
     // Public methods

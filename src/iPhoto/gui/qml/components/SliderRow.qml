@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Labeled slider row for edit controls.
@@ -30,30 +30,30 @@ Item {
     
     Row {
         anchors.fill: parent
-        spacing: Theme.spacingMedium
+        spacing: Styles.Theme.spacingMedium
         
         // Label with value
         Item {
-            width: labelText.width + (root.showValue ? valueText.width + Theme.spacingSmall : 0)
+            width: labelText.width + (root.showValue ? valueText.width + Styles.Theme.spacingSmall : 0)
             height: parent.height
             
             Text {
                 id: labelText
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.label
-                font: Theme.smallFont
-                color: Theme.text
+                font: Styles.Theme.smallFont
+                color: Styles.Theme.text
             }
             
             Text {
                 id: valueText
                 visible: root.showValue
                 anchors.left: labelText.right
-                anchors.leftMargin: Theme.spacingSmall
+                anchors.leftMargin: Styles.Theme.spacingSmall
                 anchors.verticalCenter: parent.verticalCenter
                 text: formatValue(root.value)
-                font: Theme.smallFont
-                color: Theme.textSecondary
+                font: Styles.Theme.smallFont
+                color: Styles.Theme.textSecondary
                 
                 // Format value with +/- sign for bipolar ranges
                 function formatValue(val) {
@@ -84,7 +84,7 @@ Item {
         // Slider
         Slider {
             id: slider
-            width: parent.width - labelText.width - (root.showValue ? valueText.width + Theme.spacingSmall : 0) - Theme.spacingMedium
+            width: parent.width - labelText.width - (root.showValue ? valueText.width + Styles.Theme.spacingSmall : 0) - Styles.Theme.spacingMedium
             height: parent.height
             
             from: root.from
@@ -106,7 +106,7 @@ Item {
                 width: slider.availableWidth
                 height: 3
                 radius: 1.5
-                color: Theme.sliderTrack
+                color: Styles.Theme.sliderTrack
                 
                 // Center mark for bipolar sliders
                 Rectangle {
@@ -114,7 +114,7 @@ Item {
                     anchors.centerIn: parent
                     width: 2
                     height: parent.height + 4
-                    color: Theme.textSecondary
+                    color: Styles.Theme.textSecondary
                     opacity: 0.5
                 }
                 
@@ -128,7 +128,7 @@ Item {
                     width: (fillEnd - fillStart) * parent.width
                     height: parent.height
                     radius: parent.radius
-                    color: Theme.sliderFill
+                    color: Styles.Theme.sliderFill
                 }
             }
             
@@ -138,10 +138,10 @@ Item {
                 width: 12
                 height: 12
                 radius: 6
-                color: slider.pressed ? Theme.accentPressed : Theme.sliderHandle
+                color: slider.pressed ? Styles.Theme.accentPressed : Styles.Theme.sliderHandle
                 
                 Behavior on color {
-                    ColorAnimation { duration: Theme.animationFast }
+                    ColorAnimation { duration: Styles.Theme.animationFast }
                 }
             }
         }

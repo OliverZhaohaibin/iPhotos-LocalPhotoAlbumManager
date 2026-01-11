@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Custom styled slider component following the iPhoto design language.
@@ -19,7 +19,7 @@ Slider {
     property string valueFormat: value.toFixed(decimals)
     
     implicitWidth: 200
-    implicitHeight: Theme.controlHeight
+    implicitHeight: Styles.Theme.controlHeight
     
     from: 0
     to: 100
@@ -32,14 +32,14 @@ Slider {
         width: control.availableWidth
         height: 4
         radius: 2
-        color: Theme.sliderTrack
+        color: Styles.Theme.sliderTrack
         
         // Filled portion
         Rectangle {
             width: control.visualPosition * parent.width
             height: parent.height
             radius: parent.radius
-            color: Theme.sliderFill
+            color: Styles.Theme.sliderFill
             
             Behavior on width {
                 NumberAnimation { duration: 50 }
@@ -53,8 +53,8 @@ Slider {
         width: 16
         height: 16
         radius: 8
-        color: control.pressed ? Theme.accentPressed : Theme.sliderHandle
-        border.color: Qt.darker(Theme.sliderHandle, 1.1)
+        color: control.pressed ? Styles.Theme.accentPressed : Styles.Theme.sliderHandle
+        border.color: Qt.darker(Styles.Theme.sliderHandle, 1.1)
         border.width: 1
         
         // Value tooltip on drag
@@ -65,22 +65,22 @@ Slider {
             anchors.horizontalCenter: parent.horizontalCenter
             width: valueLabel.width + 8
             height: valueLabel.height + 4
-            radius: Theme.borderRadius
-            color: Theme.dialogBackground
-            border.color: Theme.dialogBorder
+            radius: Styles.Theme.borderRadius
+            color: Styles.Theme.dialogBackground
+            border.color: Styles.Theme.dialogBorder
             border.width: 1
             
             Text {
                 id: valueLabel
                 anchors.centerIn: parent
                 text: control.valueFormat
-                font: Theme.captionFont
-                color: Theme.text
+                font: Styles.Theme.captionFont
+                color: Styles.Theme.text
             }
         }
         
         Behavior on color {
-            ColorAnimation { duration: Theme.animationFast }
+            ColorAnimation { duration: Styles.Theme.animationFast }
         }
         
         // Scale effect on press
@@ -90,8 +90,8 @@ Slider {
             xScale: control.pressed ? 1.1 : 1.0
             yScale: control.pressed ? 1.1 : 1.0
             
-            Behavior on xScale { NumberAnimation { duration: Theme.animationFast } }
-            Behavior on yScale { NumberAnimation { duration: Theme.animationFast } }
+            Behavior on xScale { NumberAnimation { duration: Styles.Theme.animationFast } }
+            Behavior on yScale { NumberAnimation { duration: Styles.Theme.animationFast } }
         }
     }
     

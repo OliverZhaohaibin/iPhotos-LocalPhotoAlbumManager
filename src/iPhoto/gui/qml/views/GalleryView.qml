@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Gallery view displaying assets in a responsive grid layout.
@@ -22,13 +22,13 @@ Rectangle {
     
     // Properties
     property alias model: grid.model
-    property int minItemWidth: Theme.gridMinItemWidth
-    property int itemGap: Theme.gridItemGap
+    property int minItemWidth: Styles.Theme.gridMinItemWidth
+    property int itemGap: Styles.Theme.gridItemGap
     property bool selectionMode: false
-    property color backgroundColor: Theme.gridBackground
-    property color itemBackgroundColor: Theme.gridItemBackground
-    property color selectionBorderColor: Theme.gridSelectionBorder
-    property color currentBorderColor: Theme.gridCurrentBorder
+    property color backgroundColor: Styles.Theme.gridBackground
+    property color itemBackgroundColor: Styles.Theme.gridItemBackground
+    property color selectionBorderColor: Styles.Theme.gridSelectionBorder
+    property color currentBorderColor: Styles.Theme.gridCurrentBorder
     
     // Signals
     signal itemClicked(int index, int modifiers)
@@ -44,7 +44,7 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         color: backgroundColor
-        z: Theme.zBackground
+        z: Styles.Theme.zBackground
     }
     
     // Debounce timer for visible rows updates
@@ -155,7 +155,7 @@ Rectangle {
                     // Loading placeholder
                     Rectangle {
                         anchors.fill: parent
-                        color: Theme.surface
+                        color: Styles.Theme.surface
                         visible: thumb.status === Image.Loading
                         
                         BusyIndicator {
@@ -169,14 +169,14 @@ Rectangle {
                     // Error placeholder
                     Rectangle {
                         anchors.fill: parent
-                        color: Theme.surface
+                        color: Styles.Theme.surface
                         visible: thumb.status === Image.Error
                         
                         Text {
                             anchors.centerIn: parent
                             text: "⚠"
                             font.pixelSize: 24
-                            color: Theme.textSecondary
+                            color: Styles.Theme.textSecondary
                         }
                     }
                     
@@ -187,8 +187,8 @@ Rectangle {
                         anchors.margins: 4
                         width: durationLabel.width + 8
                         height: durationLabel.height + 4
-                        radius: Theme.borderRadius
-                        color: Theme.videoBadgeBackground
+                        radius: Styles.Theme.borderRadius
+                        color: Styles.Theme.videoBadgeBackground
                         visible: model.isVideo
                         
                         Text {
@@ -196,7 +196,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: grid.formatDuration(model.info ? model.info.dur : null)
                             color: "white"
-                            font: Theme.captionFont
+                            font: Styles.Theme.captionFont
                         }
                     }
                     
@@ -208,7 +208,7 @@ Rectangle {
                         width: 16
                         height: 16
                         radius: 8
-                        color: Theme.videoBadgeBackground
+                        color: Styles.Theme.videoBadgeBackground
                         visible: model.isLive
                         
                         Rectangle {
@@ -216,7 +216,7 @@ Rectangle {
                             width: 8
                             height: 8
                             radius: 4
-                            color: Theme.liveBadgeBackground
+                            color: Styles.Theme.liveBadgeBackground
                         }
                     }
                     
@@ -228,7 +228,7 @@ Rectangle {
                         width: 20
                         height: 20
                         radius: 10
-                        color: model.isSelected ? Theme.accent : Theme.videoBadgeBackground
+                        color: model.isSelected ? Styles.Theme.accent : Styles.Theme.videoBadgeBackground
                         border.color: "white"
                         border.width: 1
                         visible: root.selectionMode
@@ -277,11 +277,11 @@ Rectangle {
             contentItem: Rectangle {
                 implicitWidth: 8
                 radius: 4
-                color: Theme.scrollbarHandle
+                color: Styles.Theme.scrollbarHandle
                 opacity: parent.active || parent.hovered ? 1.0 : 0.5
                 
                 Behavior on opacity {
-                    NumberAnimation { duration: Theme.animationNormal }
+                    NumberAnimation { duration: Styles.Theme.animationNormal }
                 }
             }
         }
@@ -294,7 +294,7 @@ Rectangle {
         
         Column {
             anchors.centerIn: parent
-            spacing: Theme.spacingMedium
+            spacing: Styles.Theme.spacingMedium
             
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -305,15 +305,15 @@ Rectangle {
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: qsTr("No photos to display")
-                font: Theme.bodyFont
-                color: Theme.textSecondary
+                font: Styles.Theme.bodyFont
+                color: Styles.Theme.textSecondary
             }
             
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: qsTr("Open an album or drag files here to import")
-                font: Theme.smallFont
-                color: Theme.textDisabled
+                font: Styles.Theme.smallFont
+                color: Styles.Theme.textDisabled
             }
         }
     }

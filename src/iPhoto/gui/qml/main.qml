@@ -2,9 +2,9 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
-import "styles"
-import "components"
-import "views"
+import "styles" as Styles
+import "components" as Components
+import "views" as Views
 
 /**
  * Main application window for iPhoto.
@@ -36,7 +36,7 @@ ApplicationWindow {
     // flags: Qt.FramelessWindowHint | Qt.Window
     
     // Apply theme colors
-    color: Theme.background
+    color: Styles.Theme.background
     
     // ========================================================================
     // Window Chrome
@@ -46,7 +46,7 @@ ApplicationWindow {
         width: parent.width
         
         // Title bar
-        TitleBar {
+        Views.TitleBar {
             id: titleBar
             width: parent.width
             windowTitle: mainWindow.title
@@ -69,7 +69,7 @@ ApplicationWindow {
         }
         
         // Main header with menu
-        MainHeader {
+        Views.MainHeader {
             id: mainHeader
             width: parent.width
             
@@ -90,7 +90,7 @@ ApplicationWindow {
             }
             
             onThemeChanged: function(theme) {
-                Theme.mode = theme
+                Styles.Theme.mode = theme
             }
         }
     }
@@ -105,11 +105,11 @@ ApplicationWindow {
         orientation: Qt.Horizontal
         
         // Album Sidebar
-        AlbumSidebar {
+        Views.AlbumSidebar {
             id: albumSidebar
-            SplitView.minimumWidth: Theme.sidebarMinWidth
-            SplitView.preferredWidth: Theme.sidebarWidth
-            SplitView.maximumWidth: Theme.sidebarMaxWidth
+            SplitView.minimumWidth: Styles.Theme.sidebarMinWidth
+            SplitView.preferredWidth: Styles.Theme.sidebarWidth
+            SplitView.maximumWidth: Styles.Theme.sidebarMaxWidth
             
             // Connect to controller if available
             model: typeof albumController !== "undefined" ? albumController.model : null
@@ -161,7 +161,7 @@ ApplicationWindow {
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: 8
-                color: Theme.surface
+                color: Styles.Theme.surface
                 radius: 4
                 
                 StackLayout {
@@ -170,7 +170,7 @@ ApplicationWindow {
                     currentIndex: 0
                     
                     // Gallery View (index 0)
-                    GalleryView {
+                    Views.GalleryView {
                         id: galleryView
                         
                         // Connect to controller if available
@@ -205,13 +205,13 @@ ApplicationWindow {
                     // Map View (index 1)
                     Rectangle {
                         id: mapViewPlaceholder
-                        color: Theme.viewerBackground
+                        color: Styles.Theme.viewerBackground
                         
                         Text {
                             anchors.centerIn: parent
                             text: qsTr("Map View")
-                            font: Theme.titleFont
-                            color: Theme.textSecondary
+                            font: Styles.Theme.titleFont
+                            color: Styles.Theme.textSecondary
                         }
                         
                         // In full implementation, this would load the QQuickFramebufferObject
@@ -219,7 +219,7 @@ ApplicationWindow {
                     }
                     
                     // Detail View (index 2)
-                    DetailView {
+                    Views.DetailView {
                         id: detailView
                         
                         onBackClicked: {
@@ -240,13 +240,13 @@ ApplicationWindow {
                     // Albums Dashboard (index 3)
                     Rectangle {
                         id: albumsDashboard
-                        color: Theme.viewerBackground
+                        color: Styles.Theme.viewerBackground
                         
                         Text {
                             anchors.centerIn: parent
                             text: qsTr("Albums Dashboard")
-                            font: Theme.titleFont
-                            color: Theme.textSecondary
+                            font: Styles.Theme.titleFont
+                            color: Styles.Theme.textSecondary
                         }
                     }
                 }
@@ -254,7 +254,7 @@ ApplicationWindow {
         }
         
         // Edit Sidebar (shown only in edit mode)
-        EditSidebar {
+        Views.EditSidebar {
             id: editSidebar
             visible: false
             SplitView.minimumWidth: 240
@@ -325,7 +325,7 @@ ApplicationWindow {
     // Status Bar
     // ========================================================================
     
-    footer: StatusBar {
+    footer: Views.StatusBar {
         id: statusBar
         
         // Connect to status controller if available

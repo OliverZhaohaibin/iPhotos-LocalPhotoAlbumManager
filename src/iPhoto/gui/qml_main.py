@@ -16,12 +16,17 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+# Ensure the src directory is in the Python path when running directly
+_SRC_DIR = Path(__file__).resolve().parent.parent.parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
 if TYPE_CHECKING:
-    from ..appctx import AppContext
+    from iPhoto.appctx import AppContext
 
 # Path to the QML directory
 QML_DIR = Path(__file__).parent / "qml"
@@ -88,15 +93,15 @@ class QMLApplication:
         Context properties are accessible from any QML file without imports
         and provide a clean way to expose singleton services.
         """
-        from src.iPhoto.gui.ui.controllers.qml_controllers import (
+        from iPhoto.gui.ui.controllers.qml_controllers import (
             AlbumController,
             AssetController,
             EditSessionController,
             StatusController,
             ThemeController,
         )
-        from src.iPhoto.gui.ui.models.album_tree_model import AlbumTreeModel
-        from src.iPhoto.gui.ui.models.asset_model import AssetListModel
+        from iPhoto.gui.ui.models.album_tree_model import AlbumTreeModel
+        from iPhoto.gui.ui.models.asset_model import AssetListModel
 
         root = self._engine.rootContext()
 
@@ -177,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         The application exit code.
     """
-    from src.iPhoto.appctx import AppContext
+    from iPhoto.appctx import AppContext
 
     arguments = list(sys.argv if argv is None else argv)
 

@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Filmstrip navigation component for browsing assets horizontally.
@@ -27,14 +27,14 @@ Rectangle {
     implicitWidth: parent ? parent.width : 400
     implicitHeight: itemHeight + 10
     
-    color: Theme.viewerSurface
+    color: Styles.Theme.viewerSurface
     
     // Top border
     Rectangle {
         anchors.top: parent.top
         width: parent.width
         height: 1
-        color: Theme.headerSeparator
+        color: Styles.Theme.headerSeparator
     }
     
     ListView {
@@ -53,7 +53,7 @@ Rectangle {
         currentIndex: root.currentIndex
         
         // Smooth scrolling
-        highlightMoveDuration: Theme.animationNormal
+        highlightMoveDuration: Styles.Theme.animationNormal
         highlightMoveVelocity: -1
         
         onCurrentIndexChanged: {
@@ -70,13 +70,13 @@ Rectangle {
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: 1
-                color: Theme.gridItemBackground
+                color: Styles.Theme.gridItemBackground
                 
                 // Selection border
                 Rectangle {
                     anchors.fill: parent
                     color: "transparent"
-                    border.color: Theme.gridSelectionBorder
+                    border.color: Styles.Theme.gridSelectionBorder
                     border.width: 2
                     visible: delegateRoot.isCurrent
                     z: 2
@@ -100,7 +100,7 @@ Rectangle {
                     // Loading placeholder
                     Rectangle {
                         anchors.fill: parent
-                        color: Theme.surface
+                        color: Styles.Theme.surface
                         visible: thumbnail.status === Image.Loading
                     }
                     
@@ -112,7 +112,7 @@ Rectangle {
                         width: durationText.width + 4
                         height: durationText.height + 2
                         radius: 2
-                        color: Theme.videoBadgeBackground
+                        color: Styles.Theme.videoBadgeBackground
                         visible: model.isVideo
                         
                         Text {
@@ -125,7 +125,7 @@ Rectangle {
                                 sec = sec % 60
                                 return min + ":" + (sec < 10 ? "0" : "") + sec
                             }
-                            font: Theme.captionFont
+                            font: Styles.Theme.captionFont
                             color: "white"
                         }
                     }
@@ -138,7 +138,7 @@ Rectangle {
                         width: 10
                         height: 10
                         radius: 5
-                        color: Theme.videoBadgeBackground
+                        color: Styles.Theme.videoBadgeBackground
                         visible: model.isLive
                         
                         Rectangle {
@@ -146,7 +146,7 @@ Rectangle {
                             width: 6
                             height: 6
                             radius: 3
-                            color: Theme.liveBadgeBackground
+                            color: Styles.Theme.liveBadgeBackground
                         }
                     }
                 }
@@ -158,7 +158,7 @@ Rectangle {
                     opacity: delegateMouse.containsMouse && !delegateRoot.isCurrent ? 0.1 : 0
                     
                     Behavior on opacity {
-                        NumberAnimation { duration: Theme.animationFast }
+                        NumberAnimation { duration: Styles.Theme.animationFast }
                     }
                 }
             }
@@ -183,10 +183,10 @@ Rectangle {
                 yScale: delegateRoot.isCurrent ? 1.0 : 0.95
                 
                 Behavior on xScale {
-                    NumberAnimation { duration: Theme.animationFast }
+                    NumberAnimation { duration: Styles.Theme.animationFast }
                 }
                 Behavior on yScale {
-                    NumberAnimation { duration: Theme.animationFast }
+                    NumberAnimation { duration: Styles.Theme.animationFast }
                 }
             }
         }
@@ -196,7 +196,7 @@ Rectangle {
             
             contentItem: Rectangle {
                 radius: 3
-                color: Theme.scrollbarHandle
+                color: Styles.Theme.scrollbarHandle
                 opacity: parent.active ? 1.0 : 0.5
             }
         }

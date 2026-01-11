@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Segmented control for switching between modes.
@@ -23,9 +23,9 @@ Item {
     
     Rectangle {
         anchors.fill: parent
-        color: Theme.buttonBackground
-        radius: Theme.borderRadiusLarge
-        border.color: Theme.dialogBorder
+        color: Styles.Theme.buttonBackground
+        radius: Styles.Theme.borderRadiusLarge
+        border.color: Styles.Theme.dialogBorder
         border.width: 1
     }
     
@@ -37,12 +37,12 @@ Item {
         height: parent.height - 4
         x: root.currentIndex * (indicator.width + itemRow.spacing) + 2
         y: 2
-        radius: Theme.borderRadius + 2
-        color: Theme.accent
+        radius: Styles.Theme.borderRadius + 2
+        color: Styles.Theme.accent
         
         Behavior on x {
             NumberAnimation { 
-                duration: Theme.animationNormal 
+                duration: Styles.Theme.animationNormal 
                 easing.type: Easing.OutQuad
             }
         }
@@ -57,19 +57,19 @@ Item {
             model: root.items
             
             delegate: Item {
-                width: itemText.width + Theme.spacingXLarge * 2
+                width: itemText.width + Styles.Theme.spacingXLarge * 2
                 height: root.height - 4
                 
                 Text {
                     id: itemText
                     anchors.centerIn: parent
                     text: modelData
-                    font: Theme.bodyFont
+                    font: Styles.Theme.bodyFont
                     font.weight: index === root.currentIndex ? Font.DemiBold : Font.Normal
-                    color: index === root.currentIndex ? Theme.textInverse : Theme.text
+                    color: index === root.currentIndex ? Styles.Theme.textInverse : Styles.Theme.text
                     
                     Behavior on color {
-                        ColorAnimation { duration: Theme.animationFast }
+                        ColorAnimation { duration: Styles.Theme.animationFast }
                     }
                 }
                 

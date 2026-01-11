@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Album navigation sidebar showing the library tree.
@@ -28,10 +28,10 @@ Rectangle {
     signal bindLibraryRequested()
     signal filesDropped(string targetPath, var urls)
     
-    implicitWidth: Theme.sidebarWidth
+    implicitWidth: Styles.Theme.sidebarWidth
     implicitHeight: parent ? parent.height : 400
     
-    color: Theme.sidebarBackground
+    color: Styles.Theme.sidebarBackground
     
     // Header
     Item {
@@ -42,13 +42,13 @@ Rectangle {
         Text {
             id: titleLabel
             anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingLarge
+            anchors.leftMargin: Styles.Theme.spacingLarge
             anchors.verticalCenter: parent.verticalCenter
             text: root.title
-            font: Theme.titleFont
-            color: Theme.sidebarText
+            font: Styles.Theme.titleFont
+            color: Styles.Theme.sidebarText
             elide: Text.ElideRight
-            width: parent.width - Theme.spacingLarge * 2
+            width: parent.width - Styles.Theme.spacingLarge * 2
         }
     }
     
@@ -73,11 +73,11 @@ Rectangle {
             contentItem: Rectangle {
                 implicitWidth: 6
                 radius: 3
-                color: Theme.scrollbarHandle
+                color: Styles.Theme.scrollbarHandle
                 opacity: parent.active || parent.hovered ? 1.0 : 0.0
                 
                 Behavior on opacity {
-                    NumberAnimation { duration: Theme.animationNormal }
+                    NumberAnimation { duration: Styles.Theme.animationNormal }
                 }
             }
         }
@@ -103,19 +103,19 @@ Rectangle {
                 anchors.fill: parent
                 anchors.leftMargin: 4
                 anchors.rightMargin: 4
-                radius: Theme.borderRadius
-                color: delegateRoot.isSelected ? Theme.sidebarSelected :
-                       delegateMouse.containsMouse ? Theme.sidebarHover : "transparent"
+                radius: Styles.Theme.borderRadius
+                color: delegateRoot.isSelected ? Styles.Theme.sidebarSelected :
+                       delegateMouse.containsMouse ? Styles.Theme.sidebarHover : "transparent"
                 
                 Behavior on color {
-                    ColorAnimation { duration: Theme.animationFast }
+                    ColorAnimation { duration: Styles.Theme.animationFast }
                 }
             }
             
             Row {
                 anchors.fill: parent
-                anchors.leftMargin: Theme.spacingLarge + (delegateRoot.depth * 16)
-                spacing: Theme.spacingMedium
+                anchors.leftMargin: Styles.Theme.spacingLarge + (delegateRoot.depth * 16)
+                spacing: Styles.Theme.spacingMedium
                 
                 // Branch indicator (disclosure triangle)
                 Item {
@@ -133,7 +133,7 @@ Rectangle {
                         
                         Behavior on rotation {
                             NumberAnimation { 
-                                duration: Theme.animationFast 
+                                duration: Styles.Theme.animationFast 
                                 easing.type: Easing.OutQuad
                             }
                         }
@@ -160,8 +160,8 @@ Rectangle {
                 Image {
                     id: nodeIcon
                     anchors.verticalCenter: parent.verticalCenter
-                    width: Theme.iconSizeSmall
-                    height: Theme.iconSizeSmall
+                    width: Styles.Theme.iconSizeSmall
+                    height: Styles.Theme.iconSizeSmall
                     source: {
                         switch (delegateRoot.nodeType) {
                             case "static":
@@ -187,10 +187,10 @@ Rectangle {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: model.displayName || model.title || ""
-                    font: Theme.bodyFont
+                    font: Styles.Theme.bodyFont
                     font.weight: delegateRoot.nodeType === "header" ? Font.DemiBold : Font.Normal
                     font.italic: delegateRoot.nodeType === "action"
-                    color: delegateRoot.isSelected ? Theme.sidebarTextSelected : Theme.sidebarText
+                    color: delegateRoot.isSelected ? Styles.Theme.sidebarTextSelected : Styles.Theme.sidebarText
                     opacity: delegateRoot.nodeType === "action" ? 0.7 : 1.0
                     elide: Text.ElideRight
                     width: parent.width - nodeIcon.width - 32 - (delegateRoot.depth * 16)

@@ -1,6 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import "../styles"
+import "../styles" as Styles
 
 /**
  * Application status bar displaying messages and progress indicators.
@@ -22,9 +22,9 @@ Rectangle {
     signal messageTimeout()
     
     implicitWidth: parent ? parent.width : 400
-    implicitHeight: Theme.statusBarHeight
+    implicitHeight: Styles.Theme.statusBarHeight
     
-    color: Theme.statusBarBackground
+    color: Styles.Theme.statusBarBackground
     
     // Auto-clear timer
     Timer {
@@ -39,16 +39,16 @@ Rectangle {
     
     Row {
         anchors.fill: parent
-        anchors.leftMargin: Theme.spacingLarge
-        anchors.rightMargin: Theme.spacingLarge + 25  // Reserve space for resize grip
-        spacing: Theme.spacingLarge
+        anchors.leftMargin: Styles.Theme.spacingLarge
+        anchors.rightMargin: Styles.Theme.spacingLarge + 25  // Reserve space for resize grip
+        spacing: Styles.Theme.spacingLarge
         
         // Message label
         Text {
             id: messageLabel
             anchors.verticalCenter: parent.verticalCenter
-            font: Theme.smallFont
-            color: Theme.statusBarText
+            font: Styles.Theme.smallFont
+            color: Styles.Theme.statusBarText
             elide: Text.ElideRight
             width: parent.width - itemCountLabel.width - progressBar.width - parent.spacing * 2
         }
@@ -57,8 +57,8 @@ Rectangle {
         Text {
             id: itemCountLabel
             anchors.verticalCenter: parent.verticalCenter
-            font: Theme.smallFont
-            color: Theme.statusBarText
+            font: Styles.Theme.smallFont
+            color: Styles.Theme.statusBarText
             visible: root.itemCount > 0 && !progressBar.visible
             text: root.itemCount === 1 ? qsTr("1 item") : qsTr("%1 items").arg(root.itemCount)
         }
@@ -77,7 +77,7 @@ Rectangle {
             background: Rectangle {
                 implicitWidth: 160
                 implicitHeight: 6
-                color: Theme.sliderTrack
+                color: Styles.Theme.sliderTrack
                 radius: 3
             }
             
@@ -91,7 +91,7 @@ Rectangle {
                            progressBar.visualPosition * parent.width
                     height: parent.height
                     radius: 3
-                    color: Theme.accent
+                    color: Styles.Theme.accent
                     
                     // Animation for indeterminate mode
                     SequentialAnimation on x {
