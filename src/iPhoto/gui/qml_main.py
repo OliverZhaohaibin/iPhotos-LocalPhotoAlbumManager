@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from PySide6.QtGui import QGuiApplication
+
 # Ensure the src directory is in the Python path when running directly
 _SRC_DIR = Path(__file__).resolve().parent.parent.parent
 if str(_SRC_DIR) not in sys.path:
@@ -326,47 +328,31 @@ class QMLApplication:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Launch the QML application and return the exit code.
+    from PySide6.QtCore import qInstallMessageHandler, QtMsgType
 
-    This is the main entry point for the QML-based GUI. It creates
-    the application context, initializes the QML engine, and starts
-    the event loop.
+    def qml_message_handler(msg_type: QtMsgType, context, message):
+        prefix = {
+            QtMsgType.QtDebugMsg: "Debug",
+            QtMsgType.QtInfoMsg: "Info",
+            QtMsgType.QtWarningMsg: "Warning",
+            QtMsgType.QtCriticalMsg: "Critical",
+            QtMsgType.QtFatalMsg: "Fatal",
+        }.get(msg_type, "Unknown")
+        print(f"[QML {prefix}] {message}")
 
-    Args:
-        argv: Command line arguments. If None, uses sys.argv.
-
-    Returns:
-        The application exit code.
-    """
-    from iPhoto.appctx import AppContext
+    qInstallMessageHandler(qml_message_handler)
 
     arguments = list(sys.argv if argv is None else argv)
+    app = QGuiApplication(arguments)
 
-    # Use QApplication to enable native file dialogs while running QML
-    style_name = os.environ.get("QT_QUICK_CONTROLS_STYLE", "Basic")
-    QQuickStyle.setStyle(style_name)
-    app = QApplication(arguments)
-
-    # Create application context
+    from iPhoto.appctx import AppContext
     context = AppContext()
 
-    # Create and initialize the QML application
     try:
         qml_app = QMLApplication(context)
     except (FileNotFoundError, RuntimeError) as e:
         print(f"Error initializing QML application: {e}", file=sys.stderr)
         return 1
-
-    # Handle command line arguments
-    if len(arguments) > 1:
-        # Open album specified in argv[1]
-        album_path = Path(arguments[1])
-        if album_path.exists():
-            navigation = qml_app._controllers.get("navigation")
-            if navigation is not None:
-                navigation.openAlbum(str(album_path))
-        else:
-            print(f"Warning: Album path does not exist: {album_path}", file=sys.stderr)
 
     return app.exec()
 
