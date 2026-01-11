@@ -107,7 +107,7 @@ class QMLApplication:
 
         # Create models
         album_tree_model = AlbumTreeModel(self._context.library)
-        asset_list_model = AssetListModel()
+        asset_list_model = AssetListModel(self._context.facade)
 
         # Create controllers
         theme_controller = ThemeController()
