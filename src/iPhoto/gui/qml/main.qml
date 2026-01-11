@@ -121,8 +121,13 @@ ApplicationWindow {
             
             // Connect to controller if available
             model: typeof albumController !== "undefined" ? albumController.model : null
+            currentSelection: typeof albumController !== "undefined" ? albumController.currentAlbum : ""
+            currentStaticSelection: typeof albumController !== "undefined" ? albumController.currentStatic : ""
             
             onAlbumSelected: function(path) {
+                if (typeof albumController !== "undefined") {
+                    albumController.selectAlbum(path)
+                }
                 if (typeof navigationController !== "undefined") {
                     navigationController.openAlbum(path)
                 }
@@ -130,6 +135,9 @@ ApplicationWindow {
             }
             
             onAllPhotosSelected: {
+                if (typeof albumController !== "undefined") {
+                    albumController.selectAllPhotos()
+                }
                 if (typeof navigationController !== "undefined") {
                     navigationController.openAllPhotos()
                 }
@@ -142,6 +150,9 @@ ApplicationWindow {
                 } else if (title === "Albums") {
                     viewStack.currentIndex = 3  // Show albums dashboard
                 } else {
+                    if (typeof albumController !== "undefined") {
+                        albumController.selectStatic(title)
+                    }
                     if (typeof navigationController !== "undefined") {
                         navigationController.openStaticNode(title)
                     }

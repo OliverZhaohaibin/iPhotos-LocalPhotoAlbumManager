@@ -47,6 +47,7 @@ class AlbumController(QObject):
     modelChanged = Signal()
     selectionChanged = Signal(str)
     allPhotosSelected = Signal()
+    staticSelectionChanged = Signal(str)
 
     def __init__(
         self,
@@ -68,6 +69,11 @@ class AlbumController(QObject):
         """Path of the currently selected album."""
         return self._current_selection or ""
 
+    @Property(str, notify=staticSelectionChanged)
+    def currentStatic(self) -> str:
+        """Name of the currently selected static collection, if any."""
+        return self._current_static or ""
+
     @Slot(str)
     def selectAlbum(self, path: str) -> None:
         """Select an album by path."""
@@ -75,6 +81,7 @@ class AlbumController(QObject):
             self._current_selection = path
             self._current_static = None
             self.selectionChanged.emit(path)
+            self.staticSelectionChanged.emit(self._current_static or "")
 
     @Slot()
     def selectAllPhotos(self) -> None:
@@ -82,6 +89,15 @@ class AlbumController(QObject):
         self._current_selection = None
         self._current_static = "All Photos"
         self.allPhotosSelected.emit()
+        self.staticSelectionChanged.emit(self._current_static)
+
+    @Slot(str)
+    def selectStatic(self, title: str) -> None:
+        """Select a static collection by title."""
+        if self._current_static != title:
+            self._current_static = title
+            self._current_selection = None
+            self.staticSelectionChanged.emit(title)
 
 
 class AssetController(QObject):

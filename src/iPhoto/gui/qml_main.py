@@ -55,6 +55,24 @@ class _NavigationController(QObject):
         album_path = Path(path).expanduser()
         if not album_path.exists():
             return
+        # Ensure the library manager is bound so the sidebar/tree populate
+        # correctly for the selected album.
+        current_root = self._context.library.root()
+        try:
+            album_root_resolved = album_path.resolve()
+            current_root_resolved = current_root.resolve() if current_root else None
+        except OSError:
+            album_root_resolved = album_path
+            current_root_resolved = current_root
+
+        if current_root is None or current_root_resolved != album_root_resolved:
+            try:
+                self._context.library.bind_path(album_path)
+                self._context.settings.set("basic_library_path", str(album_path))
+            except Exception as exc:  # pragma: no cover - dialog feedback only
+                print(f"Failed to bind library at {album_path}: {exc}", file=sys.stderr)
+                return
+
         album = self._context.facade.open_album(album_path)
         if album is None:
             return
@@ -82,11 +100,11 @@ class _NavigationController(QObject):
         normalized = title.casefold()
         filter_mode = None
         if normalized == "videos":
-            filter_mode = "video"
+            filter_mode = "videos"
         elif normalized == "live photos":
             filter_mode = "live"
         elif normalized == "favorites":
-            filter_mode = "favorite"
+            filter_mode = "favorites"
 
         if filter_mode is not None:
             switched = self._context.facade.switch_to_library_model_for_static_collection(
