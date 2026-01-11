@@ -86,9 +86,10 @@ Rectangle {
             required property var path
 
             implicitHeight: 32
-            width: TreeView.view.width
+            implicitWidth: treeView.width
+            width: treeView.width
 
-            property string nodeKey: nodeType ? nodeType.toString().toLowerCase() : ""
+            property string nodeKey: (nodeType !== undefined && nodeType !== null) ? nodeType.toString().toLowerCase() : ""
             property bool isStatic: nodeKey.indexOf("static") !== -1
             property bool isAction: nodeKey.indexOf("action") !== -1
             property bool isSelected: isStatic ? display === root.currentStaticSelection : path === root.currentSelection
