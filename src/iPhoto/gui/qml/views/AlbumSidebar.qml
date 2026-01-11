@@ -92,7 +92,7 @@ Rectangle {
             property string nodeKey: (nodeType !== undefined && nodeType !== null) ? nodeType.toString().toLowerCase() : ""
             property bool isStatic: nodeKey.indexOf("static") !== -1
             property bool isAction: nodeKey.indexOf("action") !== -1
-            property bool isSelected: (isStatic && display && root.currentStaticSelection === display) || (!isStatic && path && root.currentSelection === path)
+            property bool isSelected: (isStatic && display && root.currentStaticSelection === display) === true || (!isStatic && path && root.currentSelection === path.toString()) === true
 
             Rectangle {
                 anchors.fill: parent
@@ -204,9 +204,10 @@ Rectangle {
                             root.staticNodeSelected(display)
                         }
                     } else {
-                        root.currentSelection = path
+                        var pathStr = path.toString()
+                        root.currentSelection = pathStr
                         root.currentStaticSelection = ""
-                        root.albumSelected(path)
+                        root.albumSelected(pathStr)
                     }
                 }
             }

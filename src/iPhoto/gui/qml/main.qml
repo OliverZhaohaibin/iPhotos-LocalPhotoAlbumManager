@@ -429,12 +429,14 @@ ApplicationWindow {
     onClosing: function(close) {
         // Save window geometry
         if (typeof settings !== "undefined") {
-            settings.set("ui.windowGeometry", {
-                x: x,
-                y: y,
-                width: width,
-                height: height
-            })
+            // Manually construct a clean object to avoid QJSValue serialization issues in Python
+            var geometry = {
+                "x": Number(x),
+                "y": Number(y),
+                "width": Number(width),
+                "height": Number(height)
+            }
+            settings.set("ui.windowGeometry", geometry)
         }
         close.accepted = true
     }
