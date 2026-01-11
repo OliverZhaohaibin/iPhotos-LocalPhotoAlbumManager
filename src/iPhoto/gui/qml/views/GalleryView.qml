@@ -113,6 +113,9 @@ Rectangle {
             
             if (first !== -1 && last !== -1) {
                 root.visibleRowsChanged(first, last)
+                if (typeof assetController !== "undefined") {
+                    assetController.prioritizeRows(first, last)
+                }
             }
         }
         

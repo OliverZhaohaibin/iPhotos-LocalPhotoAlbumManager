@@ -114,6 +114,26 @@ class AssetController(QObject):
         """The asset list model for QML binding."""
         return self._model
 
+    @Slot(QObject)
+    def setModel(self, model: "AssetListModel") -> None:
+        """Replace the backing model when the active album changes."""
+
+        if model is None or model is self._model:
+            return
+        try:
+            self._model.rowsInserted.disconnect(self._on_model_changed)
+            self._model.rowsRemoved.disconnect(self._on_model_changed)
+            self._model.modelReset.disconnect(self._on_model_changed)
+        except (RuntimeError, TypeError):
+            # Safe to ignore if connections were already cleared or model is gone
+            pass
+        self._model = model
+        self._model.rowsInserted.connect(self._on_model_changed)
+        self._model.rowsRemoved.connect(self._on_model_changed)
+        self._model.modelReset.connect(self._on_model_changed)
+        self.modelChanged.emit()
+        self._on_model_changed()
+
     @Property(int, notify=totalCountChanged)
     def totalCount(self) -> int:
         """Total number of assets in the model."""
@@ -144,6 +164,13 @@ class AssetController(QObject):
         """Clear all selections."""
         self._selected_indices.clear()
         self.selectionChanged.emit()
+
+    @Slot(int, int)
+    def prioritizeRows(self, first: int, last: int) -> None:
+        """Hint the model to prioritise thumbnail loading for visible rows."""
+
+        if hasattr(self._model, "prioritize_rows"):
+            self._model.prioritize_rows(first, last)  # type: ignore[attr-defined]
 
     @Slot(int)
     def openDetail(self, index: int) -> None:  # noqa: N802 - Qt slot naming

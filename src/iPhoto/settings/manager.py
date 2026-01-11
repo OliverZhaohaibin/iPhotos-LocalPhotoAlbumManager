@@ -8,6 +8,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+try:  # PySide may omit QJSValue in some environments
+    from PySide6.QtCore import QJSValue
+except ImportError:  # pragma: no cover - fallback for non-Qt contexts
+    QJSValue = None  # type: ignore[misc,assignment]
+
 from PySide6.QtCore import QObject, Signal, Slot
 
 from ..errors import SettingsLoadError, SettingsValidationError
@@ -82,6 +87,26 @@ class SettingsManager(QObject):
     def set(self, key: str, value: Any) -> None:
         """Update *key* with *value* and persist the change."""
 
+        def _normalise(payload: Any) -> Any:
+            """Convert QML values to JSON-friendly Python types."""
+
+            if QJSValue is not None and isinstance(payload, QJSValue):
+                try:
+                    payload = payload.toVariant()
+                except (AttributeError, RuntimeError, TypeError):
+                    # Preserve intent while staying JSON-safe
+                    return str(payload)
+
+            if isinstance(payload, dict):
+                return {k: _normalise(v) for k, v in payload.items()}
+            if isinstance(payload, list):
+                return [_normalise(item) for item in payload]
+            if isinstance(payload, Path):
+                return str(payload)
+            return payload
+
+        value = _normalise(value)
+
         parts = key.split(".")
         target: dict[str, Any] = self._data
         for part in parts[:-1]:
@@ -91,8 +116,6 @@ class SettingsManager(QObject):
                 target[part] = branch
             target = branch
         final_key = parts[-1]
-        if isinstance(value, Path):
-            value = str(value)
         target[final_key] = value
         try:
             self._data = merge_with_defaults(self._data)
