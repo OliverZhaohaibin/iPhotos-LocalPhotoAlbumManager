@@ -49,6 +49,10 @@ class ThumbnailImageProvider(QQuickImageProvider):
             source_model = model.sourceModel() if hasattr(model, 'sourceModel') else model
             if hasattr(source_model, '_cache_manager'):
                 self._cache_manager = source_model._cache_manager
+            self._source_model = source_model
+        else:
+            self._cache_manager = None
+            self._source_model = None
 
     def requestPixmap(self, id: str, size: QSize, requestedSize: QSize) -> QPixmap:
         """Return the thumbnail pixmap for the given relative path."""
@@ -64,10 +68,33 @@ class ThumbnailImageProvider(QQuickImageProvider):
             if pixmap is not None:
                 return pixmap
 
+            # Prefer embedded micro thumbnails from the backing row to avoid placeholder flashes.
+            row = None
+            is_video = False
+            source_model = getattr(self, "_source_model", None)
+            state_manager = getattr(source_model, "_state_manager", None)
+            if state_manager is not None:
+                idx = state_manager.row_lookup.get(rel)
+                if idx is not None and 0 <= idx < len(state_manager.rows):
+                    row = state_manager.rows[idx]
+                    is_video = bool(row.get("is_video"))
+
+            if row is not None:
+                micro = row.get("micro_thumbnail_image")
+                if isinstance(micro, QImage) and not micro.isNull():
+                    return QPixmap.fromImage(micro)
+                try:
+                    from ..tasks.thumbnail_loader import ThumbnailLoader
+
+                    self._cache_manager.resolve_thumbnail(
+                        row, ThumbnailLoader.Priority.VISIBLE
+                    )
+                except Exception:
+                    logging.debug("Failed to enqueue thumbnail load for %s", rel, exc_info=True)
+
             # If not in cache, return a placeholder (thumbnail will be loaded async)
             # _placeholder_for is a private method that takes (rel, is_video) args
-            # We default to is_video=False since we don't know the media type from just rel path
-            placeholder = self._cache_manager._placeholder_for(rel, False)
+            placeholder = self._cache_manager._placeholder_for(rel, is_video)
             if placeholder is not None:
                 return placeholder
         except Exception:
