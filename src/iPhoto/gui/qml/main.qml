@@ -80,8 +80,10 @@ ApplicationWindow {
             }
             
             onRescanRequested: {
-                if (typeof facade !== "undefined") {
-                    facade.rescanCurrentAsync()
+                if (typeof navigationController !== "undefined") {
+                    navigationController.rescanCurrent()
+                } else if (typeof facade !== "undefined") {
+                    facade.rescan_current_async()
                 }
             }
             
