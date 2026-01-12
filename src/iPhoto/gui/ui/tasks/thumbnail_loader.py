@@ -205,7 +205,7 @@ class ThumbnailJob(QRunnable):
             rel_for_path = self._cache_rel if self._cache_rel is not None else self._rel
             try:
                 image = self._render_media()
-            except Exception:
+            except (OSError, ValueError, RuntimeError, np.linalg.LinAlgError):
                 LOGGER.exception("ThumbnailJob failed for %s (rel=%s)", self._abs_path, rel_for_path)
                 loader = getattr(self, "_loader", None)
                 if loader:
@@ -904,7 +904,7 @@ class ThumbnailLoader(QObject):
             duration,
         ) = spec
 
-        retry_rel = stored_rel or rel
+        retry_rel = stored_rel if stored_rel is not None else rel
         try:
             cache_path = generate_cache_path(library_root, abs_path, size, known_stamp or 0)
             safe_unlink(cache_path)
@@ -915,7 +915,7 @@ class ThumbnailLoader(QObject):
             retry_rel,
             abs_path,
             size,
-            None,
+            known_stamp,
             album_root,
             library_root,
             is_image,
@@ -929,7 +929,7 @@ class ThumbnailLoader(QObject):
             retry_rel,
             abs_path,
             size,
-            None,
+            known_stamp,
             album_root,
             library_root,
             is_image,
