@@ -126,14 +126,25 @@ Rectangle {
                 anchors.rightMargin: 4
                 radius: Styles.Theme.borderRadius
                 color: isSelected ? Styles.Theme.sidebarSelected :
-                       mouseArea.containsMouse ? Styles.Theme.sidebarHover : "transparent"
+                       (mouseArea.containsMouse && !isSeparator) ? Styles.Theme.sidebarHover : "transparent"
 
                 Behavior on color {
                     ColorAnimation { duration: Styles.Theme.animationFast }
                 }
             }
 
+            // Separator Line
+            Rectangle {
+                visible: isSeparator
+                anchors.centerIn: parent
+                width: parent.width - (Styles.Theme.spacingLarge * 2)
+                height: 1
+                color: Styles.Theme.textSecondary
+                opacity: 0.2
+            }
+
             Row {
+                visible: !isSeparator
                 anchors.fill: parent
                 anchors.leftMargin: Styles.Theme.spacingLarge + (TreeView.depth * 16)
                 spacing: Styles.Theme.spacingMedium
