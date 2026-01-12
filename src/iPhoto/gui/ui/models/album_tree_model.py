@@ -155,11 +155,11 @@ class AlbumTreeModel(QAbstractItemModel):
         """Expose friendly role names for QML consumption."""
 
         return {
-            Qt.ItemDataRole.DisplayRole: b"display",
-            Qt.ItemDataRole.DecorationRole: b"decoration",
-            AlbumTreeRole.NODE_TYPE: b"nodeType",
-            AlbumTreeRole.ALBUM_NODE: b"albumNode",
-            AlbumTreeRole.FILE_PATH: b"path",
+            int(Qt.ItemDataRole.DisplayRole): b"display",
+            int(Qt.ItemDataRole.DecorationRole): b"decoration",
+            int(AlbumTreeRole.NODE_TYPE): b"nodeType",
+            int(AlbumTreeRole.ALBUM_NODE): b"albumNode",
+            int(AlbumTreeRole.FILE_PATH): b"path",
         }
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:  # noqa: N802
