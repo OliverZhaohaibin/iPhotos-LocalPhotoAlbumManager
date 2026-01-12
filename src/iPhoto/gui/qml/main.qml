@@ -41,6 +41,16 @@ ApplicationWindow {
         if (themeController) {
             Styles.Theme.mode = themeController.mode
         }
+        // Restore window geometry if settings available
+        if (typeof settings !== "undefined") {
+            var geometry = settings.get("ui.windowGeometry")
+            if (geometry) {
+                x = geometry.x
+                y = geometry.y
+                width = geometry.width
+                height = geometry.height
+            }
+        }
     }
     Connections {
         target: themeController
@@ -427,20 +437,6 @@ ApplicationWindow {
     // ========================================================================
     // Window State Persistence
     // ========================================================================
-    
-    Component.onCompleted: {
-        // Restore window geometry if settings available
-        if (typeof settings !== "undefined") {
-            var geometry = settings.get("ui.windowGeometry")
-            if (geometry) {
-                x = geometry.x
-                y = geometry.y
-                width = geometry.width
-                height = geometry.height
-            }
-        }
-    }
-    
     onClosing: function(close) {
         // Save window geometry
         if (typeof settings !== "undefined") {
