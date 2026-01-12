@@ -667,7 +667,8 @@ class ThumbnailLoader(QObject):
             duration=duration,
         )
 
-        self._job_specs[base_key] = (
+        self._store_job_spec(
+            base_key,
             rel,
             path,
             fixed_size,
@@ -704,6 +705,38 @@ class ThumbnailLoader(QObject):
         self._active_jobs_count += 1
         self._pool.start(job)
 
+    def _store_job_spec(
+        self,
+        base_key: Tuple[str, str, int, int],
+        rel: str,
+        path: Path,
+        size: QSize,
+        known_stamp: Optional[int],
+        album_root: Path,
+        library_root: Path,
+        is_image: bool,
+        is_video: bool,
+        still_image_time: Optional[float],
+        duration: Optional[float],
+    ) -> None:
+        self._job_specs[base_key] = (
+            rel,
+            path,
+            size,
+            known_stamp,
+            album_root,
+            library_root,
+            is_image,
+            is_video,
+            still_image_time,
+            duration,
+        )
+
+    def _record_terminal_failure(self, base_key: Tuple[str, str, int, int]) -> None:
+        self._failure_counts[base_key] = self._failure_counts.get(base_key, 0) + 1
+        self._failures.add(base_key)
+        self._missing.add(base_key)
+
     def _base_key(self, rel: str, size: QSize) -> Tuple[str, str, int, int]:
         assert self._album_root_str is not None
         return (self._album_root_str, rel, size.width(), size.height())
@@ -723,15 +756,14 @@ class ThumbnailLoader(QObject):
 
         self._active_jobs_count = max(0, self._active_jobs_count - 1)
         self._pending_keys.discard(base_key)
-        spec = self._job_specs.pop(base_key, None)
+        spec = self._job_specs.get(base_key)
 
         if image is None:
             if self._retry_after_failure(base_key, rel, spec):
                 self._drain_queue()
                 return
-            self._failure_counts[base_key] = self._failure_counts.get(base_key, 0) + 1
-            self._failures.add(base_key)
-            self._missing.add(base_key)
+            self._record_terminal_failure(base_key)
+            self._job_specs.pop(base_key, None)
             self._drain_queue()
             return
 
@@ -740,13 +772,13 @@ class ThumbnailLoader(QObject):
             if self._retry_after_failure(base_key, rel, spec):
                 self._drain_queue()
                 return
-            self._failure_counts[base_key] = self._failure_counts.get(base_key, 0) + 1
-            self._failures.add(base_key)
-            self._missing.add(base_key)
+            self._record_terminal_failure(base_key)
+            self._job_specs.pop(base_key, None)
             self._drain_queue()
             return
 
         self._failure_counts.pop(base_key, None)
+        self._job_specs.pop(base_key, None)
         self._memory[base_key] = (stamp, pixmap)
 
         while len(self._memory) > self._max_memory_items:
@@ -856,7 +888,8 @@ class ThumbnailLoader(QObject):
             duration=duration,
         )
 
-        self._job_specs[base_key] = (
+        self._store_job_spec(
+            base_key,
             stored_rel or rel,
             abs_path,
             size,
