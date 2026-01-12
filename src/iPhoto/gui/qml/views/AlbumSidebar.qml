@@ -73,7 +73,7 @@ Rectangle {
                 // Expand "Basic Library" (usually row 0) and "Albums" (usually row 2)
                 // Expand indices 0 to 4 (five rows) to safely cover headers in standard layout
                 for (var i = 0; i < 5; i++) {
-                     treeView.expand(i)
+                    treeView.expand(i)
                 }
             }
         }
