@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import OrderedDict, deque
 from enum import IntEnum
 import hashlib
+import logging
 import os
 import time
 from pathlib import Path
@@ -36,6 +37,9 @@ from ....core.color_resolver import compute_color_statistics
 from ....io import sidecar
 from .video_frame_grabber import grab_video_frame
 from . import geo_utils
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def safe_unlink(path: Path) -> None:
@@ -134,103 +138,114 @@ class ThumbnailJob(QRunnable):
         )
 
     def run(self) -> None:  # pragma: no cover - executed in worker thread
-        # Memory Guard
-        if psutil:
-            mem = psutil.virtual_memory()
-            if mem.percent > 80.0:
-                 time.sleep(0.5)
-
-        # 1. Stat the file to get actual timestamp
         try:
-            stat_result = self._abs_path.stat()
-        except OSError:
-            self._handle_missing()
-            return
+            # Memory Guard
+            if psutil:
+                mem = psutil.virtual_memory()
+                if mem.percent > 80.0:
+                    time.sleep(0.5)
 
-        stamp_ns = stat_mtime_ns(stat_result)
-
-        # Check sidecar
-        sidecar_path = sidecar.sidecar_path_for_asset(self._abs_path)
-        try:
-            if sidecar_path.exists():
-                try:
-                    sidecar_stat = sidecar_path.stat()
-                    sidecar_ns = getattr(sidecar_stat, "st_mtime_ns", None)
-                    if sidecar_ns is None:
-                        sidecar_ns = int(sidecar_stat.st_mtime * 1_000_000_000)
-                    stamp_ns = max(stamp_ns, sidecar_ns)
-                except OSError:
-                    # Ignore errors reading sidecar file; treat as if sidecar is missing or inaccessible.
-                    pass
-        except OSError:
-            # Ignore errors when checking for sidecar existence or stat; sidecar may not exist or be inaccessible.
-            pass
-
-        actual_stamp = int(stamp_ns)
-
-        rel_for_path = self._cache_rel if self._cache_rel is not None else self._rel
-
-        # 2. Validation
-        if self._known_stamp is not None:
-            if self._known_stamp == actual_stamp:
-                # Cache is valid, remove from pending jobs and exit
-                self._report_valid(actual_stamp)
-                return
-            else:
-                # Stale cache detected. Remove old file.
-                old_path = generate_cache_path(self._library_root, self._abs_path, self._size, self._known_stamp)
-                safe_unlink(old_path)
-
-        # 3. Calculate Cache Path
-        cache_path = generate_cache_path(self._library_root, self._abs_path, self._size, actual_stamp)
-
-        image: Optional[QImage] = None
-        loaded_from_cache = False
-
-        try:
-            cache_exists = cache_path.exists()
-        except OSError:
-            cache_exists = False
-        if cache_exists:
-            image = QImage(str(cache_path))
-            if not image.isNull():
-                loaded_from_cache = True
-            else:
-                safe_unlink(cache_path)
-                image = None
-
-        if image is None:
-            image = self._render_media()
-
-        success = False
-        if image is not None:
-            if not loaded_from_cache:
-                success = self._write_cache(image, cache_path)
-            else:
-                # Cache hit, so it's already written.
-                success = True
-
-        loader = getattr(self, "_loader", None)
-        if loader is None:
-            return
-
-        if success and not loaded_from_cache:
+            # 1. Stat the file to get actual timestamp
             try:
-                loader.cache_written.emit(cache_path)
-            except AttributeError:  # pragma: no cover - dummy loader in tests
-                pass
-            except RuntimeError:
-                # pragma: no cover - race with QObject deletion
+                stat_result = self._abs_path.stat()
+            except OSError:
+                self._handle_missing()
+                return
+
+            stamp_ns = stat_mtime_ns(stat_result)
+
+            # Check sidecar
+            sidecar_path = sidecar.sidecar_path_for_asset(self._abs_path)
+            try:
+                if sidecar_path.exists():
+                    try:
+                        sidecar_stat = sidecar_path.stat()
+                        sidecar_ns = getattr(sidecar_stat, "st_mtime_ns", None)
+                        if sidecar_ns is None:
+                            sidecar_ns = int(sidecar_stat.st_mtime * 1_000_000_000)
+                        stamp_ns = max(stamp_ns, sidecar_ns)
+                    except OSError:
+                        # Ignore errors reading sidecar file; treat as if sidecar is missing or inaccessible.
+                        pass
+            except OSError:
+                # Ignore errors when checking for sidecar existence or stat; sidecar may not exist or be inaccessible.
                 pass
 
-        try:
-            loader._delivered.emit(
-                self._make_local_key(actual_stamp),
-                image,
-                self._rel,
-            )
-        except RuntimeError:  # pragma: no cover - race with QObject deletion
-            pass
+            actual_stamp = int(stamp_ns)
+
+            # 2. Validation
+            if self._known_stamp is not None:
+                if self._known_stamp == actual_stamp:
+                    # Cache is valid, remove from pending jobs and exit
+                    self._report_valid(actual_stamp)
+                    return
+                else:
+                    # Stale cache detected. Remove old file.
+                    old_path = generate_cache_path(self._library_root, self._abs_path, self._size, self._known_stamp)
+                    safe_unlink(old_path)
+
+            # 3. Calculate Cache Path
+            cache_path = generate_cache_path(self._library_root, self._abs_path, self._size, actual_stamp)
+
+            image: Optional[QImage] = None
+            loaded_from_cache = False
+
+            try:
+                cache_exists = cache_path.exists()
+            except OSError:
+                cache_exists = False
+            if cache_exists:
+                image = QImage(str(cache_path))
+                if not image.isNull():
+                    loaded_from_cache = True
+                else:
+                    safe_unlink(cache_path)
+                    image = None
+
+            if image is None:
+                image = self._render_media()
+
+            success = False
+            if image is not None:
+                if not loaded_from_cache:
+                    success = self._write_cache(image, cache_path)
+                else:
+                    # Cache hit, so it's already written.
+                    success = True
+
+            loader = getattr(self, "_loader", None)
+            if loader is None:
+                return
+
+            if success and not loaded_from_cache:
+                try:
+                    loader.cache_written.emit(cache_path)
+                except AttributeError:  # pragma: no cover - dummy loader in tests
+                    pass
+                except RuntimeError:
+                    # pragma: no cover - race with QObject deletion
+                    pass
+
+            try:
+                loader._delivered.emit(
+                    self._make_local_key(actual_stamp),
+                    image,
+                    self._rel,
+                )
+            except RuntimeError:  # pragma: no cover - race with QObject deletion
+                pass
+        except Exception:
+            LOGGER.exception("ThumbnailJob failed for %s", self._abs_path)
+            loader = getattr(self, "_loader", None)
+            if loader:
+                try:
+                    loader._delivered.emit(
+                        self._make_local_key(0),
+                        None,
+                        self._rel,
+                    )
+                except RuntimeError:
+                    pass
 
     def _handle_missing(self) -> None:
         loader = getattr(self, "_loader", None)
@@ -533,6 +548,22 @@ class ThumbnailLoader(QObject):
 
         self._failures: Set[Tuple[str, str, int, int]] = set()
         self._missing: Set[Tuple[str, str, int, int]] = set()
+        self._failure_counts: Dict[Tuple[str, str, int, int], int] = {}
+        self._job_specs: Dict[
+            Tuple[str, str, int, int],
+            Tuple[
+                str,
+                Path,
+                QSize,
+                Optional[int],
+                Path,
+                Path,
+                bool,
+                bool,
+                Optional[float],
+                Optional[float],
+            ],
+        ] = {}
 
         self._delivered.connect(self._handle_result)
         self._validation_success.connect(self._handle_validation_success)
@@ -562,6 +593,8 @@ class ThumbnailLoader(QObject):
         self._pending_keys.clear()
         self._failures.clear()
         self._missing.clear()
+        self._failure_counts.clear()
+        self._job_specs.clear()
 
         # Ensure the thumbnail directory exists in the library root (if set)
         if self._library_root:
@@ -634,6 +667,19 @@ class ThumbnailLoader(QObject):
             duration=duration,
         )
 
+        self._job_specs[base_key] = (
+            rel,
+            path,
+            fixed_size,
+            known_stamp,
+            self._album_root,
+            lib_root,
+            is_image,
+            is_video,
+            still_image_time,
+            duration,
+        )
+
         self._schedule_job(base_key, job)
         return retval
 
@@ -677,8 +723,13 @@ class ThumbnailLoader(QObject):
 
         self._active_jobs_count = max(0, self._active_jobs_count - 1)
         self._pending_keys.discard(base_key)
+        spec = self._job_specs.pop(base_key, None)
 
         if image is None:
+            if self._retry_after_failure(base_key, rel, spec):
+                self._drain_queue()
+                return
+            self._failure_counts[base_key] = self._failure_counts.get(base_key, 0) + 1
             self._failures.add(base_key)
             self._missing.add(base_key)
             self._drain_queue()
@@ -686,11 +737,16 @@ class ThumbnailLoader(QObject):
 
         pixmap = QPixmap.fromImage(image)
         if pixmap.isNull():
+            if self._retry_after_failure(base_key, rel, spec):
+                self._drain_queue()
+                return
+            self._failure_counts[base_key] = self._failure_counts.get(base_key, 0) + 1
             self._failures.add(base_key)
             self._missing.add(base_key)
             self._drain_queue()
             return
 
+        self._failure_counts.pop(base_key, None)
         self._memory[base_key] = (stamp, pixmap)
 
         while len(self._memory) > self._max_memory_items:
@@ -729,8 +785,89 @@ class ThumbnailLoader(QObject):
         self._pending_keys = {k for k in self._pending_keys if k[1] != rel}
         self._failures = {k for k in self._failures if k[1] != rel}
         self._missing = {k for k in self._missing if k[1] != rel}
+        self._failure_counts = {k: v for k, v in self._failure_counts.items() if k[1] != rel}
+        self._job_specs = {k: v for k, v in self._job_specs.items() if k[1] != rel}
         # Remove jobs for the invalidated rel from the pending deque to avoid zombie entries
         self._pending_deque = deque(
             (key, job) for key, job in self._pending_deque
             if key[1] != rel
         )
+
+    def _retry_after_failure(
+        self,
+        base_key: Tuple[str, str, int, int],
+        rel: str,
+        spec: Optional[
+            Tuple[
+                str,
+                Path,
+                QSize,
+                Optional[int],
+                Path,
+                Path,
+                bool,
+                bool,
+                Optional[float],
+                Optional[float],
+            ]
+        ],
+    ) -> bool:
+        """Schedule a one-shot retry when thumbnail rendering fails."""
+
+        if spec is None:
+            return False
+
+        attempts = self._failure_counts.get(base_key, 0)
+        if attempts >= 1:
+            return False
+
+        self._failure_counts[base_key] = attempts + 1
+
+        (
+            stored_rel,
+            abs_path,
+            size,
+            known_stamp,
+            album_root,
+            library_root,
+            is_image,
+            is_video,
+            still_image_time,
+            duration,
+        ) = spec
+
+        try:
+            cache_path = generate_cache_path(library_root, abs_path, size, known_stamp or 0)
+            safe_unlink(cache_path)
+        except Exception:
+            LOGGER.debug("Failed to cleanup cache for %s", abs_path, exc_info=True)
+
+        retry_job = ThumbnailJob(
+            self,
+            stored_rel or rel,
+            abs_path,
+            size,
+            None,
+            album_root,
+            library_root,
+            is_image=is_image,
+            is_video=is_video,
+            still_image_time=still_image_time,
+            duration=duration,
+        )
+
+        self._job_specs[base_key] = (
+            stored_rel or rel,
+            abs_path,
+            size,
+            None,
+            album_root,
+            library_root,
+            is_image,
+            is_video,
+            still_image_time,
+            duration,
+        )
+
+        self._schedule_job(base_key, retry_job)
+        return True
