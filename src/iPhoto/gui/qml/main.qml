@@ -37,6 +37,17 @@ ApplicationWindow {
     
     // Apply theme colors
     color: Styles.Theme.background
+    Component.onCompleted: {
+        if (themeController) {
+            Styles.Theme.mode = themeController.mode
+        }
+    }
+    Connections {
+        target: themeController
+        function onModeChanged(mode) {
+            Styles.Theme.mode = mode
+        }
+    }
     
     // ========================================================================
     // Window Chrome
@@ -98,7 +109,11 @@ ApplicationWindow {
             }
             
             onThemeChanged: function(theme) {
-                Styles.Theme.mode = theme
+                if (themeController) {
+                    themeController.setMode(theme)
+                } else {
+                    Styles.Theme.mode = theme
+                }
             }
         }
     }
