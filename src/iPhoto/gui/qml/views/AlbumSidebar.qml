@@ -63,6 +63,21 @@ Rectangle {
         anchors.margins: 0
         model: root.model
 
+        // Auto-expand headers on startup
+        Timer {
+            id: startupExpand
+            interval: 50
+            running: true
+            repeat: false
+            onTriggered: {
+                // Expand "Basic Library" (usually row 0) and "Albums" (usually row 2)
+                // Expand indices 0 to 4 (five rows) to safely cover headers in standard layout
+                for (var i = 0; i < 5; i++) {
+                    treeView.expand(i)
+                }
+            }
+        }
+
         ScrollBar.vertical: ScrollBar {
             active: treeView.moving
 
@@ -92,7 +107,7 @@ Rectangle {
             property string nodeKey: (nodeType !== undefined && nodeType !== null) ? nodeType.toString().toLowerCase() : ""
 
             // Classification helpers
-            property bool isStatic: nodeKey.indexOf("static") !== -1
+            property bool isStatic: nodeKey === "static"
             property bool isAction: nodeKey.indexOf("action") !== -1
             property bool isHeader: nodeKey.indexOf("header") !== -1
             property bool isSeparator: nodeKey.indexOf("separator") !== -1
@@ -148,7 +163,7 @@ Rectangle {
                         anchors.fill: parent
                         anchors.margins: -4
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: TreeView.view.toggleExpanded(index)
+                        onClicked: treeView.toggleExpanded(index)
                     }
                 }
 
@@ -166,14 +181,14 @@ Rectangle {
                     source: {
                         if (isStatic) {
                             if (display === "All Photos") return iconPrefix + "/photo.on.rectangle.svg"
-                            if (display === "Location") return iconPrefix + "/map.svg"
+                            if (display === "Location") return iconPrefix + "/mappin.and.ellipse.svg"
                             if (display === "Recently Deleted") return iconPrefix + "/trash.svg"
                             if (display === "Videos") return iconPrefix + "/video.svg"
                             if (display === "Live Photos") return iconPrefix + "/livephoto.svg"
                             if (display === "Favorites") return iconPrefix + "/suit.heart.svg"
                             return iconPrefix + "/folder.svg"
                         }
-                        if (nodeKey.indexOf("header") !== -1) return iconPrefix + "/folder.badge.svg"
+                        if (nodeKey.indexOf("header") !== -1) return iconPrefix + "/folder.svg"
                         if (nodeKey.indexOf("action") !== -1) return iconPrefix + "/plus.circle.svg"
                         return iconPrefix + "/folder.svg"
                     }
@@ -215,7 +230,7 @@ Rectangle {
                             root.staticNodeSelected("Albums")
                         } else {
                             // Toggle expansion for other headers
-                            TreeView.view.toggleExpanded(index)
+                            treeView.toggleExpanded(index)
                         }
                         return
                     }
