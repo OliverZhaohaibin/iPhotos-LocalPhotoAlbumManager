@@ -1,5 +1,5 @@
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls.Basic
 import Qt.labs.qmlmodels 1.0
 import styles 1.0 as Styles
 
@@ -86,12 +86,24 @@ Rectangle {
             required property var path
 
             implicitHeight: 32
-            width: TreeView.view.width
+            implicitWidth: treeView.width
+            width: treeView.width
 
-            property string nodeKey: nodeType ? nodeType.toString().toLowerCase() : ""
+            property string nodeKey: (nodeType !== undefined && nodeType !== null) ? nodeType.toString().toLowerCase() : ""
+
+            // Classification helpers
             property bool isStatic: nodeKey.indexOf("static") !== -1
             property bool isAction: nodeKey.indexOf("action") !== -1
-            property bool isSelected: isStatic ? display === root.currentStaticSelection : path === root.currentSelection
+            property bool isHeader: nodeKey.indexOf("header") !== -1
+            property bool isSeparator: nodeKey.indexOf("separator") !== -1
+            property bool isAlbum: nodeKey.indexOf("album") !== -1 && !isStatic // ALBUM or SUBALBUM match 'album'
+
+            property bool isSelected: {
+                if (isStatic) return display && root.currentStaticSelection === display
+                if (isHeader) return display === "Albums" && root.currentStaticSelection === "Albums"
+                if (isAlbum) return path && root.currentSelection === path.toString()
+                return false
+            }
 
             Rectangle {
                 anchors.fill: parent
@@ -114,7 +126,7 @@ Rectangle {
                 Item {
                     width: 16
                     height: parent.height
-                    visible: TreeView.hasChildren
+                    visible: TreeView.hasChildren ?? false
 
                     Image {
                         anchors.centerIn: parent
@@ -189,11 +201,25 @@ Rectangle {
                 cursorShape: Qt.PointingHandCursor
 
                 onClicked: {
-                    var lower = nodeType ? nodeType.toString().toLowerCase() : ""
+                    if (isSeparator) return
+
                     if (isAction) {
                         root.bindLibraryRequested()
                         return
                     }
+
+                    if (isHeader) {
+                        if (display === "Albums") {
+                            root.currentStaticSelection = "Albums"
+                            root.currentSelection = null
+                            root.staticNodeSelected("Albums")
+                        } else {
+                            // Toggle expansion for other headers
+                            TreeView.view.toggleExpanded(index)
+                        }
+                        return
+                    }
+
                     if (isStatic) {
                         root.currentStaticSelection = display
                         root.currentSelection = null
@@ -202,10 +228,18 @@ Rectangle {
                         } else {
                             root.staticNodeSelected(display)
                         }
-                    } else {
-                        root.currentSelection = path
-                        root.currentStaticSelection = ""
-                        root.albumSelected(path)
+                        return
+                    }
+
+                    if (isAlbum) {
+                        if (path !== undefined && path !== null) {
+                            var pathStr = path.toString()
+                            root.currentSelection = pathStr
+                            root.currentStaticSelection = ""
+                            root.albumSelected(pathStr)
+                        } else {
+                            console.warn("AlbumSidebar: path is undefined for album node " + display)
+                        }
                     }
                 }
             }
