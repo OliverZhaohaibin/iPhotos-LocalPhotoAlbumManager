@@ -154,13 +154,13 @@ class AlbumTreeModel(QAbstractItemModel):
     def roleNames(self) -> dict[int, QByteArray]:  # type: ignore[override]
         """Expose friendly role names for QML consumption."""
 
-        roles = super().roleNames()
-        # We respect the default QByteArray bindings for standard roles (Display, Decoration)
-        # and append our custom roles using bytes, which PySide6 handles correctly.
-        roles[int(AlbumTreeRole.NODE_TYPE)] = b"nodeType"
-        roles[int(AlbumTreeRole.ALBUM_NODE)] = b"albumNode"
-        roles[int(AlbumTreeRole.FILE_PATH)] = b"path"
-        return roles
+        return {
+            int(Qt.ItemDataRole.DisplayRole): QByteArray(b"display"),
+            int(Qt.ItemDataRole.DecorationRole): QByteArray(b"decoration"),
+            int(AlbumTreeRole.NODE_TYPE): QByteArray(b"nodeType"),
+            int(AlbumTreeRole.ALBUM_NODE): QByteArray(b"albumNode"),
+            int(AlbumTreeRole.FILE_PATH): QByteArray(b"path"),
+        }
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:  # noqa: N802
         if not index.isValid():

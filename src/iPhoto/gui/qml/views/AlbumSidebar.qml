@@ -152,7 +152,8 @@ Rectangle {
                 Item {
                     width: 16
                     height: parent.height
-                    visible: TreeView.hasChildren ?? false
+                    // Hide chevron for Basic Library (it should always be expanded/resident)
+                    visible: (TreeView.hasChildren ?? false) && display !== "Basic Library"
 
                     Image {
                         anchors.centerIn: parent
@@ -239,8 +240,8 @@ Rectangle {
                             root.currentStaticSelection = "Albums"
                             root.currentSelection = null
                             root.staticNodeSelected("Albums")
-                        } else {
-                            // Toggle expansion for other headers
+                        } else if (display !== "Basic Library") {
+                            // Toggle expansion for headers other than Basic Library
                             treeView.toggleExpanded(index)
                         }
                         return
