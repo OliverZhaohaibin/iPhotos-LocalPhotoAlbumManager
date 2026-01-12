@@ -138,6 +138,7 @@ class ThumbnailJob(QRunnable):
         )
 
     def run(self) -> None:  # pragma: no cover - executed in worker thread
+        rel_for_path = self._cache_rel if self._cache_rel is not None else self._rel
         try:
             # Memory Guard
             if psutil:
@@ -235,7 +236,7 @@ class ThumbnailJob(QRunnable):
             except RuntimeError:  # pragma: no cover - race with QObject deletion
                 pass
         except Exception:
-            LOGGER.exception("ThumbnailJob failed for %s", self._abs_path)
+            LOGGER.exception("ThumbnailJob failed for %s (rel=%s)", self._abs_path, rel_for_path)
             loader = getattr(self, "_loader", None)
             if loader:
                 try:
@@ -653,18 +654,17 @@ class ThumbnailLoader(QObject):
         if base_key in self._failures:
             return None
 
-        job = ThumbnailJob(
-            self,
+        job = self._create_job_from_spec(
             rel,
             path,
             fixed_size,
             known_stamp,
             self._album_root,
             lib_root,
-            is_image=is_image,
-            is_video=is_video,
-            still_image_time=still_image_time,
-            duration=duration,
+            is_image,
+            is_video,
+            still_image_time,
+            duration,
         )
 
         self._store_job_spec(
@@ -730,6 +730,33 @@ class ThumbnailLoader(QObject):
             is_video,
             still_image_time,
             duration,
+        )
+
+    def _create_job_from_spec(
+        self,
+        rel: str,
+        abs_path: Path,
+        size: QSize,
+        known_stamp: Optional[int],
+        album_root: Path,
+        library_root: Path,
+        is_image: bool,
+        is_video: bool,
+        still_image_time: Optional[float],
+        duration: Optional[float],
+    ) -> ThumbnailJob:
+        return ThumbnailJob(
+            self,
+            rel,
+            abs_path,
+            size,
+            known_stamp,
+            album_root,
+            library_root,
+            is_image=is_image,
+            is_video=is_video,
+            still_image_time=still_image_time,
+            duration=duration,
         )
 
     def _record_terminal_failure(self, base_key: Tuple[str, str, int, int]) -> None:
@@ -874,18 +901,17 @@ class ThumbnailLoader(QObject):
         except Exception:
             LOGGER.debug("Failed to cleanup cache for %s", abs_path, exc_info=True)
 
-        retry_job = ThumbnailJob(
-            self,
+        retry_job = self._create_job_from_spec(
             stored_rel or rel,
             abs_path,
             size,
             None,
             album_root,
             library_root,
-            is_image=is_image,
-            is_video=is_video,
-            still_image_time=still_image_time,
-            duration=duration,
+            is_image,
+            is_video,
+            still_image_time,
+            duration,
         )
 
         self._store_job_spec(
