@@ -71,7 +71,7 @@ Rectangle {
             repeat: false
             onTriggered: {
                 // Expand "Basic Library" (usually row 0) and "Albums" (usually row 2)
-                // We expand indices 0 to 5 to be safe covering headers in standard layout
+                // Expand indices 0 to 4 (five rows) to safely cover headers in standard layout
                 for (var i = 0; i < 5; i++) {
                      treeView.expand(i)
                 }
