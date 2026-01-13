@@ -41,52 +41,49 @@ Rectangle {
         }
         
         // Tree list view
-        ListView {
-            id: treeView
+        ScrollView {
+            id: treeScrollView
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            
-            model: sidebarBridge.model
-            
-            delegate: SidebarItem {
-                width: treeView.width
-                height: nodeType === 7 ? sidebar.rowHeight / 2 : sidebar.rowHeight  // Separator is smaller
+
+            ListView {
+                id: treeView
+                anchors.fill: parent
                 
-                itemTitle: title
-                itemNodeType: nodeType
-                itemDepth: depth
-                itemIsExpanded: isExpanded
-                itemHasChildren: hasChildren
-                itemIsSelectable: isSelectable
-                itemIconName: iconName
-                itemIconPath: iconPath
+                model: sidebarBridge.model
                 
-                onClicked: {
-                    if (isSelectable) {
-                        treeView.currentIndex = index
-                        sidebarBridge.selectItem(index)
+                delegate: SidebarItem {
+                    width: treeView.width
+                    height: nodeType === 7 ? sidebar.rowHeight / 2 : sidebar.rowHeight  // Separator is smaller
+
+                    itemTitle: title
+                    itemNodeType: nodeType
+                    itemDepth: depth
+                    itemIsExpanded: isExpanded
+                    itemHasChildren: hasChildren
+                    itemIsSelectable: isSelectable
+                    itemIconName: iconName
+                    itemIconPath: iconPath
+
+                    onClicked: {
+                        if (isSelectable) {
+                            treeView.currentIndex = index
+                            sidebarBridge.selectItem(index)
+                        }
+                    }
+
+                    onToggleExpansion: {
+                        sidebarBridge.toggleExpansion(index)
                     }
                 }
                 
-                onToggleExpansion: {
-                    sidebarBridge.toggleExpansion(index)
+                // Highlight current selection
+                highlight: Rectangle {
+                    color: sidebar.selectedBackground
+                    radius: 6
                 }
-            }
-            
-            // Highlight current selection
-            highlight: Rectangle {
-                color: sidebar.selectedBackground
-                radius: 6
-            }
-            highlightFollowsCurrentItem: true
-            
-            ScrollBar.vertical: ScrollBar {
-                id: sidebarScrollBar
-                policy: ScrollBar.AsNeeded
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
+                highlightFollowsCurrentItem: true
             }
         }
     }
