@@ -81,8 +81,14 @@ Rectangle {
             }
             highlightFollowsCurrentItem: true
             
-            ScrollBar.vertical: ScrollBar {
+            ScrollBar {
+                id: sidebarScrollBar
                 policy: ScrollBar.AsNeeded
+                orientation: Qt.Vertical
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                target: treeView
             }
         }
     }
