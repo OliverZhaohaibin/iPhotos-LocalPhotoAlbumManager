@@ -43,7 +43,7 @@ def _qt_message_handler(mode: QtMsgType, context: QMessageLogContext | None, mes
         QtMsgType.QtCriticalMsg: "CRITICAL",
         QtMsgType.QtFatalMsg: "FATAL",
     }
-    level = level_map.get(mode, str(int(mode)))
+    level = level_map.get(mode, f"LEVEL_{int(mode)}")
     location = ""
     if context and context.file:
         location = f" ({context.file}:{context.line})"
@@ -70,7 +70,11 @@ def _enable_windows_software_opengl() -> None:
 
 
 def _set_windows_quick_software_backend() -> None:
-    """Select the Qt Quick software renderer on Windows."""
+    """Select the Qt Quick software renderer on Windows.
+    
+    Call this after creating the Qt application but before any QQuickWindow
+    instances are constructed.
+    """
     if platform.system().lower() != "windows":
         return
     try:
@@ -87,7 +91,7 @@ def _log_qml_warnings(
     for warning in warnings:
         try:
             text = warning.toString()
-        except Exception:  # pragma: no cover - defensive
+        except (AttributeError, RuntimeError, TypeError):  # pragma: no cover - defensive
             text = str(warning)
         if text in seen:
             continue
