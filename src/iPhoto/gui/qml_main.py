@@ -58,18 +58,24 @@ def _install_qt_logger() -> None:
         print(f"[Qt] Failed to install message handler: {exc}")
 
 
-def _configure_windows_software_rendering(*, pre_app: bool) -> None:
-    """Configure software rendering on Windows, before or after app creation."""
+def _enable_windows_software_opengl() -> None:
+    """Enable software OpenGL fallback on Windows before app creation."""
     if platform.system().lower() != "windows":
         return
     try:
-        if pre_app:
-            if not QCoreApplication.testAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL):
-                QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
-                print("[Qt] Enabled software OpenGL fallback for Windows.")
-        else:
-            QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.Software)
-            print("[Qt] Using software renderer for Qt Quick.")
+        QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
+        print("[Qt] Enabled software OpenGL fallback for Windows.")
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"[Qt] Unable to configure Qt Quick software rendering: {exc}")
+
+
+def _set_windows_quick_software_backend() -> None:
+    """Select the Qt Quick software renderer on Windows."""
+    if platform.system().lower() != "windows":
+        return
+    try:
+        QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.Software)
+        print("[Qt] Using software renderer for Qt Quick.")
     except Exception as exc:  # pragma: no cover - defensive
         print(f"[Qt] Unable to configure Qt Quick software rendering: {exc}")
 
@@ -174,13 +180,13 @@ def main(argv: list[str] | None = None) -> int:
     """Launch the QML application and return the exit code."""
     
     arguments = list(sys.argv if argv is None else argv)
-    _configure_windows_software_rendering(pre_app=True)
     # Install logger early to capture startup/plugin diagnostics.
     _install_qt_logger()
+    _enable_windows_software_opengl()
     
     print(f"[qml_main] Starting QML engine with arguments: {arguments}")
     app = QGuiApplication(arguments)
-    _configure_windows_software_rendering(pre_app=False)
+    _set_windows_quick_software_backend()
     
     # Register custom types with QML
     qmlRegisterType(SidebarModel, "iPhoto", 1, 0, "SidebarModel")
