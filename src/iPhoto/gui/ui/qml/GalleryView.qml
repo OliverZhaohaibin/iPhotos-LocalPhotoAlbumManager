@@ -10,9 +10,9 @@ Rectangle {
     property string currentTitle: "All Photos"
     property int itemCount: sidebarBridge.galleryModel.count
     
-    // Layout constants
-    readonly property int gridCellSize: 200
-    readonly property int gridSpacing: 4
+    // Layout constants matching widget implementation
+    readonly property int gridCellSize: 192
+    readonly property int gridSpacing: 2
     readonly property int headerHeight: 50
     
     ColumnLayout {
@@ -88,18 +88,17 @@ Rectangle {
                     width: gridView.cellWidth
                     height: gridView.cellHeight
                     
+                    // No radius - square corners matching widget
                     Rectangle {
                         id: cellBackground
                         anchors.fill: parent
                         anchors.margins: gridSpacing / 2
-                        color: "#f0f0f0"
-                        radius: 4
+                        color: "#1b1b1b"  // Match widget dark background
                         
-                        // Thumbnail image
+                        // Thumbnail image - fills entire cell
                         Image {
                             id: thumbnailImage
                             anchors.fill: parent
-                            anchors.margins: 2
                             source: thumbnail
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
@@ -108,62 +107,59 @@ Rectangle {
                             // Loading placeholder
                             Rectangle {
                                 anchors.fill: parent
-                                color: "#e0e0e0"
+                                color: "#1b1b1b"
                                 visible: thumbnailImage.status !== Image.Ready
-                                
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "📷"
-                                    font.pixelSize: 32
-                                    opacity: 0.5
-                                }
-                            }
-                            
-                            // Video indicator
-                            Rectangle {
-                                anchors.bottom: parent.bottom
-                                anchors.left: parent.left
-                                anchors.margins: 8
-                                width: 24
-                                height: 24
-                                radius: 12
-                                color: "rgba(0, 0, 0, 0.6)"
-                                visible: isVideo
-                                
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "▶"
-                                    font.pixelSize: 12
-                                    color: "white"
-                                }
-                            }
-                            
-                            // Live photo indicator
-                            Rectangle {
-                                anchors.top: parent.top
-                                anchors.left: parent.left
-                                anchors.margins: 8
-                                width: 20
-                                height: 20
-                                radius: 10
-                                color: "rgba(0, 0, 0, 0.6)"
-                                visible: isLive
-                                
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "◉"
-                                    font.pixelSize: 10
-                                    color: "white"
-                                }
                             }
                         }
                         
-                        // Selection/hover effect
+                        // Live Photo badge - top left with icon (matching widget)
+                        Rectangle {
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.margins: 8
+                            width: 30
+                            height: 30
+                            radius: 6
+                            color: Qt.rgba(0, 0, 0, 0.55)
+                            visible: isLive
+                            
+                            Image {
+                                anchors.centerIn: parent
+                                width: 18
+                                height: 18
+                                source: "file:" + sidebarBridge.iconDir + "/livephoto.svg"
+                                sourceSize.width: 18
+                                sourceSize.height: 18
+                            }
+                        }
+                        
+                        // Duration badge - bottom right (matching widget)
+                        Rectangle {
+                            id: durationBadge
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 8
+                            height: 22
+                            width: durationText.width + 12
+                            radius: 6
+                            color: Qt.rgba(0, 0, 0, 0.63)
+                            visible: isVideo
+                            
+                            Text {
+                                id: durationText
+                                anchors.centerIn: parent
+                                text: "0:30"  // Placeholder - would come from model
+                                font.pixelSize: 11
+                                font.bold: true
+                                color: "white"
+                            }
+                        }
+                        
+                        // Selection highlight - no radius
                         Rectangle {
                             id: selectionOverlay
                             anchors.fill: parent
                             color: "transparent"
-                            radius: 4
                             border.width: mouseArea.containsMouse ? 2 : 0
                             border.color: "#007AFF"
                         }
@@ -180,12 +176,11 @@ Rectangle {
                     }
                 }
                 
-                // Highlight current selection
+                // Highlight current selection - square corners
                 highlight: Rectangle {
                     color: "transparent"
                     border.width: 3
                     border.color: "#007AFF"
-                    radius: 4
                 }
                 highlightFollowsCurrentItem: true
                 

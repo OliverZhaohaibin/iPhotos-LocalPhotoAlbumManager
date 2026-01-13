@@ -17,6 +17,9 @@ from ..appctx import AppContext
 from .ui.models.gallery_model import GalleryModel
 from .ui.models.sidebar_model import SidebarModel
 
+# Icon directory path
+ICON_DIR = Path(__file__).parent / "ui" / "icon"
+
 
 class SidebarBridge(QObject):
     """Bridge between QML and the Python sidebar model.
@@ -56,6 +59,11 @@ class SidebarBridge(QObject):
     def galleryModel(self) -> GalleryModel:  # noqa: N802
         """Return the gallery model for QML binding."""
         return self._gallery_model
+    
+    @Property(str, constant=True)
+    def iconDir(self) -> str:  # noqa: N802
+        """Return the path to the icon directory for QML."""
+        return str(ICON_DIR)
     
     @Property(bool, constant=False, notify=hasLibraryChanged)
     def hasLibrary(self) -> bool:  # noqa: N802  # Qt property uses camelCase
