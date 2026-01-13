@@ -13,8 +13,8 @@ from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
 
-from ..appctx import AppContext
-from .ui.models.sidebar_model import SidebarModel
+from src.iPhoto.appctx import AppContext
+from src.iPhoto.gui.ui.models.sidebar_model import SidebarModel
 
 
 class SidebarBridge(QObject):
