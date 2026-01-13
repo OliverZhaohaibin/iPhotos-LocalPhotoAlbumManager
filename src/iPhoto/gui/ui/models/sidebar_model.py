@@ -128,10 +128,11 @@ class SidebarModel(QAbstractListModel):
     
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
         """Return data for the given role at the specified index."""
-        if not index.isValid() or index.row() >= len(self._flat_items):
+        row = index.row()
+        if not index.isValid() or row < 0 or row >= len(self._flat_items):
             return None
         
-        item = self._flat_items[index.row()]
+        item = self._flat_items[row]
         
         if role == Qt.ItemDataRole.DisplayRole or role == SidebarRoles.TitleRole:
             return item.title
@@ -170,18 +171,20 @@ class SidebarModel(QAbstractListModel):
             return
         
         item = self._flat_items[row]
+        node_type = item.node_type
         
-        if item.node_type == NodeType.ACTION:
+        if node_type == NodeType.ACTION:
             self.bindLibraryRequested.emit()
             return
         
-        if item.node_type == NodeType.HEADER:
+        if node_type == NodeType.HEADER:
             if item.title == "Albums":
                 self.staticNodeSelected.emit("Albums")
             return
         
-        if item.node_type == NodeType.STATIC:
-            if self._library.root() is None:
+        if node_type == NodeType.STATIC:
+            # Require library to be bound before selecting static nodes
+            if not self._has_library():
                 self.bindLibraryRequested.emit()
                 return
             if item.title == "All Photos":
@@ -192,6 +195,10 @@ class SidebarModel(QAbstractListModel):
         
         if item.album is not None:
             self.albumSelected.emit(item.album.path)
+    
+    def _has_library(self) -> bool:
+        """Check if a library root is currently bound."""
+        return self._library.root() is not None
     
     @Slot(int)
     def toggle_expansion(self, row: int) -> None:
@@ -217,9 +224,7 @@ class SidebarModel(QAbstractListModel):
     
     def _build_tree(self) -> None:
         """Build the tree structure from the library."""
-        library_root = self._library.root()
-        
-        if library_root is None:
+        if not self._has_library():
             # Show placeholder when no library is bound
             placeholder = SidebarItem(
                 title="Bind Basic Library…",

@@ -29,6 +29,7 @@ class SidebarBridge(QObject):
     allPhotosSelected = Signal()  # noqa: N815
     staticNodeSelected = Signal(str)  # noqa: N815  # Emits the static node title
     bindLibraryRequested = Signal()  # noqa: N815
+    hasLibraryChanged = Signal()  # noqa: N815  # Notify when library binding changes
     
     def __init__(self, context: AppContext, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -40,13 +41,16 @@ class SidebarBridge(QObject):
         self._model.allPhotosSelected.connect(self.allPhotosSelected)
         self._model.staticNodeSelected.connect(self.staticNodeSelected)
         self._model.bindLibraryRequested.connect(self.bindLibraryRequested)
+        
+        # Connect library tree updates to hasLibrary changes
+        self._context.library.treeUpdated.connect(self.hasLibraryChanged)
     
     @Property(QObject, constant=True)
     def model(self) -> SidebarModel:
         """Return the sidebar model for QML binding."""
         return self._model
     
-    @Property(bool, constant=False, notify=Signal())
+    @Property(bool, constant=False, notify=hasLibraryChanged)
     def hasLibrary(self) -> bool:  # noqa: N802  # Qt property uses camelCase
         """Return whether a library is currently bound."""
         return self._context.library.root() is not None

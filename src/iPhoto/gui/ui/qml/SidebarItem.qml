@@ -44,6 +44,7 @@ Item {
     readonly property int iconSize: 16
     readonly property int iconTextGap: 8
     readonly property int branchIndicatorSize: 12
+    readonly property int rightPadding: 20  // Right margin for text eliding
     
     // Separator rendering
     Rectangle {
@@ -116,7 +117,7 @@ Item {
                 width: iconSize
                 height: iconSize
                 anchors.verticalCenter: parent.verticalCenter
-                font.family: "SF Pro"
+                font.family: Qt.platform.os === "osx" ? "SF Pro" : "Segoe UI"  // Fallback for non-macOS
                 font.pixelSize: iconSize
                 color: iconColor
                 text: getIconText(itemIconName, itemNodeType)
@@ -158,7 +159,7 @@ Item {
                 font.italic: itemNodeType === nodeTypeAction
                 color: getTextColor()
                 elide: Text.ElideRight
-                width: Math.max(0, root.width - rowContent.x - iconSize - iconTextGap - 20)
+                width: Math.max(0, root.width - rowContent.x - iconSize - iconTextGap - rightPadding)
                 
                 function getTextSize() {
                     if (itemNodeType === nodeTypeHeader) return 13
