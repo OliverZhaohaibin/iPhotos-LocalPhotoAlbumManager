@@ -14,6 +14,7 @@ from PySide6.QtCore import (
     Property,
     QCoreApplication,
     QObject,
+    QMessageLogContext,
     Qt,
     QtMsgType,
     QUrl,
@@ -22,7 +23,7 @@ from PySide6.QtCore import (
     qInstallMessageHandler,
 )
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
+from PySide6.QtQml import QQmlApplicationEngine, QQmlError, qmlRegisterType
 from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
 
 from ..appctx import AppContext
@@ -31,9 +32,10 @@ from .ui.models.sidebar_model import SidebarModel
 
 # Icon directory path
 ICON_DIR = Path(__file__).parent / "ui" / "icon"
+_captured_qml_warnings: list[str] = []
 
 
-def _qt_message_handler(mode: QtMsgType, context, message: str) -> None:
+def _qt_message_handler(mode: QtMsgType, context: QMessageLogContext | None, message: str) -> None:
     """Route Qt/QML messages to the Python console for easier debugging."""
     level_map = {
         QtMsgType.QtDebugMsg: "DEBUG",
@@ -73,13 +75,15 @@ def _force_software_rendering_on_windows() -> None:
         print(f"[Qt] Unable to set Qt Quick renderer: {exc}")
 
 
-def _log_qml_warnings(warnings) -> None:
+def _log_qml_warnings(warnings: list[QQmlError]) -> None:
     """Log QML warnings surfaced by the engine."""
     for warning in warnings:
         try:
-            print(f"[QML warning] {warning.toString()}")
+            text = warning.toString()
         except Exception:  # pragma: no cover - defensive
-            print(f"[QML warning] {warning}")
+            text = str(warning)
+        _captured_qml_warnings.append(text)
+        print(f"[QML warning] {text}")
 
 
 class SidebarBridge(QObject):
@@ -209,8 +213,8 @@ def main(argv: list[str] | None = None) -> int:
     
     if not engine.rootObjects():
         print("Error: Failed to load QML root objects")
-        for warning in engine.warnings():
-            print(f"[QML warning] {warning.toString()}")
+        for warning in _captured_qml_warnings:
+            print(f"[QML warning] {warning}")
         return 1
     
     # Allow opening an album directly via argv[1]
