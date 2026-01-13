@@ -10,6 +10,8 @@ import platform
 import sys
 from pathlib import Path
 
+from typing import Callable
+
 from PySide6.QtCore import (
     Property,
     QCoreApplication,
@@ -84,20 +86,24 @@ def _set_windows_quick_software_backend() -> None:
         print(f"[Qt] Unable to configure Qt Quick software rendering: {exc}")
 
 
-def _log_qml_warnings(
-    storage: list[str], seen: set[str], warnings: list[QQmlError]
-) -> None:
-    """Log QML warnings surfaced by the engine."""
-    for warning in warnings:
-        try:
-            text = warning.toString()
-        except (AttributeError, RuntimeError, TypeError):  # pragma: no cover - defensive
-            text = str(warning)
-        if text in seen:
-            continue
-        seen.add(text)
-        storage.append(text)
-        print(f"[QML warning] {text}")
+def _make_qml_warning_logger() -> tuple[Callable[[list[QQmlError]], None], list[str]]:
+    """Return a QML warning handler and captured storage."""
+    storage: list[str] = []
+    seen: set[str] = set()
+
+    def _log_qml_warnings(warnings: list[QQmlError]) -> None:
+        for warning in warnings:
+            try:
+                text = warning.toString()
+            except AttributeError:  # pragma: no cover - defensive
+                text = str(warning)
+            if text in seen:
+                continue
+            seen.add(text)
+            storage.append(text)
+            print(f"[QML warning] {text}")
+
+    return _log_qml_warnings, storage
 
 
 class SidebarBridge(QObject):
@@ -196,18 +202,14 @@ def main(argv: list[str] | None = None) -> int:
     qmlRegisterType(SidebarModel, "iPhoto", 1, 0, "SidebarModel")
     qmlRegisterType(GalleryModel, "iPhoto", 1, 0, "GalleryModel")
     
-    captured_warnings: list[str] = []
-    seen_warnings: set[str] = set()
+    qml_warning_handler, captured_warnings = _make_qml_warning_logger()
     engine = QQmlApplicationEngine()
-
-    def _on_qml_warnings(warnings: list[QQmlError]) -> None:
-        _log_qml_warnings(captured_warnings, seen_warnings, warnings)
 
     def _on_object_created(obj: QObject | None, url: QUrl) -> None:
         if obj is None:
             print(f"[qml_main] Failed to create root object from {url.toString()}")
 
-    engine.warnings.connect(_on_qml_warnings)
+    engine.warnings.connect(qml_warning_handler)
     engine.objectCreated.connect(_on_object_created)
     
     # Create application context and sidebar bridge
