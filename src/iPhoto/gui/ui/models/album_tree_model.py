@@ -22,6 +22,7 @@ class AlbumTreeRole(int, Enum):
     NODE_TYPE = Qt.ItemDataRole.UserRole + 1
     FILE_PATH = Qt.ItemDataRole.UserRole + 2
     ALBUM_NODE = Qt.ItemDataRole.UserRole + 3
+    NODE_TITLE = Qt.ItemDataRole.UserRole + 4
 
 
 class NodeType(Enum):
@@ -139,6 +140,8 @@ class AlbumTreeModel(QAbstractItemModel):
         item = self._item_from_index(index)
         if role == Qt.ItemDataRole.DisplayRole:
             return item.title
+        if role == AlbumTreeRole.NODE_TITLE:
+            return item.title
         if role == Qt.ItemDataRole.ToolTipRole and item.album is not None:
             return str(item.album.path)
         if role == AlbumTreeRole.NODE_TYPE:
@@ -155,11 +158,12 @@ class AlbumTreeModel(QAbstractItemModel):
         """Expose friendly role names for QML consumption."""
 
         return {
-            int(Qt.ItemDataRole.DisplayRole): QByteArray(b"label"),
+            int(Qt.ItemDataRole.DisplayRole): QByteArray(b"display"),
             int(Qt.ItemDataRole.DecorationRole): QByteArray(b"decoration"),
             int(AlbumTreeRole.NODE_TYPE): QByteArray(b"nodeType"),
             int(AlbumTreeRole.ALBUM_NODE): QByteArray(b"albumNode"),
             int(AlbumTreeRole.FILE_PATH): QByteArray(b"path"),
+            int(AlbumTreeRole.NODE_TITLE): QByteArray(b"nodeTitle"),
         }
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:  # noqa: N802
