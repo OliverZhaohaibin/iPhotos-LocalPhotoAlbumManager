@@ -1,4 +1,4 @@
-# 📸 iPhoto
+# 📸 iPhotron
 > Bring the macOS *Photos* experience to Windows — folder-native, non-destructive photo management with Live Photo, maps, and smart albums.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
@@ -21,7 +21,7 @@
 
 ## 🌟 Overview
 
-**iPhoto** is a **folder-native photo manager** inspired by macOS *Photos*.  
+**iPhotron** is a **folder-native photo manager** inspired by macOS *Photos*.  
 It organizes your media using lightweight JSON manifests and cache files —  
 offering rich album functionality while **keeping all original files intact**.
 
@@ -340,5 +340,5 @@ pytest
 **MIT License © 2025**  
 Created by **Haibin Zhao (OliverZhaohaibin)**  
 
-> *iPhoto — A folder-native, human-readable, and fully rebuildable photo system.*  
+> *iPhotron — A folder-native, human-readable, and fully rebuildable photo system.*  
 > *No imports. No database. Just your photos, organized elegantly.*
