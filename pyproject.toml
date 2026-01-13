@@ -48,6 +48,7 @@ dev = [
 [project.scripts]
 iphoto = "iPhoto.cli:app"
 iphoto-gui = "iPhoto.gui.main:main"
+iphoto-qml = "iPhoto.gui.qml_main:main"
 
 [tool.ruff]
 line-length = 100
