@@ -124,9 +124,6 @@ def main(argv: list[str] | None = None) -> int:
     
     print("QGuiApplication created")
 
-    # Enforce Basic style to avoid plugin issues with Fusion/Material on some systems
-    QQuickStyle.setStyle("Basic")
-
     # Register custom types with QML
     qmlRegisterType(SidebarModel, "iPhoto", 1, 0, "SidebarModel")
     qmlRegisterType(GalleryModel, "iPhoto", 1, 0, "GalleryModel")
