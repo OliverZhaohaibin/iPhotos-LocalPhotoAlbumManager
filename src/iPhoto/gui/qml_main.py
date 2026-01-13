@@ -97,6 +97,9 @@ def _apply_windows_env_fallbacks() -> None:
         "QT_QUICK_BACKEND": "software",  # Explicit Qt Quick software backend hint
         "QSG_INFO": "1",  # Print scene graph backend info to console
         "QT_DEBUG_PLUGINS": "1",  # Plugin loading diagnostics
+        "QT_QPA_PLATFORM": "windows:renderer=software",  # Force software renderer in platform plugin
+        "QT_D3D_ADAPTER_INDEX": "-1",  # Avoid specific GPU adapters; prefer WARP/software
+        "QSG_RENDER_LOOP": "basic",  # Disable threaded render loop which can crash on some setups
     }
     for key, value in env_overrides.items():
         if os.environ.get(key, "").lower() != value:
