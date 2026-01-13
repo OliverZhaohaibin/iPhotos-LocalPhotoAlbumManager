@@ -32,7 +32,6 @@ from .ui.models.sidebar_model import SidebarModel
 
 # Icon directory path
 ICON_DIR = Path(__file__).parent / "ui" / "icon"
-_captured_qml_warnings: list[str] = []
 
 
 def _qt_message_handler(mode: QtMsgType, context: QMessageLogContext | None, message: str) -> None:
@@ -75,14 +74,14 @@ def _force_software_rendering_on_windows() -> None:
         print(f"[Qt] Unable to set Qt Quick renderer: {exc}")
 
 
-def _log_qml_warnings(warnings: list[QQmlError]) -> None:
+def _log_qml_warnings(storage: list[str], warnings: list[QQmlError]) -> None:
     """Log QML warnings surfaced by the engine."""
     for warning in warnings:
         try:
             text = warning.toString()
         except Exception:  # pragma: no cover - defensive
             text = str(warning)
-        _captured_qml_warnings.append(text)
+        storage.append(text)
         print(f"[QML warning] {text}")
 
 
@@ -180,8 +179,9 @@ def main(argv: list[str] | None = None) -> int:
     qmlRegisterType(SidebarModel, "iPhoto", 1, 0, "SidebarModel")
     qmlRegisterType(GalleryModel, "iPhoto", 1, 0, "GalleryModel")
     
+    captured_warnings: list[str] = []
     engine = QQmlApplicationEngine()
-    engine.warnings.connect(_log_qml_warnings)
+    engine.warnings.connect(lambda warnings: _log_qml_warnings(captured_warnings, warnings))
     engine.objectCreated.connect(
         lambda obj, url: print(f"[qml_main] Failed to create root object from {url.toString()}")
         if obj is None
@@ -213,8 +213,10 @@ def main(argv: list[str] | None = None) -> int:
     
     if not engine.rootObjects():
         print("Error: Failed to load QML root objects")
-        for warning in _captured_qml_warnings:
-            print(f"[QML warning] {warning}")
+        if captured_warnings:
+            print(
+                f"[qml_main] {len(captured_warnings)} QML warning(s) were captured during load."
+            )
         return 1
     
     # Allow opening an album directly via argv[1]
