@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
+from PySide6.QtQml import QQmlApplicationEngine
 
 from ..appctx import AppContext
 from .ui.models.gallery_model import GalleryModel
@@ -107,9 +107,13 @@ def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv if argv is None else argv)
     app = QGuiApplication(arguments)
     
-    # Register custom types with QML
-    qmlRegisterType(SidebarModel, "iPhoto", 1, 0, "SidebarModel")
-    qmlRegisterType(GalleryModel, "iPhoto", 1, 0, "GalleryModel")
+    # NOTE: We do NOT call qmlRegisterType for SidebarModel or GalleryModel.
+    # These models require constructor arguments (library, parent) and cannot
+    # be instantiated directly by QML. They are exposed via context properties
+    # through SidebarBridge instead (sidebarBridge.model and sidebarBridge.galleryModel).
+    # Using qmlRegisterType with models that have required constructor arguments
+    # can cause crashes at the C++ level on Windows when the QML engine attempts
+    # to instantiate them.
     
     engine = QQmlApplicationEngine()
     
