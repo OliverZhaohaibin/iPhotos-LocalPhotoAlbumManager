@@ -14,7 +14,7 @@ from PySide6.QtSvg import QSvgRenderer
 from ....config import WORK_DIR_NAME
 
 if TYPE_CHECKING:  # pragma: no cover
-    pass
+    from ..tasks.thumbnail_loader import ThumbnailLoader
 
 # Path to bundled icon directory
 ICON_DIRECTORY = Path(__file__).resolve().parent.parent / "icon"
@@ -148,10 +148,15 @@ class ThumbnailImageProvider(QQuickImageProvider):
         self._cache_order: list[str] = []  # LRU order tracking
         self._cache_size = 0
         self._library_root: Path | None = None
+        self._loader: ThumbnailLoader | None = None
 
     def set_library_root(self, root: Path) -> None:
         """Set the library root path for locating cached thumbnails."""
         self._library_root = root
+
+    def set_loader(self, loader: ThumbnailLoader) -> None:
+        """Set the thumbnail loader instance."""
+        self._loader = loader
         
     def requestImage(  # noqa: N802 - Qt override
         self,
@@ -160,6 +165,27 @@ class ThumbnailImageProvider(QQuickImageProvider):
         requested_size: QSize
     ) -> QImage:
         """Load a thumbnail image for the given file path."""
+        # Parse URL parameters
+        path_str = id_str
+        is_video = False
+        duration = 0.0
+
+        if "?" in id_str:
+            path_str, params = id_str.split("?", 1)
+            for param in params.split("&"):
+                if param.startswith("is_video="):
+                    is_video = param[9:].lower() == "true"
+                elif param.startswith("duration="):
+                    try:
+                        duration = float(param[9:])
+                    except ValueError:
+                        pass
+
+        # Use clean path for cache key (excluding transient params but including mtime/version if encoded)
+        # However, GalleryModel appends ?v=... which we want to use for cache invalidation implicitly
+        # (different URL = different cache entry), but id_str already contains it.
+        # But we want to strip parameters for file path resolution.
+
         # Check cache and update LRU order
         if id_str in self._cache:
             # Move to end of LRU list (most recently used)
@@ -178,7 +204,7 @@ class ThumbnailImageProvider(QQuickImageProvider):
         
         # Try to find a cached thumbnail file first
         image = QImage()
-        file_path = Path(id_str)
+        file_path = Path(path_str)
         
         # Normalize the path for cache lookup
         try:
@@ -190,8 +216,8 @@ class ThumbnailImageProvider(QQuickImageProvider):
         if self._library_root:
             try:
                 # Logic matching generate_cache_path in thumbnail_loader.py
-                path_str = str(resolved_path)
-                digest = hashlib.blake2b(path_str.encode("utf-8"), digest_size=20).hexdigest()
+                path_hash_str = str(resolved_path)
+                digest = hashlib.blake2b(path_hash_str.encode("utf-8"), digest_size=20).hexdigest()
                 thumbs_dir = self._library_root / WORK_DIR_NAME / "thumbs"
 
                 if thumbs_dir.exists():
@@ -217,8 +243,36 @@ class ThumbnailImageProvider(QQuickImageProvider):
                 # Fallback to loading original if cache lookup fails
                 pass
 
+        # If cache miss and we have a loader, trigger background generation
+        if image.isNull() and self._loader:
+            # Use absolute path as rel to avoid ambiguity with context
+            rel_path = path_str
+
+            # Request thumbnail generation
+            # Note: request() returns a QPixmap if available in memory, or None if scheduled
+            pixmap = self._loader.request(
+                rel=rel_path,
+                path=file_path,
+                size=requested_size if requested_size.isValid() else QSize(512, 512),
+                is_image=not is_video,
+                is_video=is_video,
+                duration=duration
+            )
+
+            if pixmap:
+                image = pixmap.toImage()
+
         # Fallback: Load original file if no cache found or cache load failed
-        if image.isNull():
+        # Only do this if we didn't just schedule a job (which returns None)
+        # But if we scheduled a job, we want to return a placeholder for now.
+        # If we are here and image is Null, it means:
+        # 1. Not in disk cache.
+        # 2. Loader returned None (scheduled) OR no loader.
+
+        # If no loader, we try to load original.
+        # If loader exists but returned None, we return placeholder (to avoid blocking UI loading full image).
+
+        if image.isNull() and not self._loader:
             try:
                 if file_path.exists():
                     # Try to load the original file

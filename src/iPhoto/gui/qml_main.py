@@ -19,6 +19,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 # This module is always run from the package context
 from iPhoto.appctx import AppContext
 from iPhoto.errors import IPhotoError
+from iPhoto.gui.ui.tasks.thumbnail_loader import ThumbnailLoader
 
 if TYPE_CHECKING:
     from iPhoto.gui.ui.models.sidebar_model import SidebarModel
@@ -125,16 +126,20 @@ class GalleryBridge(QObject):
         super().__init__(parent)
         self._context = context
         self._model: GalleryModel | None = None
+        self._loader: ThumbnailLoader | None = None
         self._initialized = False
         
-    def initialize(self) -> None:
+    def initialize(self, loader: ThumbnailLoader | None = None) -> None:
         """Initialize the gallery model after app is ready."""
         if self._initialized:
             return
             
+        self._loader = loader
         try:
             from iPhoto.gui.ui.qml.gallery_model import GalleryModel
             self._model = GalleryModel(self._context.library, self)
+            if self._loader:
+                self._model.set_thumbnail_loader(self._loader)
             self._model.countChanged.connect(self.countChanged)
             self._model.loadingChanged.connect(self.loadingChanged)
             self._model.itemSelected.connect(self.itemSelected)
@@ -236,6 +241,9 @@ def main(argv: list[str] | None = None) -> int:
     sidebar_bridge = SidebarBridge(context)
     gallery_bridge = GalleryBridge(context)
     
+    # Create thumbnail loader
+    thumbnail_loader = ThumbnailLoader(app)
+
     # Create QML engine
     engine = QQmlApplicationEngine()
     
@@ -245,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         from iPhoto.gui.ui.qml.qml_providers import IconImageProvider, ThumbnailImageProvider
         engine.addImageProvider("icons", IconImageProvider())
         thumbnail_provider = ThumbnailImageProvider()
+        thumbnail_provider.set_loader(thumbnail_loader)
         engine.addImageProvider("thumbnails", thumbnail_provider)
     except Exception as e:
         print(f"Warning: Failed to register image providers: {e}")
@@ -270,17 +279,24 @@ def main(argv: list[str] | None = None) -> int:
     # Initialize bridges before loading QML
     # This ensures models are ready when QML accesses them
     sidebar_bridge.initialize()
-    gallery_bridge.initialize()
+    gallery_bridge.initialize(thumbnail_loader)
     
     # Setup connection to update thumbnail provider with library root
     def update_thumbnail_provider_root():
-        if thumbnail_provider and context.library.root():
-            thumbnail_provider.set_library_root(context.library.root())
+        root = context.library.root()
+        if root:
+            if thumbnail_provider:
+                thumbnail_provider.set_library_root(root)
+            if thumbnail_loader:
+                thumbnail_loader.set_library_root(root)
 
     # Connect signals
     context.library.treeUpdated.connect(update_thumbnail_provider_root)
     # Initial set if library is already bound
     update_thumbnail_provider_root()
+
+    # Ensure loader shutdown
+    app.aboutToQuit.connect(thumbnail_loader.shutdown)
 
     # Load the main QML file
     engine.load(QUrl.fromLocalFile(str(main_qml)))

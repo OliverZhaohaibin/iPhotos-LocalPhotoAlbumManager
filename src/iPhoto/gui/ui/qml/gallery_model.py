@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from PySide6.QtCore import (
     Property,
@@ -17,6 +17,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
+from PySide6.QtGui import QPixmap
 
 try:
     from .....library.manager import LibraryManager
@@ -25,6 +26,9 @@ except ImportError:
         from src.iPhoto.library.manager import LibraryManager
     except ImportError:
         from iPhoto.library.manager import LibraryManager
+
+if TYPE_CHECKING:
+    from ..tasks.thumbnail_loader import ThumbnailLoader
 
 
 class GalleryRoles(IntEnum):
@@ -54,6 +58,7 @@ class GalleryItem:
     # Cached file modification timestamp (st_mtime) to avoid repeated filesystem
     # calls during sorting operations. Set when the item is created in _add_if_media().
     mtime: float = 0.0
+    thumbnail_version: int = 0
 
 
 class GalleryModel(QAbstractListModel):
@@ -78,8 +83,44 @@ class GalleryModel(QAbstractListModel):
         super().__init__(parent)
         self._library = library
         self._items: list[GalleryItem] = []
+        self._path_to_index: dict[Path, int] = {}
         self._current_path: Path | None = None
         self._loading = False
+        self._loader: ThumbnailLoader | None = None
+
+    def set_thumbnail_loader(self, loader: ThumbnailLoader) -> None:
+        """Set the thumbnail loader instance and connect signals."""
+        self._loader = loader
+        # Connect safely using old-style syntax to avoid typing issues or multiple connections
+        try:
+            self._loader.ready.disconnect(self._on_thumbnail_ready)
+        except (RuntimeError, TypeError):
+            pass
+        self._loader.ready.connect(self._on_thumbnail_ready)
+
+    @Slot(Path, str, QPixmap)
+    def _on_thumbnail_ready(self, root: Path, rel: str, pixmap: QPixmap) -> None:
+        """Handle notification that a thumbnail is ready."""
+        # Try using rel as provided first (it might be absolute or match exactly)
+        path = Path(rel)
+        if path not in self._path_to_index and not path.is_absolute():
+            # Fallback to combining with root
+            path = root / rel
+
+        # Find item by path
+        if path in self._path_to_index:
+            idx = self._path_to_index[path]
+            if 0 <= idx < len(self._items):
+                item = self._items[idx]
+                item.thumbnail_version += 1
+
+                # Notify view that thumbnail URL has changed
+                model_index = self.index(idx, 0)
+                self.dataChanged.emit(
+                    model_index,
+                    model_index,
+                    [GalleryRoles.ThumbnailUrlRole]
+                )
         
     def roleNames(self) -> dict[int, QByteArray]:  # noqa: N802  # Qt override
         """Return the role names for QML property binding."""
@@ -115,7 +156,10 @@ class GalleryModel(QAbstractListModel):
             return str(item.file_path)
         elif role == GalleryRoles.ThumbnailUrlRole:
             # Return the URL for the thumbnail image provider
-            return f"image://thumbnails/{item.file_path}"
+            url = f"image://thumbnails/{item.file_path}?v={item.thumbnail_version}"
+            if item.is_video:
+                url += f"&is_video=true&duration={item.duration}"
+            return url
         elif role == GalleryRoles.IsVideoRole:
             return item.is_video
         elif role == GalleryRoles.IsLiveRole:
@@ -144,15 +188,20 @@ class GalleryModel(QAbstractListModel):
     @Slot(str)
     def loadAlbum(self, path: str) -> None:  # noqa: N802
         """Load assets from the given album path."""
-        album_path = Path(path)
+        # Resolve to absolute path to ensure consistency
+        album_path = Path(path).resolve()
         if not album_path.exists() or not album_path.is_dir():
             return
         
         self._loading = True
         self.loadingChanged.emit()
         
+        if self._loader:
+            self._loader.reset_for_album(album_path)
+
         self.beginResetModel()
         self._items.clear()
+        self._path_to_index.clear()
         self._current_path = album_path
         
         # Scan directory for media files
@@ -174,8 +223,12 @@ class GalleryModel(QAbstractListModel):
         self._loading = True
         self.loadingChanged.emit()
         
+        if self._loader:
+            self._loader.reset_for_album(root)
+
         self.beginResetModel()
         self._items.clear()
+        self._path_to_index.clear()
         self._current_path = root
         
         # Recursively scan library for media files
@@ -183,6 +236,7 @@ class GalleryModel(QAbstractListModel):
         
         # Sort by cached modification time (newest first)
         self._items.sort(key=lambda x: x.mtime, reverse=True)
+        self._rebuild_index_map()
         
         self.endResetModel()
         self.countChanged.emit()
@@ -200,8 +254,12 @@ class GalleryModel(QAbstractListModel):
         self._loading = True
         self.loadingChanged.emit()
 
+        if self._loader:
+            self._loader.reset_for_album(root)
+
         self.beginResetModel()
         self._items.clear()
+        self._path_to_index.clear()
         self._current_path = root
 
         # Recursively scan library for video files only
@@ -209,6 +267,7 @@ class GalleryModel(QAbstractListModel):
 
         # Sort by cached modification time (newest first)
         self._items.sort(key=lambda x: x.mtime, reverse=True)
+        self._rebuild_index_map()
 
         self.endResetModel()
         self.countChanged.emit()
@@ -226,8 +285,12 @@ class GalleryModel(QAbstractListModel):
         self._loading = True
         self.loadingChanged.emit()
 
+        if self._loader:
+            self._loader.reset_for_album(root)
+
         self.beginResetModel()
         self._items.clear()
+        self._path_to_index.clear()
         self._current_path = root
 
         # Recursively scan library for live photos only
@@ -235,6 +298,7 @@ class GalleryModel(QAbstractListModel):
 
         # Sort by cached modification time (newest first)
         self._items.sort(key=lambda x: x.mtime, reverse=True)
+        self._rebuild_index_map()
 
         self.endResetModel()
         self.countChanged.emit()
@@ -252,8 +316,12 @@ class GalleryModel(QAbstractListModel):
         self._loading = True
         self.loadingChanged.emit()
 
+        if self._loader:
+            self._loader.reset_for_album(root)
+
         self.beginResetModel()
         self._items.clear()
+        self._path_to_index.clear()
         self._current_path = root
 
         # Recursively scan library for favorites only
@@ -261,6 +329,7 @@ class GalleryModel(QAbstractListModel):
 
         # Sort by cached modification time (newest first)
         self._items.sort(key=lambda x: x.mtime, reverse=True)
+        self._rebuild_index_map()
 
         self.endResetModel()
         self.countChanged.emit()
@@ -273,6 +342,7 @@ class GalleryModel(QAbstractListModel):
         """Clear all items from the gallery."""
         self.beginResetModel()
         self._items.clear()
+        self._path_to_index.clear()
         self._current_path = None
         self.endResetModel()
         self.countChanged.emit()
@@ -356,6 +426,7 @@ class GalleryModel(QAbstractListModel):
                 mtime=mtime,
             )
             self._items.append(item)
+            self._path_to_index[path] = len(self._items) - 1
             
         elif suffix in self.VIDEO_EXTENSIONS:
             is_favorite = self._check_is_favorite(path)
@@ -376,7 +447,14 @@ class GalleryModel(QAbstractListModel):
                 mtime=mtime,
             )
             self._items.append(item)
+            self._path_to_index[path] = len(self._items) - 1
     
+    def _rebuild_index_map(self) -> None:
+        """Rebuild the path to index mapping after sorting."""
+        self._path_to_index.clear()
+        for idx, item in enumerate(self._items):
+            self._path_to_index[item.file_path] = idx
+
     def _check_is_live(self, path: Path) -> bool:
         """Check if the image is part of a Live Photo."""
         # Look for companion video file
