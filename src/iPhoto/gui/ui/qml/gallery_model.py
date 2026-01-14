@@ -8,17 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import (
+    Property,
     QAbstractListModel,
+    QByteArray,
     QModelIndex,
     QObject,
     Qt,
     Signal,
     Slot,
-    Property,
-    QUrl,
-    QByteArray,
 )
-from PySide6.QtGui import QImage
 
 try:
     from .....library.manager import LibraryManager
@@ -188,6 +186,84 @@ class GalleryModel(QAbstractListModel):
         
         self._loading = False
         self.loadingChanged.emit()
+
+    @Slot()
+    def loadVideos(self) -> None:  # noqa: N802
+        """Load only video files from the library root."""
+        root = self._library.root()
+        if root is None:
+            return
+
+        self._loading = True
+        self.loadingChanged.emit()
+
+        self.beginResetModel()
+        self._items.clear()
+        self._current_path = root
+
+        # Recursively scan library for video files only
+        self._scan_directory_recursive(root, filter_mode="videos")
+
+        # Sort by modification time (newest first)
+        self._items.sort(key=lambda x: x.file_path.stat().st_mtime, reverse=True)
+
+        self.endResetModel()
+        self.countChanged.emit()
+
+        self._loading = False
+        self.loadingChanged.emit()
+
+    @Slot()
+    def loadLivePhotos(self) -> None:  # noqa: N802
+        """Load only live photos from the library root."""
+        root = self._library.root()
+        if root is None:
+            return
+
+        self._loading = True
+        self.loadingChanged.emit()
+
+        self.beginResetModel()
+        self._items.clear()
+        self._current_path = root
+
+        # Recursively scan library for live photos only
+        self._scan_directory_recursive(root, filter_mode="live")
+
+        # Sort by modification time (newest first)
+        self._items.sort(key=lambda x: x.file_path.stat().st_mtime, reverse=True)
+
+        self.endResetModel()
+        self.countChanged.emit()
+
+        self._loading = False
+        self.loadingChanged.emit()
+
+    @Slot()
+    def loadFavorites(self) -> None:  # noqa: N802
+        """Load only favorite files from the library root."""
+        root = self._library.root()
+        if root is None:
+            return
+
+        self._loading = True
+        self.loadingChanged.emit()
+
+        self.beginResetModel()
+        self._items.clear()
+        self._current_path = root
+
+        # Recursively scan library for favorites only
+        self._scan_directory_recursive(root, filter_mode="favorites")
+
+        # Sort by modification time (newest first)
+        self._items.sort(key=lambda x: x.file_path.stat().st_mtime, reverse=True)
+
+        self.endResetModel()
+        self.countChanged.emit()
+
+        self._loading = False
+        self.loadingChanged.emit()
     
     @Slot()
     def clear(self) -> None:
@@ -221,42 +297,71 @@ class GalleryModel(QAbstractListModel):
         except PermissionError:
             pass
     
-    def _scan_directory_recursive(self, path: Path) -> None:
-        """Recursively scan directories for media files."""
+    def _scan_directory_recursive(
+        self, path: Path, filter_mode: str | None = None
+    ) -> None:
+        """Recursively scan directories for media files.
+
+        Args:
+            path: Directory to scan.
+            filter_mode: Optional filter - "videos", "live", or "favorites".
+        """
         try:
             for entry in path.iterdir():
                 if entry.is_file():
-                    self._add_if_media(entry)
+                    self._add_if_media(entry, filter_mode=filter_mode)
                 elif entry.is_dir() and not entry.name.startswith("."):
-                    self._scan_directory_recursive(entry)
+                    self._scan_directory_recursive(entry, filter_mode=filter_mode)
         except PermissionError:
             pass
-    
-    def _add_if_media(self, path: Path) -> None:
-        """Add the file to items if it's a media file."""
+
+    def _add_if_media(self, path: Path, filter_mode: str | None = None) -> None:
+        """Add the file to items if it's a media file.
+
+        Args:
+            path: File path to check.
+            filter_mode: Optional filter - "videos", "live", or "favorites".
+        """
         suffix = path.suffix.lower()
         
         if suffix in self.IMAGE_EXTENSIONS:
             # Check if it's a live photo
             is_live = self._check_is_live(path)
             is_pano = self._check_is_pano(path)
+            is_favorite = self._check_is_favorite(path)
+
+            # Apply filter
+            if filter_mode == "videos":
+                return  # Skip images when filtering for videos
+            if filter_mode == "live" and not is_live:
+                return  # Skip non-live photos
+            if filter_mode == "favorites" and not is_favorite:
+                return  # Skip non-favorites
             
             item = GalleryItem(
                 file_path=path,
                 is_video=False,
                 is_live=is_live,
                 is_pano=is_pano,
-                is_favorite=self._check_is_favorite(path),
+                is_favorite=is_favorite,
             )
             self._items.append(item)
             
         elif suffix in self.VIDEO_EXTENSIONS:
+            is_favorite = self._check_is_favorite(path)
+
+            # Apply filter
+            if filter_mode == "live":
+                return  # Skip videos when filtering for live photos
+            if filter_mode == "favorites" and not is_favorite:
+                return  # Skip non-favorites
+
             item = GalleryItem(
                 file_path=path,
                 is_video=True,
                 is_live=False,
                 is_pano=False,
-                is_favorite=self._check_is_favorite(path),
+                is_favorite=is_favorite,
                 duration=self._get_video_duration(path),
             )
             self._items.append(item)
@@ -315,4 +420,4 @@ class GalleryModel(QAbstractListModel):
         return 0.0
 
 
-__all__ = ["GalleryModel", "GalleryRoles", "GalleryItem"]
+__all__ = ["GalleryItem", "GalleryModel", "GalleryRoles"]

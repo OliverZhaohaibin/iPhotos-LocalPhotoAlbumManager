@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtSvg import QSvgRenderer
@@ -15,7 +14,7 @@ from PySide6.QtSvg import QSvgRenderer
 from ....config import WORK_DIR_NAME
 
 if TYPE_CHECKING:  # pragma: no cover
-    from PySide6.QtCore import QByteArray
+    pass
 
 # Path to bundled icon directory
 ICON_DIRECTORY = Path(__file__).resolve().parent.parent / "icon"
@@ -67,17 +66,43 @@ class IconImageProvider(QQuickImageProvider):
         # Load the SVG
         renderer = QSvgRenderer(str(icon_path))
         
-        # Determine size
-        target_size = requested_size if requested_size.isValid() else renderer.defaultSize()
+        # Determine target size
+        target_size = requested_size if requested_size.isValid() else QSize(24, 24)
         if not target_size.isValid():
             target_size = QSize(24, 24)
-        
-        # Create pixmap and render
+
+        # Get the SVG's default size to calculate aspect ratio
+        svg_size = renderer.defaultSize()
+        if not svg_size.isValid():
+            svg_size = target_size
+
+        # Calculate the scaled size preserving aspect ratio
+        svg_aspect = svg_size.width() / max(1, svg_size.height())
+        target_aspect = target_size.width() / max(1, target_size.height())
+
+        if svg_aspect > target_aspect:
+            # SVG is wider than target - fit to width
+            scaled_width = target_size.width()
+            scaled_height = int(target_size.width() / svg_aspect)
+        else:
+            # SVG is taller than target - fit to height
+            scaled_height = target_size.height()
+            scaled_width = int(target_size.height() * svg_aspect)
+
+        # Create pixmap at target size (may have transparent padding)
         pixmap = QPixmap(target_size)
         pixmap.fill(Qt.GlobalColor.transparent)
         
+        # Calculate offset to center the SVG in the pixmap
+        offset_x = (target_size.width() - scaled_width) // 2
+        offset_y = (target_size.height() - scaled_height) // 2
+
         painter = QPainter(pixmap)
-        renderer.render(painter)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        # Render the SVG centered and scaled to preserve aspect ratio
+        target_rect = QRectF(offset_x, offset_y, scaled_width, scaled_height)
+        renderer.render(painter, target_rect)
         painter.end()
         
         # Apply color tint if requested
@@ -112,7 +137,7 @@ class ThumbnailImageProvider(QQuickImageProvider):
         self._cache: dict[str, QImage] = {}
         self._cache_order: list[str] = []  # LRU order tracking
         self._cache_size = 0
-        self._library_root: Optional[Path] = None
+        self._library_root: Path | None = None
 
     def set_library_root(self, root: Path) -> None:
         """Set the library root path for locating cached thumbnails."""
@@ -218,4 +243,4 @@ class ThumbnailImageProvider(QQuickImageProvider):
         self._cache_size = 0
 
 
-__all__ = ["IconImageProvider", "ThumbnailImageProvider", "ICON_DIRECTORY"]
+__all__ = ["ICON_DIRECTORY", "IconImageProvider", "ThumbnailImageProvider"]

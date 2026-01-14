@@ -9,15 +9,20 @@ from __future__ import annotations
 import sys
 import traceback
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot, QTimer
+from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
+from PySide6.QtQml import QQmlApplicationEngine
 
 # Import application context - use absolute imports for consistency
 # This module is always run from the package context
 from iPhoto.appctx import AppContext
 from iPhoto.errors import IPhotoError
+
+if TYPE_CHECKING:
+    from iPhoto.gui.ui.models.sidebar_model import SidebarModel
+    from iPhoto.gui.ui.qml.gallery_model import GalleryModel
 
 
 class SidebarBridge(QObject):
@@ -37,7 +42,7 @@ class SidebarBridge(QObject):
     def __init__(self, context: AppContext, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._context = context
-        self._model: "SidebarModel | None" = None
+        self._model: SidebarModel | None = None
         self._initialized = False
         
     def initialize(self) -> None:
@@ -63,7 +68,7 @@ class SidebarBridge(QObject):
             traceback.print_exc()
     
     @Property(QObject, constant=False, notify=hasLibraryChanged)
-    def model(self) -> "SidebarModel | None":
+    def model(self) -> SidebarModel | None:
         """Return the sidebar model for QML binding."""
         return self._model
     
@@ -119,7 +124,7 @@ class GalleryBridge(QObject):
     def __init__(self, context: AppContext, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._context = context
-        self._model: "GalleryModel | None" = None
+        self._model: GalleryModel | None = None
         self._initialized = False
         
     def initialize(self) -> None:
@@ -139,7 +144,7 @@ class GalleryBridge(QObject):
             traceback.print_exc()
     
     @Property(QObject, constant=False, notify=countChanged)
-    def model(self) -> "GalleryModel | None":
+    def model(self) -> GalleryModel | None:
         """Return the gallery model for QML binding."""
         return self._model
     
@@ -168,6 +173,24 @@ class GalleryBridge(QObject):
         """Load all photos from the library root."""
         if self._model is not None:
             self._model.loadAllPhotos()
+
+    @Slot()
+    def loadVideos(self) -> None:  # noqa: N802
+        """Load only videos from the library root."""
+        if self._model is not None:
+            self._model.loadVideos()
+
+    @Slot()
+    def loadLivePhotos(self) -> None:  # noqa: N802
+        """Load only live photos from the library root."""
+        if self._model is not None:
+            self._model.loadLivePhotos()
+
+    @Slot()
+    def loadFavorites(self) -> None:  # noqa: N802
+        """Load only favorites from the library root."""
+        if self._model is not None:
+            self._model.loadFavorites()
     
     @Slot()
     def clear(self) -> None:

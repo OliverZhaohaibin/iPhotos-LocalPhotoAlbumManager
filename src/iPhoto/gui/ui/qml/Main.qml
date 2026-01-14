@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
+import Qt.labs.platform 1.1 as Platform
 import "."  // Import local QML files
 
 ApplicationWindow {
@@ -25,6 +26,144 @@ ApplicationWindow {
     property string currentAlbumPath: ""
     property string currentAlbumTitle: ""
     property int sidebarWidth: 220
+
+    // Menu bar
+    menuBar: MenuBar {
+        Menu {
+            title: qsTr("&File")
+            Action {
+                text: qsTr("&Open Album...")
+                shortcut: StandardKey.Open
+                onTriggered: folderDialog.open()
+            }
+            Action {
+                text: qsTr("&Bind Library...")
+                onTriggered: libraryDialog.open()
+            }
+            MenuSeparator {}
+            Action {
+                text: qsTr("&Quit")
+                shortcut: StandardKey.Quit
+                onTriggered: Qt.quit()
+            }
+        }
+        Menu {
+            title: qsTr("&View")
+            Action {
+                text: qsTr("&All Photos")
+                enabled: isSidebarReady() && sidebarBridge.hasLibrary
+                onTriggered: {
+                    if (isSidebarReady()) {
+                        currentAlbumTitle = "All Photos"
+                        currentView = "gallery"
+                        if (isGalleryReady() && galleryBridge.model) {
+                            galleryBridge.loadAllPhotos()
+                        }
+                    }
+                }
+            }
+            Action {
+                text: qsTr("&Videos")
+                enabled: isSidebarReady() && sidebarBridge.hasLibrary
+                onTriggered: {
+                    currentAlbumTitle = "Videos"
+                    currentView = "gallery"
+                    if (isGalleryReady() && galleryBridge.model) {
+                        galleryBridge.loadVideos()
+                    }
+                }
+            }
+            Action {
+                text: qsTr("&Live Photos")
+                enabled: isSidebarReady() && sidebarBridge.hasLibrary
+                onTriggered: {
+                    currentAlbumTitle = "Live Photos"
+                    currentView = "gallery"
+                    if (isGalleryReady() && galleryBridge.model) {
+                        galleryBridge.loadLivePhotos()
+                    }
+                }
+            }
+            Action {
+                text: qsTr("&Favorites")
+                enabled: isSidebarReady() && sidebarBridge.hasLibrary
+                onTriggered: {
+                    currentAlbumTitle = "Favorites"
+                    currentView = "gallery"
+                    if (isGalleryReady() && galleryBridge.model) {
+                        galleryBridge.loadFavorites()
+                    }
+                }
+            }
+        }
+        Menu {
+            title: qsTr("&Help")
+            Action {
+                text: qsTr("&About iPhoto")
+                onTriggered: aboutDialog.open()
+            }
+        }
+    }
+
+    // Folder dialog for opening albums
+    Platform.FolderDialog {
+        id: folderDialog
+        title: "Select Album Folder"
+        onAccepted: {
+            var path = folder.toString().replace("file://", "")
+            if (isSidebarReady()) {
+                currentAlbumPath = path
+                currentAlbumTitle = path.split("/").pop()
+                currentView = "gallery"
+                if (isGalleryReady() && galleryBridge.model) {
+                    galleryBridge.loadAlbum(path)
+                }
+            }
+        }
+    }
+
+    // Folder dialog for binding library
+    Platform.FolderDialog {
+        id: libraryDialog
+        title: "Select Library Folder"
+        onAccepted: {
+            var path = folder.toString().replace("file://", "")
+            if (isSidebarReady()) {
+                sidebarBridge.bindLibrary(path)
+            }
+        }
+    }
+
+    // About dialog
+    Dialog {
+        id: aboutDialog
+        title: "About iPhoto"
+        standardButtons: Dialog.Ok
+        anchors.centerIn: parent
+        modal: true
+        
+        ColumnLayout {
+            spacing: 16
+            
+            Text {
+                text: "iPhoto"
+                font.pixelSize: 24
+                font.bold: true
+            }
+            
+            Text {
+                text: "Local Photo Album Manager"
+                font.pixelSize: 14
+                color: "#666666"
+            }
+            
+            Text {
+                text: "QML Migration Preview"
+                font.pixelSize: 12
+                color: "#999999"
+            }
+        }
+    }
     
     // Helper function to check if bridge is ready
     function isSidebarReady() {
@@ -195,16 +334,24 @@ ApplicationWindow {
                         currentAlbumTitle = title
                         currentView = "gallery"
                         
-                        // For now, show empty gallery for static nodes other than All Photos
                         if (isGalleryReady() && galleryBridge.model) {
-                            galleryBridge.clear()
+                            var lowerTitle = title.toLowerCase()
+                            if (lowerTitle === "videos") {
+                                galleryBridge.loadVideos()
+                            } else if (lowerTitle === "live photos") {
+                                galleryBridge.loadLivePhotos()
+                            } else if (lowerTitle === "favorites") {
+                                galleryBridge.loadFavorites()
+                            } else {
+                                // For other static nodes (Location, Recently Deleted, Albums),
+                                // clear the gallery for now
+                                galleryBridge.clear()
+                            }
                         }
-                        statusText.text = "Viewing: " + title
                     }
                     
                     function onBindLibraryRequested() {
                         console.log("Library binding requested")
-                        statusText.text = "Library binding requested - use command line argument"
                     }
                     
                     function onHasLibraryChanged() {
