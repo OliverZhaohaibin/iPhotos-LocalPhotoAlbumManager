@@ -14,6 +14,7 @@ Item {
     property bool itemHasChildren: false
     property bool itemIsSelectable: true
     property string itemIconName: ""
+    property bool isSelected: false
     
     // Signals
     signal clicked()
@@ -29,22 +30,27 @@ Item {
     readonly property int nodeTypeSubalbum: 6
     readonly property int nodeTypeSeparator: 7
     
-    // Colors
+    // Colors matching palette.py
     readonly property color textColor: "#2b2b2b"
-    readonly property color headerColor: "#1a1a1a"
-    readonly property color actionColor: "#007AFF"
-    readonly property color sectionColor: "#888888"
-    readonly property color iconColor: "#007AFF"
-    readonly property color separatorColor: "#d0d0d0"
-    readonly property color hoverColor: Qt.rgba(0, 0.478, 1.0, 0.1)
+    readonly property color headerColor: "#1b1b1b"
+    readonly property color actionColor: "#1e73ff"
+    readonly property color sectionColor: Qt.rgba(0, 0, 0, 0.63)
+    readonly property color iconColor: "#1e73ff"
+    readonly property color separatorColor: Qt.rgba(0, 0, 0, 0.16)
+    readonly property color hoverColor: Qt.rgba(0, 0, 0, 0.1)
+    readonly property color selectedColor: Qt.rgba(0, 0, 0, 0.22)
     
-    // Layout
-    readonly property int leftPadding: 12
-    readonly property int indentPerLevel: 16
-    readonly property int iconSize: 16
-    readonly property int iconTextGap: 8
+    // Layout matching palette.py values
+    readonly property int leftPadding: 14
+    readonly property int indentPerLevel: 22
+    readonly property int iconSize: 24
+    readonly property int iconTextGap: 10
     readonly property int branchIndicatorSize: 12
-    readonly property int rightPadding: 20  // Right margin for text eliding
+    readonly property int branchContentGap: 6
+    readonly property int rightPadding: 24
+    readonly property int highlightMarginX: 6
+    readonly property int highlightMarginY: 4
+    readonly property int highlightRadius: 10
     
     // Separator rendering
     Rectangle {
@@ -62,13 +68,20 @@ Item {
         visible: itemNodeType !== nodeTypeSeparator
         anchors.fill: parent
         
-        // Hover background
+        // Selection/Hover background
         Rectangle {
-            id: hoverBackground
+            id: backgroundRect
             anchors.fill: parent
-            anchors.margins: 2
-            radius: 6
-            color: mouseArea.containsMouse && itemIsSelectable ? hoverColor : "transparent"
+            anchors.leftMargin: highlightMarginX
+            anchors.rightMargin: highlightMarginX
+            anchors.topMargin: highlightMarginY
+            anchors.bottomMargin: highlightMarginY
+            radius: highlightRadius
+            color: {
+                if (isSelected && itemIsSelectable) return selectedColor
+                if (mouseArea.containsMouse && itemIsSelectable) return hoverColor
+                return "transparent"
+            }
             
             Behavior on color {
                 ColorAnimation { duration: 100 }
@@ -86,13 +99,16 @@ Item {
             // Branch indicator (disclosure triangle)
             Item {
                 id: branchIndicator
-                width: itemHasChildren ? branchIndicatorSize : 0
+                width: itemHasChildren ? branchIndicatorSize + branchContentGap : 0
                 height: branchIndicatorSize
                 anchors.verticalCenter: parent.verticalCenter
                 visible: itemHasChildren
                 
                 BranchIndicator {
-                    anchors.fill: parent
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: branchIndicatorSize
+                    height: branchIndicatorSize
                     angle: itemIsExpanded ? 90 : 0
                     indicatorColor: textColor
                     
@@ -111,41 +127,71 @@ Item {
                 }
             }
             
-            // Icon
-            Text {
-                id: iconText
+            // Icon using image provider
+            Image {
+                id: iconImage
                 width: iconSize
                 height: iconSize
                 anchors.verticalCenter: parent.verticalCenter
-                font.family: Qt.platform.os === "osx" ? "SF Pro" : "Segoe UI"  // Fallback for non-macOS
-                font.pixelSize: iconSize
-                color: iconColor
-                text: getIconText(itemIconName, itemNodeType)
-                visible: text !== ""
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
+                source: getIconSource(itemIconName, itemNodeType, isSelected)
+                sourceSize.width: iconSize
+                sourceSize.height: iconSize
+                fillMode: Image.PreserveAspectFit
+                visible: source !== ""
                 
-                function getIconText(iconName, nodeType) {
-                    // Map icon names to Unicode emoji/symbols as fallback
-                    // In a full implementation, these would be SF Symbols or custom icons
+                function getIconSource(iconName, nodeType, selected) {
+                    // Map icon names to bundled SVG files via image provider
+                    var baseName = ""
+                    var color = iconColor
+                    
+                    // Map the icon name to actual SVG file
                     switch (iconName) {
-                        case "photo.on.rectangle": return "📷"
-                        case "video": return "🎬"
-                        case "livephoto": return "◉"
-                        case "suit.heart": return "❤️"
-                        case "mappin.and.ellipse": return "📍"
-                        case "trash": return "🗑️"
-                        case "folder": return "📁"
-                        case "rectangle.stack": return "📂"
-                        case "plus.circle": return "➕"
-                        default: return ""
+                        case "photo.on.rectangle":
+                            baseName = "photo.on.rectangle"
+                            break
+                        case "video":
+                            baseName = selected ? "video.fill" : "video"
+                            break
+                        case "livephoto":
+                            baseName = "livephoto"
+                            break
+                        case "suit.heart":
+                            baseName = selected ? "suit.heart.fill" : "suit.heart"
+                            break
+                        case "mappin.and.ellipse":
+                            baseName = "mappin.and.ellipse"
+                            break
+                        case "trash":
+                            baseName = "trash"
+                            break
+                        case "folder":
+                            baseName = "folder"
+                            break
+                        case "rectangle.stack":
+                            baseName = "rectangle.stack"
+                            // Albums use text color instead of icon color
+                            color = textColor
+                            break
+                        case "plus.circle":
+                            baseName = "plus.circle"
+                            break
+                        default:
+                            if (iconName && iconName.length > 0) {
+                                baseName = iconName
+                            }
+                            break
                     }
+                    
+                    if (!baseName) return ""
+                    
+                    // Return URL for icon image provider with color parameter
+                    return "image://icons/" + baseName + ".svg?color=" + color
                 }
             }
             
             // Spacer between icon and text
             Item {
-                width: iconText.visible ? iconTextGap : 0
+                width: iconImage.visible ? iconTextGap : 0
                 height: 1
             }
             
