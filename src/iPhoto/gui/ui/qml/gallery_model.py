@@ -51,7 +51,9 @@ class GalleryItem:
     is_pano: bool = False
     is_favorite: bool = False
     duration: float = 0.0
-    mtime: float = 0.0  # Cached modification time for efficient sorting
+    # Cached file modification timestamp (st_mtime) to avoid repeated filesystem
+    # calls during sorting operations. Set when the item is created in _add_if_media().
+    mtime: float = 0.0
 
 
 class GalleryModel(QAbstractListModel):
