@@ -100,9 +100,14 @@ class ThumbnailImageProvider(QQuickImageProvider):
         Image { source: "image://thumbnails/" + model.filePath }
     """
     
+    # Maximum cache size in bytes (default 100MB)
+    MAX_CACHE_SIZE = 100 * 1024 * 1024
+    
     def __init__(self) -> None:
         super().__init__(QQuickImageProvider.ImageType.Image)
         self._cache: dict[str, QImage] = {}
+        self._cache_order: list[str] = []  # LRU order tracking
+        self._cache_size = 0
         
     def requestImage(  # noqa: N802 - Qt override
         self,
@@ -111,8 +116,13 @@ class ThumbnailImageProvider(QQuickImageProvider):
         requested_size: QSize
     ) -> QImage:
         """Load a thumbnail image for the given file path."""
-        # Check cache
+        # Check cache and update LRU order
         if id_str in self._cache:
+            # Move to end of LRU list (most recently used)
+            if id_str in self._cache_order:
+                self._cache_order.remove(id_str)
+            self._cache_order.append(id_str)
+            
             cached = self._cache[id_str]
             if requested_size.isValid():
                 return cached.scaled(
@@ -136,8 +146,19 @@ class ThumbnailImageProvider(QQuickImageProvider):
             placeholder.fill(QColor("#1b1b1b"))
             return placeholder
         
-        # Cache the loaded image
+        # Cache the loaded image with LRU eviction
+        image_size = image.sizeInBytes()
+        
+        # Evict old entries if cache is too large
+        while self._cache_size + image_size > self.MAX_CACHE_SIZE and self._cache_order:
+            oldest_key = self._cache_order.pop(0)
+            if oldest_key in self._cache:
+                old_image = self._cache.pop(oldest_key)
+                self._cache_size -= old_image.sizeInBytes()
+        
         self._cache[id_str] = image
+        self._cache_order.append(id_str)
+        self._cache_size += image_size
         
         # Scale if requested
         if requested_size.isValid():
@@ -152,6 +173,8 @@ class ThumbnailImageProvider(QQuickImageProvider):
     def clear_cache(self) -> None:
         """Clear the thumbnail cache."""
         self._cache.clear()
+        self._cache_order.clear()
+        self._cache_size = 0
 
 
 __all__ = ["IconImageProvider", "ThumbnailImageProvider", "ICON_DIRECTORY"]

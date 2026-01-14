@@ -23,8 +23,10 @@ from PySide6.QtGui import QImage
 try:
     from .....library.manager import LibraryManager
 except ImportError:
-    # Fallback for different import contexts
-    from src.iPhoto.library.manager import LibraryManager
+    try:
+        from src.iPhoto.library.manager import LibraryManager
+    except ImportError:
+        from iPhoto.library.manager import LibraryManager
 
 
 class GalleryRoles(IntEnum):
@@ -277,9 +279,18 @@ class GalleryModel(QAbstractListModel):
         return False
     
     def _check_is_pano(self, path: Path) -> bool:
-        """Check if the image is a panorama."""
-        # Simple heuristic: panoramas often have very wide aspect ratios
-        # For now, just return False - proper implementation would check EXIF
+        """Check if the image is a panorama.
+        
+        Note: This is a placeholder implementation. Full panorama detection
+        would require checking EXIF metadata for panorama markers or analyzing
+        the image aspect ratio. For now, this returns False to avoid false
+        positives. A proper implementation would be added when the detail view
+        is migrated to QML.
+        """
+        # TODO: Implement proper panorama detection using EXIF metadata
+        # - Check for GPano namespace in XMP data
+        # - Check for panorama-specific EXIF tags
+        # - Consider aspect ratio heuristics (e.g., width > 2 * height)
         return False
     
     def _check_is_favorite(self, path: Path) -> bool:
@@ -289,8 +300,18 @@ class GalleryModel(QAbstractListModel):
         return marker.exists()
     
     def _get_video_duration(self, path: Path) -> float:
-        """Get the duration of a video file in seconds."""
-        # For now return 0 - proper implementation would use ffprobe or similar
+        """Get the duration of a video file in seconds.
+        
+        Note: This is a placeholder implementation. Full video duration
+        detection would require using ffprobe, PyAV, or similar libraries.
+        For now, this returns 0.0 which will display '0:00' for videos.
+        A proper implementation would be added when video playback is
+        migrated to QML.
+        """
+        # TODO: Implement proper video duration extraction using:
+        # - PyAV (already available in the project)
+        # - ffprobe subprocess call
+        # - Or integrate with existing media metadata extraction
         return 0.0
 
 

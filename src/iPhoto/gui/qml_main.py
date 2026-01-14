@@ -14,14 +14,10 @@ from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
 
-# Use relative imports to avoid module resolution issues
-try:
-    from ..appctx import AppContext
-    from ..errors import IPhotoError
-except ImportError:
-    # Fallback for direct script execution
-    from src.iPhoto.appctx import AppContext
-    from src.iPhoto.errors import IPhotoError
+# Import application context - use absolute imports for consistency
+# This module is always run from the package context
+from iPhoto.appctx import AppContext
+from iPhoto.errors import IPhotoError
 
 
 class SidebarBridge(QObject):
