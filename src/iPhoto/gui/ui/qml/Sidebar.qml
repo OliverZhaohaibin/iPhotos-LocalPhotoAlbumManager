@@ -5,29 +5,32 @@ import "."  // Import local QML files
 
 Rectangle {
     id: sidebar
-    color: "#f5f5f5"
+    color: "#eef3f6"
     
     // Color constants matching the widget implementation
-    readonly property color backgroundColor: "#f5f5f5"
-    readonly property color selectedBackground: Qt.rgba(0, 0.478, 1.0, 0.2)
-    readonly property color hoverBackground: Qt.rgba(0, 0.478, 1.0, 0.1)
+    readonly property color backgroundColor: "#eef3f6"
+    readonly property color selectedBackground: Qt.rgba(0, 0, 0, 0.22)
+    readonly property color hoverBackground: Qt.rgba(0, 0, 0, 0.1)
     readonly property color textColor: "#2b2b2b"
-    readonly property color iconColor: "#007AFF"
-    readonly property color separatorColor: "#d0d0d0"
-    readonly property color headerTextColor: "#1a1a1a"
+    readonly property color iconColor: "#1e73ff"
+    readonly property color separatorColor: Qt.rgba(0, 0, 0, 0.16)
+    readonly property color headerTextColor: "#1b1b1b"
     
-    // Layout constants
-    readonly property int rowHeight: 28
-    readonly property int leftPadding: 12
-    readonly property int indentPerLevel: 16
-    readonly property int iconSize: 16
-    readonly property int iconTextGap: 8
+    // Layout constants matching palette.py values
+    readonly property int rowHeight: 36
+    readonly property int leftPadding: 14
+    readonly property int indentPerLevel: 22
+    readonly property int iconSize: 24
+    readonly property int iconTextGap: 10
     readonly property int branchIndicatorSize: 16
+    readonly property int highlightMarginX: 6
+    readonly property int highlightMarginY: 4
+    readonly property int highlightRadius: 10
     
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 8
-        spacing: 4
+        anchors.margins: 12
+        spacing: 8
         
         // Title
         Text {
@@ -35,7 +38,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.leftMargin: leftPadding
             text: "Basic Library"
-            font.pixelSize: 14
+            font.pixelSize: 15
             font.bold: true
             color: headerTextColor
         }
@@ -47,7 +50,7 @@ Rectangle {
             Layout.fillHeight: true
             clip: true
             
-            model: sidebarBridge.model
+            model: sidebarBridge && sidebarBridge.model ? sidebarBridge.model : null
             
             delegate: SidebarItem {
                 width: treeView.width
@@ -60,23 +63,25 @@ Rectangle {
                 itemHasChildren: hasChildren
                 itemIsSelectable: isSelectable
                 itemIconName: iconName
+                isSelected: ListView.isCurrentItem
                 
                 onClicked: {
-                    if (isSelectable) {
+                    if (isSelectable && sidebarBridge) {
                         treeView.currentIndex = index
                         sidebarBridge.selectItem(index)
                     }
                 }
                 
                 onToggleExpansion: {
-                    sidebarBridge.toggleExpansion(index)
+                    if (sidebarBridge) {
+                        sidebarBridge.toggleExpansion(index)
+                    }
                 }
             }
             
             // Highlight current selection
             highlight: Rectangle {
-                color: sidebar.selectedBackground
-                radius: 6
+                color: "transparent"  // SidebarItem handles its own highlight
             }
             highlightFollowsCurrentItem: true
             
