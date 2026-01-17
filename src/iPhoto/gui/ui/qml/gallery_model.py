@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -35,12 +36,13 @@ class GalleryRoles(IntEnum):
     FilePathRole = Qt.ItemDataRole.UserRole + 1
     FileNameRole = Qt.ItemDataRole.UserRole + 2
     ThumbnailUrlRole = Qt.ItemDataRole.UserRole + 3
-    IsVideoRole = Qt.ItemDataRole.UserRole + 4
-    IsLiveRole = Qt.ItemDataRole.UserRole + 5
-    IsPanoRole = Qt.ItemDataRole.UserRole + 6
-    IsFavoriteRole = Qt.ItemDataRole.UserRole + 7
-    DurationRole = Qt.ItemDataRole.UserRole + 8
-    IndexRole = Qt.ItemDataRole.UserRole + 9
+    MicroThumbRole = Qt.ItemDataRole.UserRole + 4
+    IsVideoRole = Qt.ItemDataRole.UserRole + 5
+    IsLiveRole = Qt.ItemDataRole.UserRole + 6
+    IsPanoRole = Qt.ItemDataRole.UserRole + 7
+    IsFavoriteRole = Qt.ItemDataRole.UserRole + 8
+    DurationRole = Qt.ItemDataRole.UserRole + 9
+    IndexRole = Qt.ItemDataRole.UserRole + 10
 
 
 @dataclass
@@ -53,6 +55,7 @@ class GalleryItem:
     is_pano: bool = False
     is_favorite: bool = False
     duration: float = 0.0
+    micro_thumbnail: str | None = None
 
 
 class GalleryModel(QAbstractListModel):
@@ -86,6 +89,7 @@ class GalleryModel(QAbstractListModel):
             GalleryRoles.FilePathRole: QByteArray(b"filePath"),
             GalleryRoles.FileNameRole: QByteArray(b"fileName"),
             GalleryRoles.ThumbnailUrlRole: QByteArray(b"thumbnailUrl"),
+            GalleryRoles.MicroThumbRole: QByteArray(b"microThumbnail"),
             GalleryRoles.IsVideoRole: QByteArray(b"isVideo"),
             GalleryRoles.IsLiveRole: QByteArray(b"isLive"),
             GalleryRoles.IsPanoRole: QByteArray(b"isPano"),
@@ -117,6 +121,8 @@ class GalleryModel(QAbstractListModel):
             # Encode as file:// URL to preserve special characters
             file_url = QUrl.fromLocalFile(str(item.file_path)).toString()
             return f"image://thumbnails/{file_url}"
+        elif role == GalleryRoles.MicroThumbRole:
+            return item.micro_thumbnail
         elif role == GalleryRoles.IsVideoRole:
             return item.is_video
         elif role == GalleryRoles.IsLiveRole:
@@ -148,20 +154,30 @@ class GalleryModel(QAbstractListModel):
         album_path = Path(path)
         if not album_path.exists() or not album_path.is_dir():
             return
-        
+
+        root = self._library.root()
+        album_rel = None
+        if root is not None:
+            try:
+                album_rel = album_path.resolve().relative_to(root)
+            except ValueError:
+                album_rel = None
+
         self._loading = True
         self.loadingChanged.emit()
-        
+
         self.beginResetModel()
         self._items.clear()
         self._current_path = album_path
-        
-        # Scan directory for media files
-        self._scan_directory(album_path)
-        
+
+        if root is not None and album_rel is not None:
+            self._load_from_index(album_rel.as_posix(), include_subalbums=False)
+        if not self._items:
+            self._scan_directory(album_path)
+
         self.endResetModel()
         self.countChanged.emit()
-        
+
         self._loading = False
         self.loadingChanged.emit()
     
@@ -179,11 +195,12 @@ class GalleryModel(QAbstractListModel):
         self._items.clear()
         self._current_path = root
         
-        # Recursively scan library for media files
-        self._scan_directory_recursive(root)
-        
-        # Sort by modification time (newest first)
-        self._items.sort(key=lambda x: x.file_path.stat().st_mtime, reverse=True)
+        self._load_from_index(None, include_subalbums=True)
+        if not self._items:
+            # Recursively scan library for media files as a fallback
+            self._scan_directory_recursive(root)
+            # Sort by modification time (newest first)
+            self._items.sort(key=lambda x: x.file_path.stat().st_mtime, reverse=True)
         
         self.endResetModel()
         self.countChanged.emit()
@@ -262,6 +279,68 @@ class GalleryModel(QAbstractListModel):
                 duration=self._get_video_duration(path),
             )
             self._items.append(item)
+
+    def _load_from_index(self, album_rel: str | None, include_subalbums: bool) -> None:
+        """Populate items using the indexed database when available."""
+        root = self._library.root()
+        if root is None:
+            return
+
+        try:
+            from .....cache.index_store import IndexStore
+        except Exception:
+            # Fallback silently to filesystem scan if index store is unavailable.
+            return
+
+        store = IndexStore(root)
+        try:
+            if album_rel:
+                rows_iter = store.read_album_assets(
+                    album_rel,
+                    include_subalbums=include_subalbums,
+                    sort_by_date=True,
+                    filter_hidden=True,
+                )
+            else:
+                rows_iter = store.read_all(sort_by_date=True, filter_hidden=True)
+
+            for row in rows_iter:
+                rel = row.get("rel")
+                if not rel:
+                    continue
+                abs_path = root / rel
+                if not abs_path.exists():
+                    continue
+
+                media_type = row.get("media_type")
+                is_video = bool(media_type == 1 or row.get("is_video"))
+                is_live = bool(row.get("live_partner_rel"))
+                is_favorite = bool(row.get("is_favorite"))
+                duration_val = row.get("dur") or 0.0
+
+                micro_thumb_blob = row.get("micro_thumbnail")
+                micro_data = None
+                if isinstance(micro_thumb_blob, (bytes, bytearray)) and micro_thumb_blob:
+                    try:
+                        micro_data = "data:image/jpeg;base64," + base64.b64encode(
+                            bytes(micro_thumb_blob)
+                        ).decode("ascii")
+                    except Exception:
+                        micro_data = None
+
+                item = GalleryItem(
+                    file_path=abs_path,
+                    is_video=is_video,
+                    is_live=is_live,
+                    is_pano=False,
+                    is_favorite=is_favorite,
+                    duration=float(duration_val) if duration_val else 0.0,
+                    micro_thumbnail=micro_data,
+                )
+                self._items.append(item)
+        except Exception:
+            # If the index store is unavailable or query fails, fall back to scan logic.
+            self._items.clear()
     
     def _check_is_live(self, path: Path) -> bool:
         """Check if the image is part of a Live Photo."""
