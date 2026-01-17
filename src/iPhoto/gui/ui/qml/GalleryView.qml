@@ -120,6 +120,7 @@ Item {
             cellWidth: cellSize
             cellHeight: cellSize
             clip: true
+            cacheBuffer: cellHeight * 4
             
             // Smooth scrolling
             flickableDirection: Flickable.VerticalFlick
@@ -131,31 +132,50 @@ Item {
             
             delegate: Item {
                 id: delegateRoot
+                property bool showPlaceholder: thumbnail.status !== Image.Ready && (microThumb.source || "") === ""
                 width: cellSize
                 height: cellSize
                 
                 // Thumbnail container with gap
                 Rectangle {
-                    id: thumbnailContainer
-                    anchors.fill: parent
-                    anchors.margins: itemGap / 2
-                    color: "#1b1b1b"
-                    clip: true
-                    
-                    // Thumbnail image
-                    Image {
-                        id: thumbnail
+                        id: thumbnailContainer
                         anchors.fill: parent
-                        source: model.thumbnailUrl || ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: true
+                        anchors.margins: itemGap / 2
+                        color: "#1b1b1b"
+                        clip: true
                         
-                        // Loading placeholder
-                        Rectangle {
+                        // Micro thumbnail placeholder (from database)
+                        Image {
+                            id: microThumb
                             anchors.fill: parent
-                            color: "#1b1b1b"
-                            visible: thumbnail.status !== Image.Ready
+                            source: model.microThumbnail || ""
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: true
+                            visible: source !== "" && thumbnail.status !== Image.Ready
+                        }
+
+                        // Thumbnail image
+                        Image {
+                            id: thumbnail
+                            anchors.fill: parent
+                            source: model.thumbnailUrl || ""
+                            sourceSize.width: galleryView.itemSize
+                            sourceSize.height: galleryView.itemSize
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: true
+                            opacity: status === Image.Ready ? 1 : 0
+                            
+                            Behavior on opacity {
+                                NumberAnimation { duration: 120 }
+                            }
+                        
+                            // Loading placeholder
+                            Rectangle {
+                                anchors.fill: parent
+                                color: "#1b1b1b"
+                                visible: delegateRoot.showPlaceholder
                             
                             BusyIndicator {
                                 anchors.centerIn: parent

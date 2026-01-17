@@ -25,6 +25,54 @@ ApplicationWindow {
     // Menu button styling
     readonly property int menuFontSize: 13
     readonly property int menuButtonHeight: 26
+
+    // Native menubar replacement for consistent visibility
+    MenuBar {
+        id: inlineMenuBar
+        nativeMenuBar: false
+        background: Rectangle { color: sidebarBackground }
+        Menu {
+            title: qsTr("File")
+            MenuItem { text: qsTr("Open Album Folder…"); onTriggered: albumFolderDialog.open() }
+            MenuSeparator {}
+            MenuItem { text: qsTr("Set Basic Library…"); onTriggered: libraryFolderDialog.open() }
+            MenuSeparator {}
+            MenuItem { text: qsTr("Export All Edited"); enabled: false }
+            MenuItem { text: qsTr("Export Selected"); enabled: false }
+            MenuSeparator {}
+            MenuItem {
+                text: qsTr("Rebuild Live Links")
+                enabled: isSidebarReady() && sidebarBridge.hasLibrary
+                onTriggered: {
+                    if (appBridge) { appBridge.rebuildLiveLinks() }
+                }
+            }
+        }
+        Menu {
+            title: qsTr("Settings")
+            MenuItem { text: qsTr("Show Filmstrip"); checkable: true; checked: true }
+            MenuSeparator {}
+            Menu {
+                title: qsTr("Appearance")
+                MenuItem { text: qsTr("System Default"); checkable: true; checked: true }
+                MenuItem { text: qsTr("Light Mode"); checkable: true }
+                MenuItem { text: qsTr("Dark Mode"); checkable: true }
+            }
+            Menu {
+                title: qsTr("Wheel Action")
+                MenuItem { text: qsTr("Navigate"); checkable: true; checked: true }
+                MenuItem { text: qsTr("Zoom"); checkable: true }
+            }
+            Menu {
+                title: qsTr("Share Action")
+                MenuItem { text: qsTr("Copy File"); checkable: true }
+                MenuItem { text: qsTr("Copy Path"); checkable: true }
+                MenuItem { text: qsTr("Reveal in File Manager"); checkable: true; checked: true }
+            }
+        }
+    }
+
+    menuBar: inlineMenuBar
     
     // State tracking
     property string currentView: "empty"  // "empty", "gallery", "album"
@@ -83,67 +131,6 @@ ApplicationWindow {
         anchors.fill: parent
         spacing: 0
         
-        // Header bar with menu buttons
-        Rectangle {
-            id: headerBar
-            Layout.fillWidth: true
-            Layout.preferredHeight: 32
-            color: sidebarBackground
-            
-            MenuBar {
-                id: inlineMenuBar
-                anchors.fill: parent
-                background: Rectangle { color: "transparent" }
-                Menu {
-                    title: qsTr("File")
-                    MenuItem { text: qsTr("Open Album Folder…"); onTriggered: albumFolderDialog.open() }
-                    MenuSeparator {}
-                    MenuItem { text: qsTr("Set Basic Library…"); onTriggered: libraryFolderDialog.open() }
-                    MenuSeparator {}
-                    MenuItem { text: qsTr("Export All Edited"); enabled: false }
-                    MenuItem { text: qsTr("Export Selected"); enabled: false }
-                    MenuSeparator {}
-                    MenuItem {
-                        text: qsTr("Rebuild Live Links")
-                        enabled: isSidebarReady() && sidebarBridge.hasLibrary
-                        onTriggered: {
-                            if (appBridge) { appBridge.rebuildLiveLinks() }
-                        }
-                    }
-                }
-                Menu {
-                    title: qsTr("Settings")
-                    MenuItem { text: qsTr("Show Filmstrip"); checkable: true; checked: true }
-                    MenuSeparator {}
-                    Menu {
-                        title: qsTr("Appearance")
-                        MenuItem { text: qsTr("System Default"); checkable: true; checked: true }
-                        MenuItem { text: qsTr("Light Mode"); checkable: true }
-                        MenuItem { text: qsTr("Dark Mode"); checkable: true }
-                    }
-                    Menu {
-                        title: qsTr("Wheel Action")
-                        MenuItem { text: qsTr("Navigate"); checkable: true; checked: true }
-                        MenuItem { text: qsTr("Zoom"); checkable: true }
-                    }
-                    Menu {
-                        title: qsTr("Share Action")
-                        MenuItem { text: qsTr("Copy File"); checkable: true }
-                        MenuItem { text: qsTr("Copy Path"); checkable: true }
-                        MenuItem { text: qsTr("Reveal in File Manager"); checkable: true; checked: true }
-                    }
-                }
-            }
-            
-            // Bottom separator
-            Rectangle {
-                anchors.bottom: parent.bottom
-                width: parent.width
-                height: 1
-                color: separatorColor
-            }
-        }
-        
         // Main content area
         RowLayout {
             Layout.fillWidth: true
@@ -157,62 +144,62 @@ ApplicationWindow {
                 Layout.minimumWidth: 180
                 Layout.maximumWidth: 350
                 Layout.fillHeight: true
-            
-            Sidebar {
-                id: sidebar
-                anchors.fill: parent
-            }
-            
-            // Resize handle
-            Rectangle {
-                id: resizeHandle
-                width: 4
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                color: mouseAreaResize.containsMouse || mouseAreaResize.drag.active ? "#007AFF" : "transparent"
                 
-                Behavior on color { ColorAnimation { duration: 150 } }
-                
-                MouseArea {
-                    id: mouseAreaResize
+                Sidebar {
+                    id: sidebar
                     anchors.fill: parent
-                    anchors.margins: -2
-                    hoverEnabled: true
-                    cursorShape: Qt.SizeHorCursor
+                }
+                
+                // Resize handle
+                Rectangle {
+                    id: resizeHandle
+                    width: 4
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    color: mouseAreaResize.containsMouse || mouseAreaResize.drag.active ? "#007AFF" : "transparent"
                     
-                    property real startX: 0
-                    property real startWidth: 0
+                    Behavior on color { ColorAnimation { duration: 150 } }
                     
-                    onPressed: {
-                        startX = mouseX
-                        startWidth = sidebarWidth
-                    }
-                    
-                    onPositionChanged: {
-                        if (pressed) {
-                            var delta = mouseX - startX
-                            var newWidth = startWidth + delta
-                            sidebarWidth = Math.max(180, Math.min(350, newWidth))
+                    MouseArea {
+                        id: mouseAreaResize
+                        anchors.fill: parent
+                        anchors.margins: -2
+                        hoverEnabled: true
+                        cursorShape: Qt.SizeHorCursor
+                        
+                        property real startX: 0
+                        property real startWidth: 0
+                        
+                        onPressed: {
+                            startX = mouseX
+                            startWidth = sidebarWidth
+                        }
+                        
+                        onPositionChanged: {
+                            if (pressed) {
+                                var delta = mouseX - startX
+                                var newWidth = startWidth + delta
+                                sidebarWidth = Math.max(180, Math.min(350, newWidth))
+                            }
                         }
                     }
                 }
             }
-        }
-        
-        // Separator line
-        Rectangle {
-            Layout.fillHeight: true
-            Layout.preferredWidth: 1
-            color: separatorColor
-        }
-        
-        // Main content area
-        Rectangle {
-            id: contentArea
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            color: contentBackground
+            
+            // Separator line
+            Rectangle {
+                Layout.fillHeight: true
+                Layout.preferredWidth: 1
+                color: separatorColor
+            }
+            
+            // Main content area
+            Rectangle {
+                id: contentArea
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                color: contentBackground
             
             // Empty state / Welcome screen (always shown in current state)
             Item {
