@@ -83,6 +83,8 @@ class GalleryModel(QAbstractListModel):
     IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".heif"}
     VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
     LIVE_SUFFIX = "_live"
+    MEDIA_TYPE_VIDEO = 1
+    MICRO_THUMB_MIME = "image/jpeg"
     
     def __init__(self, library: LibraryManager, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -333,7 +335,7 @@ class GalleryModel(QAbstractListModel):
                     continue
 
                 media_type = row.get("media_type")
-                is_video = bool(media_type == 1 or row.get("is_video"))
+                is_video = bool(media_type == self.MEDIA_TYPE_VIDEO or row.get("is_video"))
                 is_live = bool(row.get("live_partner_rel"))
                 is_favorite = bool(row.get("is_favorite"))
                 duration_val = row.get("dur") or 0.0
@@ -369,7 +371,7 @@ class GalleryModel(QAbstractListModel):
             return None
         try:
             encoded = base64.b64encode(bytes(blob)).decode("ascii")
-            return f"data:image/jpeg;base64,{encoded}"
+            return f"data:{self.MICRO_THUMB_MIME};base64,{encoded}"
         except (ValueError, UnicodeDecodeError) as exc:
             logger.debug("Failed to decode micro thumbnail for %s: %s", rel or "<unknown>", exc)
             return None
