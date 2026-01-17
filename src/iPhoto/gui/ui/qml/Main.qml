@@ -94,6 +94,7 @@ ApplicationWindow {
         Menu {
             title: qsTr("&Settings")
             
+            // Note: Set Basic Library also appears in File menu (matching widget implementation)
             Action {
                 text: qsTr("Set Basic Library…")
                 onTriggered: folderDialog.open()
