@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -38,6 +39,9 @@ except ImportError:
         from iPhoto.cache.index_store import IndexStore
 
 
+logger = logging.getLogger(__name__)
+
+
 class GalleryRoles(IntEnum):
     """Custom roles for the gallery model exposed to QML."""
     
@@ -55,7 +59,20 @@ class GalleryRoles(IntEnum):
 
 @dataclass
 class GalleryItem:
-    """Internal representation of a gallery item."""
+    """Internal representation of a gallery item.
+    
+    Attributes:
+        file_path: Absolute path to the media file.
+        rel_path: Relative path from the library root.
+        is_video: Whether the item is a video.
+        is_live: Whether the item is a Live Photo (has companion video).
+        is_pano: Whether the item is a panorama.
+        is_favorite: Whether the item is marked as favorite.
+        duration: Video duration in seconds.
+        micro_thumbnail: Small placeholder thumbnail bytes (excluded from repr
+            due to binary data size).
+        micro_thumbnail_url: Cached base64-encoded data URL for the micro thumbnail.
+    """
     
     file_path: Path
     rel_path: str = ""
@@ -65,6 +82,7 @@ class GalleryItem:
     is_favorite: bool = False
     duration: float = 0.0
     micro_thumbnail: Optional[bytes] = field(default=None, repr=False)
+    micro_thumbnail_url: str = field(default="", repr=False)
 
 
 class GalleryModel(QAbstractListModel):
@@ -132,12 +150,8 @@ class GalleryModel(QAbstractListModel):
             file_url = QUrl.fromLocalFile(str(item.file_path)).toString()
             return f"image://thumbnails/{file_url}"
         elif role == GalleryRoles.MicroThumbnailUrlRole:
-            # Return the micro thumbnail as a data URL if available
-            if item.micro_thumbnail:
-                # Micro thumbnails are stored as PNG bytes in the database
-                b64_data = base64.b64encode(item.micro_thumbnail).decode('ascii')
-                return f"data:image/png;base64,{b64_data}"
-            return ""
+            # Return the cached micro thumbnail data URL
+            return item.micro_thumbnail_url
         elif role == GalleryRoles.IsVideoRole:
             return item.is_video
         elif role == GalleryRoles.IsLiveRole:
@@ -266,7 +280,8 @@ class GalleryModel(QAbstractListModel):
         """
         try:
             index_store = IndexStore(library_root)
-        except Exception:
+        except (OSError, ValueError) as exc:
+            logger.debug("Failed to open index store at %s: %s", library_root, exc)
             return False
         
         # Calculate relative album path from library root
@@ -283,7 +298,8 @@ class GalleryModel(QAbstractListModel):
                 include_subalbums=include_subalbums,
                 sort_by_date=True,
             ))
-        except Exception:
+        except (OSError, ValueError) as exc:
+            logger.debug("Failed to read assets from database: %s", exc)
             return False
         
         if not rows:
@@ -322,12 +338,15 @@ class GalleryModel(QAbstractListModel):
         # Get duration for videos
         duration = float(row.get("dur", 0) or 0)
         
-        # Get micro thumbnail bytes
+        # Get micro thumbnail bytes and pre-compute the data URL
         micro_thumbnail = row.get("micro_thumbnail")
+        micro_thumb_bytes: Optional[bytes] = None
+        micro_thumb_url = ""
         if isinstance(micro_thumbnail, (bytes, bytearray)):
             micro_thumb_bytes = bytes(micro_thumbnail)
-        else:
-            micro_thumb_bytes = None
+            # Cache the base64-encoded data URL to avoid repeated encoding
+            b64_data = base64.b64encode(micro_thumb_bytes).decode('ascii')
+            micro_thumb_url = f"data:image/png;base64,{b64_data}"
         
         return GalleryItem(
             file_path=file_path,
@@ -338,6 +357,7 @@ class GalleryModel(QAbstractListModel):
             is_favorite=is_favorite,
             duration=duration,
             micro_thumbnail=micro_thumb_bytes,
+            micro_thumbnail_url=micro_thumb_url,
         )
     
     def _scan_directory(self, path: Path) -> None:
