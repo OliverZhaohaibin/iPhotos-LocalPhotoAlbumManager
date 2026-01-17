@@ -24,15 +24,11 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QImage
 
 try:
-    from .....library.manager import LibraryManager
-    from .....errors import IPhotoError
+    from iPhoto.library.manager import LibraryManager
+    from iPhoto.errors import IPhotoError
 except ImportError:
-    try:
-        from src.iPhoto.library.manager import LibraryManager
-        from src.iPhoto.errors import IPhotoError
-    except ImportError:
-        from iPhoto.library.manager import LibraryManager
-        from iPhoto.errors import IPhotoError
+    from src.iPhoto.library.manager import LibraryManager
+    from src.iPhoto.errors import IPhotoError
 
 
 class GalleryRoles(IntEnum):
@@ -354,7 +350,7 @@ class GalleryModel(QAbstractListModel):
                 )
                 self._items.append(item)
                 loaded = True
-        except (sqlite3.Error, OSError, RuntimeError, IPhotoError) as exc:
+        except (sqlite3.Error, OSError, IPhotoError) as exc:
             # If the index store is unavailable or query fails, fall back to scan logic.
             logger.debug(
                 "Index lookup failed for %s: %s",

@@ -149,7 +149,7 @@ Item {
                             anchors.fill: parent
                             source: model.microThumbnail || ""
                             fillMode: Image.PreserveAspectCrop
-                            asynchronous: false
+                            asynchronous: true
                             cache: true
                             visible: source !== "" && thumbnail.status !== Image.Ready
                         }
