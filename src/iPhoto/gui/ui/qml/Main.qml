@@ -47,16 +47,27 @@ ApplicationWindow {
         title: "Select Library Folder"
         onAccepted: {
             if (isSidebarReady()) {
-                // Convert file:// URL to path string properly
+                // Convert file:// URL to path string properly using Qt.resolvedUrl
                 // On Unix: file:///path/to/folder -> /path/to/folder
                 // On Windows: file:///C:/path -> C:/path
-                var path = selectedFolder.toString()
-                if (path.startsWith("file:///")) {
-                    // Handle both Unix and Windows paths
-                    path = path.substring(7)  // Keep one leading slash for Unix
-                } else if (path.startsWith("file://")) {
-                    path = path.substring(7)
+                var url = selectedFolder.toString()
+                var path = url
+                
+                // Handle file:// URLs
+                if (url.startsWith("file:///")) {
+                    // Unix: file:///path -> /path (remove file://)
+                    // Windows: file:///C:/path -> C:/path (remove file:///)
+                    var afterPrefix = url.substring(8)  // Remove "file:///"
+                    // Check if it's a Windows path (has drive letter like C:)
+                    if (afterPrefix.length >= 2 && afterPrefix.charAt(1) === ':') {
+                        path = afterPrefix  // Windows: C:/path
+                    } else {
+                        path = "/" + afterPrefix  // Unix: /path
+                    }
+                } else if (url.startsWith("file://")) {
+                    path = url.substring(7)
                 }
+                
                 console.log("Binding library to:", path)
                 sidebarBridge.bindLibrary(path)
             }
