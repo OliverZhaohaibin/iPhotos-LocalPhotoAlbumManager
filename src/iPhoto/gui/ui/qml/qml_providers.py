@@ -175,7 +175,11 @@ class ThumbnailImageProvider(QQuickImageProvider):
         if self._library_root:
             try:
                 # Logic matching generate_cache_path in thumbnail_loader.py
-                path_str = str(file_path.resolve()) if file_path.exists() else id_str
+                # Use resolved path if file exists, otherwise use the raw id_str
+                try:
+                    path_str = str(file_path.resolve()) if file_path.exists() else id_str
+                except OSError:
+                    path_str = id_str
                 digest = hashlib.blake2b(path_str.encode("utf-8"), digest_size=20).hexdigest()
                 thumbs_dir = self._library_root / WORK_DIR_NAME / "thumbs"
 
