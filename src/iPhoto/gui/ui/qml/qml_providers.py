@@ -141,6 +141,12 @@ class ThumbnailImageProvider(QQuickImageProvider):
         """Set the library root path for locating cached thumbnails."""
         self._library_root = root
         
+    def _load_image(self, path: Path, target_size: QSize) -> QImage:
+        loaded = image_loader.load_qimage(path, target_size)
+        if loaded is None:
+            return QImage()
+        return loaded
+
     def requestImage(  # noqa: N802 - Qt override
         self,
         id_str: str,
@@ -204,18 +210,14 @@ class ThumbnailImageProvider(QQuickImageProvider):
                         best_candidate = candidates[0]
 
                         # Load from cache file
-                        loaded = image_loader.load_qimage(best_candidate, target_size)
-                        if loaded is not None:
-                            image = loaded
+                        image = self._load_image(best_candidate, target_size)
             except Exception:
                 # Fallback to loading original if cache lookup fails
                 pass
 
         # Fallback: Load original file if no cache found or cache load failed
         if image.isNull() and file_path.exists():
-            loaded = image_loader.load_qimage(file_path, target_size)
-            if loaded is not None:
-                image = loaded
+            image = self._load_image(file_path, target_size)
         
         if image.isNull():
             # Return placeholder

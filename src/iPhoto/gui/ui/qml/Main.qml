@@ -78,76 +78,6 @@ ApplicationWindow {
         }
     }
 
-    // Native menubar mirroring the widget implementation
-    menuBar: MenuBar {
-        Menu {
-            title: qsTr("File")
-            MenuItem {
-                text: qsTr("Open Album Folder…")
-                onTriggered: albumFolderDialog.open()
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: qsTr("Set Basic Library…")
-                onTriggered: libraryFolderDialog.open()
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: qsTr("Export All Edited")
-                enabled: false
-            }
-            MenuItem {
-                text: qsTr("Export Selected")
-                enabled: false
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: qsTr("Rebuild Live Links")
-                enabled: isSidebarReady() && sidebarBridge.hasLibrary
-                onTriggered: {
-                    if (appBridge) {
-                        appBridge.rebuildLiveLinks()
-                    }
-                }
-            }
-        }
-
-        Menu {
-            title: qsTr("Settings")
-            MenuItem {
-                text: qsTr("Set Basic Library…")
-                onTriggered: libraryFolderDialog.open()
-            }
-            MenuSeparator {}
-            MenuItem {
-                id: showFilmstripMenuItem
-                text: qsTr("Show Filmstrip")
-                checkable: true
-                checked: true
-            }
-            MenuSeparator {}
-            Menu {
-                title: qsTr("Appearance")
-                MenuItem { text: qsTr("System Default"); checkable: true; checked: true }
-                MenuItem { text: qsTr("Light Mode"); checkable: true }
-                MenuItem { text: qsTr("Dark Mode"); checkable: true }
-            }
-
-            Menu {
-                title: qsTr("Wheel Action")
-                MenuItem { text: qsTr("Navigate"); checkable: true; checked: true }
-                MenuItem { text: qsTr("Zoom"); checkable: true }
-            }
-
-            Menu {
-                title: qsTr("Share Action")
-                MenuItem { text: qsTr("Copy File"); checkable: true }
-                MenuItem { text: qsTr("Copy Path"); checkable: true }
-                MenuItem { text: qsTr("Reveal in File Manager"); checkable: true; checked: true }
-            }
-        }
-    }
-    
     // Main layout with header bar and content
     ColumnLayout {
         anchors.fill: parent
@@ -183,8 +113,6 @@ ApplicationWindow {
                 }
                 Menu {
                     title: qsTr("Settings")
-                    MenuItem { text: qsTr("Set Basic Library…"); onTriggered: libraryFolderDialog.open() }
-                    MenuSeparator {}
                     MenuItem { text: qsTr("Show Filmstrip"); checkable: true; checked: true }
                     MenuSeparator {}
                     Menu {

@@ -6,6 +6,7 @@ implementation in main.py.
 
 from __future__ import annotations
 
+import logging
 import sys
 import traceback
 from pathlib import Path
@@ -18,6 +19,8 @@ from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
 # This module is always run from the package context
 from iPhoto.appctx import AppContext
 from iPhoto.errors import IPhotoError
+
+logger = logging.getLogger(__name__)
 
 
 class SidebarBridge(QObject):
@@ -211,9 +214,7 @@ class AppBridge(QObject):
                 pass
 
     def _emit_error(self, message: str, exc: Exception | None = None) -> None:
-        if exc is not None:
-            traceback.print_exception(exc)
-        print(message)
+        logger.error(message, exc_info=exc)
         self.errorRaised.emit(message)
 
     @Slot(str)
