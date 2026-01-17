@@ -201,14 +201,14 @@ Item {
                 Image {
                     id: iconImage
                     anchors.centerIn: parent
-                    // Use sourceSize to control rendering size, but let the image be its natural size
+                    // Let image provider determine correct aspect-ratio size
                     sourceSize.width: iconSize
                     sourceSize.height: iconSize
                     source: iconContainer.getIconSource(itemIconName, itemNodeType, isSelected)
                     fillMode: Image.PreserveAspectFit
-                    // Constrain to container size
-                    width: Math.min(sourceSize.width, iconSize)
-                    height: Math.min(sourceSize.height, iconSize)
+                    // Use implicit size from provider
+                    width: implicitWidth > 0 ? implicitWidth : iconSize
+                    height: implicitHeight > 0 ? implicitHeight : iconSize
                 }
             }
             

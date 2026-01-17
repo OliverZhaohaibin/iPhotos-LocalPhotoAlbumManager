@@ -67,10 +67,29 @@ class IconImageProvider(QQuickImageProvider):
         # Load the SVG
         renderer = QSvgRenderer(str(icon_path))
         
-        # Determine size
-        target_size = requested_size if requested_size.isValid() else renderer.defaultSize()
-        if not target_size.isValid():
-            target_size = QSize(24, 24)
+        # Get the SVG's native size
+        native_size = renderer.defaultSize()
+        if not native_size.isValid() or native_size.width() <= 0 or native_size.height() <= 0:
+            native_size = QSize(24, 24)
+        
+        # Determine target size while preserving aspect ratio
+        if requested_size.isValid() and requested_size.width() > 0 and requested_size.height() > 0:
+            # Calculate size that fits within requested bounds while preserving aspect ratio
+            native_aspect = native_size.width() / native_size.height()
+            requested_aspect = requested_size.width() / requested_size.height()
+            
+            if native_aspect > requested_aspect:
+                # SVG is wider than requested - fit to width
+                target_width = requested_size.width()
+                target_height = int(target_width / native_aspect) if native_aspect > 0 else target_width
+            else:
+                # SVG is taller than requested - fit to height
+                target_height = requested_size.height()
+                target_width = int(target_height * native_aspect)
+            
+            target_size = QSize(max(1, target_width), max(1, target_height))
+        else:
+            target_size = native_size
         
         # Create pixmap and render
         pixmap = QPixmap(target_size)

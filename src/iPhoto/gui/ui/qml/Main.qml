@@ -69,11 +69,12 @@ ApplicationWindow {
             Layout.preferredHeight: 32
             color: sidebarBackground
             
-            RowLayout {
-                anchors.fill: parent
+            Row {
+                id: menuRow
+                anchors.left: parent.left
                 anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                spacing: 8
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
                 
                 // File menu button
                 Button {
@@ -81,10 +82,10 @@ ApplicationWindow {
                     text: qsTr("File")
                     flat: true
                     font.pixelSize: menuFontSize
+                    implicitWidth: 50
+                    implicitHeight: menuButtonHeight
                     
                     background: Rectangle {
-                        implicitWidth: 50
-                        implicitHeight: menuButtonHeight
                         color: fileMenuButton.hovered ? hoverBackground : "transparent"
                         radius: 4
                     }
@@ -142,10 +143,10 @@ ApplicationWindow {
                     text: qsTr("Settings")
                     flat: true
                     font.pixelSize: menuFontSize
+                    implicitWidth: 70
+                    implicitHeight: menuButtonHeight
                     
                     background: Rectangle {
-                        implicitWidth: 70
-                        implicitHeight: menuButtonHeight
                         color: settingsMenuButton.hovered ? hoverBackground : "transparent"
                         radius: 4
                     }
@@ -259,9 +260,6 @@ ApplicationWindow {
                         }
                     }
                 }
-                
-                // Spacer
-                Item { Layout.fillWidth: true }
             }
             
             // Bottom separator
