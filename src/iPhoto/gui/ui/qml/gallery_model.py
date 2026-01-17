@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import base64
+import binascii
+import logging
+import sqlite3
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -23,11 +26,14 @@ from PySide6.QtGui import QImage
 
 try:
     from .....library.manager import LibraryManager
+    from .....errors import IPhotoError
 except ImportError:
     try:
         from src.iPhoto.library.manager import LibraryManager
+        from src.iPhoto.errors import IPhotoError
     except ImportError:
         from iPhoto.library.manager import LibraryManager
+        from iPhoto.errors import IPhotoError
 
 
 class GalleryRoles(IntEnum):
@@ -43,6 +49,9 @@ class GalleryRoles(IntEnum):
     IsFavoriteRole = Qt.ItemDataRole.UserRole + 8
     DurationRole = Qt.ItemDataRole.UserRole + 9
     IndexRole = Qt.ItemDataRole.UserRole + 10
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -288,8 +297,8 @@ class GalleryModel(QAbstractListModel):
 
         try:
             from .....cache.index_store import IndexStore
-        except Exception:
-            # Fallback silently to filesystem scan if index store is unavailable.
+        except (ImportError, ModuleNotFoundError) as exc:
+            logger.debug("IndexStore unavailable: %s", exc)
             return
 
         store = IndexStore(root)
@@ -325,7 +334,8 @@ class GalleryModel(QAbstractListModel):
                         micro_data = "data:image/jpeg;base64," + base64.b64encode(
                             bytes(micro_thumb_blob)
                         ).decode("ascii")
-                    except Exception:
+                    except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
+                        logger.debug("Failed to decode micro thumbnail for %s: %s", rel, exc)
                         micro_data = None
 
                 item = GalleryItem(
@@ -338,8 +348,14 @@ class GalleryModel(QAbstractListModel):
                     micro_thumbnail=micro_data,
                 )
                 self._items.append(item)
-        except Exception:
+        except (sqlite3.Error, OSError, RuntimeError, IPhotoError) as exc:
             # If the index store is unavailable or query fails, fall back to scan logic.
+            logger.debug(
+                "Index lookup failed for %s: %s",
+                album_rel or "<all>",
+                exc,
+                exc_info=True,
+            )
             self._items.clear()
     
     def _check_is_live(self, path: Path) -> bool:
