@@ -20,6 +20,13 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QImage
 
+# Import PyAV for video duration extraction
+try:
+    import av
+    _HAS_AV = True
+except ImportError:
+    _HAS_AV = False
+
 try:
     from .....library.manager import LibraryManager
 except ImportError:
@@ -305,8 +312,9 @@ class GalleryModel(QAbstractListModel):
         
         Uses PyAV for efficient video metadata extraction.
         """
+        if not _HAS_AV:
+            return 0.0
         try:
-            import av
             with av.open(str(path)) as container:
                 if container.duration is not None:
                     # Duration is in microseconds

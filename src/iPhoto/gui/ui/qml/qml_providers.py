@@ -15,6 +15,14 @@ from PySide6.QtSvg import QSvgRenderer
 from ....config import WORK_DIR_NAME
 from ....utils import image_loader
 
+# Import video frame grabber - may not be available in all contexts
+try:
+    from ..tasks.video_frame_grabber import grab_video_frame
+    _HAS_VIDEO_GRABBER = True
+except ImportError:
+    _HAS_VIDEO_GRABBER = False
+    grab_video_frame = None  # type: ignore
+
 # Video extensions that need frame extraction
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".qt"}
 
@@ -208,10 +216,9 @@ class ThumbnailImageProvider(QQuickImageProvider):
             
             # Check if this is a video file
             suffix = file_path.suffix.lower()
-            if suffix in VIDEO_EXTENSIONS:
+            if suffix in VIDEO_EXTENSIONS and _HAS_VIDEO_GRABBER:
                 # Try to extract a frame from the video
                 try:
-                    from ..tasks.video_frame_grabber import grab_video_frame
                     loaded_image = grab_video_frame(file_path, target_size)
                 except Exception:
                     loaded_image = None
