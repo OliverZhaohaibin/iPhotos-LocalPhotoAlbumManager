@@ -173,7 +173,7 @@ Item {
                             // Loading placeholder
                             Rectangle {
                                 anchors.fill: parent
-                                color: microThumb.visible ? "#1b1b1b80" : "#1b1b1b"
+                                color: "#1b1b1b"
                                 visible: thumbnail.status !== Image.Ready && microThumb.source === ""
                             
                             BusyIndicator {

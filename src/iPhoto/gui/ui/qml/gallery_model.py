@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import logging
 import sqlite3
 from dataclasses import dataclass
@@ -170,7 +169,7 @@ class GalleryModel(QAbstractListModel):
             try:
                 album_rel = album_path.resolve().relative_to(root)
             except ValueError:
-                album_rel = None
+                pass
 
         self._loading = True
         self.loadingChanged.emit()
@@ -179,9 +178,11 @@ class GalleryModel(QAbstractListModel):
         self._items.clear()
         self._current_path = album_path
 
+        loaded = False
         if root is not None and album_rel is not None:
-            self._load_from_index(album_rel.as_posix(), include_subalbums=False)
-        if not self._items:
+            loaded = self._load_from_index(album_rel.as_posix(), include_subalbums=False)
+        if not loaded:
+            # Fall back to direct filesystem scan if index data is unavailable.
             self._scan_directory(album_path)
 
         self.endResetModel()
@@ -204,8 +205,8 @@ class GalleryModel(QAbstractListModel):
         self._items.clear()
         self._current_path = root
         
-        self._load_from_index(None, include_subalbums=True)
-        if not self._items:
+        loaded = self._load_from_index(None, include_subalbums=True)
+        if not loaded:
             # Recursively scan library for media files as a fallback
             self._scan_directory_recursive(root)
             # Sort by modification time (newest first)
@@ -289,19 +290,23 @@ class GalleryModel(QAbstractListModel):
             )
             self._items.append(item)
 
-    def _load_from_index(self, album_rel: str | None, include_subalbums: bool) -> None:
-        """Populate items using the indexed database when available."""
+    def _load_from_index(self, album_rel: str | None, include_subalbums: bool) -> bool:
+        """Populate items using the indexed database when available.
+
+        Returns True if at least one row was loaded, False otherwise.
+        """
         root = self._library.root()
         if root is None:
-            return
+            return False
 
         try:
             from .....cache.index_store import IndexStore
         except (ImportError, ModuleNotFoundError) as exc:
             logger.debug("IndexStore unavailable: %s", exc)
-            return
+            return False
 
         store = IndexStore(root)
+        loaded = False
         try:
             if album_rel:
                 rows_iter = store.read_album_assets(
@@ -334,7 +339,7 @@ class GalleryModel(QAbstractListModel):
                         micro_data = "data:image/jpeg;base64," + base64.b64encode(
                             bytes(micro_thumb_blob)
                         ).decode("ascii")
-                    except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
+                    except (ValueError, UnicodeDecodeError) as exc:
                         logger.debug("Failed to decode micro thumbnail for %s: %s", rel, exc)
                         micro_data = None
 
@@ -348,6 +353,7 @@ class GalleryModel(QAbstractListModel):
                     micro_thumbnail=micro_data,
                 )
                 self._items.append(item)
+                loaded = True
         except (sqlite3.Error, OSError, RuntimeError, IPhotoError) as exc:
             # If the index store is unavailable or query fails, fall back to scan logic.
             logger.debug(
@@ -357,6 +363,8 @@ class GalleryModel(QAbstractListModel):
                 exc_info=True,
             )
             self._items.clear()
+            loaded = False
+        return loaded
     
     def _check_is_live(self, path: Path) -> bool:
         """Check if the image is part of a Live Photo."""
