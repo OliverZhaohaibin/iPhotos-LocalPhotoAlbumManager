@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import (
     Property,
     QModelIndex,
+    QMetaObject,
     QObject,
     QSize,
     Qt,
@@ -22,7 +23,7 @@ from PySide6.QtGui import (
     QPixmap,
     QSurfaceFormat,
 )
-from PySide6.QtQuick import QQuickImageProvider
+from PySide6.QtQuick import QQuickImageProvider, QSGRendererInterface
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
@@ -188,6 +189,9 @@ class QmlGalleryGridView(QWidget):
         # Create the QQuickWidget
         self._quick_widget = QQuickWidget()
         self._quick_widget.setFormat(surface_format)
+        # Force the Qt Quick scene graph to use OpenGL; frameless Windows shells
+        # remain transparent without an explicit pipeline declaration.
+        self._quick_widget.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
 
         # Configure rendering behavior
         # Use SizeRootObjectToView to make the QML root item fill the widget
@@ -261,7 +265,8 @@ class QmlGalleryGridView(QWidget):
 
     def _apply_background_color(self) -> None:
         """Apply the palette base color as the clear color."""
-        base_color = self.palette().color(QPalette.ColorRole.Base)
+        base_color = QColor(self.palette().color(QPalette.ColorRole.Base))
+        base_color.setAlpha(255)
         self._quick_widget.setClearColor(base_color)
 
         # Update the QML root item's color
@@ -362,6 +367,23 @@ class QmlGalleryGridView(QWidget):
     # ------------------------------------------------------------------
     # Selection mode
     # ------------------------------------------------------------------
+
+    def clearSelection(self) -> None:  # noqa: N802 - Qt API compatibility
+        """Clear the current selection in the QML grid.
+
+        The QML layer exposes a ``clearSelection`` helper; if that cannot be
+        invoked, the method falls back to resetting the ``currentIndex`` on the
+        GridView object directly.
+        """
+        root = self._quick_widget.rootObject()
+        if root is None:
+            return
+        try:
+            QMetaObject.invokeMethod(root, "clearSelection")
+        except (RuntimeError, TypeError, AttributeError):
+            grid_view = root.findChild(QObject, "gridView")
+            if grid_view is not None:
+                grid_view.setProperty("currentIndex", -1)
 
     def selection_mode_active(self) -> bool:
         """Return whether multi-selection mode is enabled."""
