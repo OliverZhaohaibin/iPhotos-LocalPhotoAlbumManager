@@ -189,6 +189,8 @@ class QmlGalleryGridView(QWidget):
         # Create the QQuickWidget
         self._quick_widget = QQuickWidget()
         self._quick_widget.setFormat(surface_format)
+        # Force the Qt Quick scene graph to use OpenGL; frameless Windows shells
+        # remain transparent without an explicit pipeline declaration.
         self._quick_widget.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
 
         # Configure rendering behavior
