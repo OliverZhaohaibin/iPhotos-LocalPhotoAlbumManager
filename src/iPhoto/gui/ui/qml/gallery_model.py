@@ -43,7 +43,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Micro thumbnails are expected to be 16x16 JPEGs; guard against unexpectedly large blobs.
 MAX_MICRO_THUMBNAIL_BYTES = 16 * 1024
+# Data URLs grow by ~33%, so cap the encoded payload to keep QML sources lightweight.
+MAX_MICRO_THUMBNAIL_URL_BYTES = 32 * 1024
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 WEBP_RIFF = b"RIFF"
 WEBP_MAGIC = b"WEBP"
@@ -366,6 +369,8 @@ class GalleryModel(QAbstractListModel):
         if len(blob) > MAX_MICRO_THUMBNAIL_BYTES:
             return ""
         encoded = base64.b64encode(blob).decode("ascii")
+        if len(encoded) > MAX_MICRO_THUMBNAIL_URL_BYTES:
+            return ""
         mime = GalleryModel._micro_thumbnail_mime(blob)
         return f"data:{mime};base64,{encoded}"
 
@@ -373,7 +378,7 @@ class GalleryModel(QAbstractListModel):
     def _micro_thumbnail_mime(blob: bytes) -> str:
         if blob.startswith(PNG_MAGIC):
             return "image/png"
-        if blob.startswith(WEBP_RIFF) and blob[8:12] == WEBP_MAGIC:
+        if len(blob) >= 12 and blob.startswith(WEBP_RIFF) and blob[8:12] == WEBP_MAGIC:
             return "image/webp"
         if blob.startswith(GIF87A_MAGIC) or blob.startswith(GIF89A_MAGIC):
             return "image/gif"

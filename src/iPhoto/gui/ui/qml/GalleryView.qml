@@ -135,6 +135,7 @@ Item {
                 width: cellSize
                 height: cellSize
                 property bool thumbnailReady: thumbnail.status === Image.Ready
+                // Show placeholder when neither micro nor full thumbnail is available yet.
                 property bool showPlaceholder: !thumbnailReady && !microThumbnail.visible
                 
                 // Thumbnail container with gap
