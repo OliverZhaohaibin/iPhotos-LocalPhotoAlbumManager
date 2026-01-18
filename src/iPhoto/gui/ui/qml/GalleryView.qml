@@ -120,6 +120,7 @@ Item {
             cellWidth: cellSize
             cellHeight: cellSize
             clip: true
+            cacheBuffer: Math.max(0, cellSize * 6)
             
             // Smooth scrolling
             flickableDirection: Flickable.VerticalFlick
@@ -133,6 +134,9 @@ Item {
                 id: delegateRoot
                 width: cellSize
                 height: cellSize
+                property bool thumbnailReady: thumbnail.status === Image.Ready
+                // Show placeholder when neither micro nor full thumbnail is available yet.
+                property bool showPlaceholder: !thumbnailReady && !microThumbnail.visible
                 
                 // Thumbnail container with gap
                 Rectangle {
@@ -144,9 +148,19 @@ Item {
                     
                     // Thumbnail image
                     Image {
+                        id: microThumbnail
+                        anchors.fill: parent
+                        source: model.microThumbnailUrl || ""
+                        fillMode: Image.PreserveAspectCrop
+                        visible: source !== "" && !delegateRoot.thumbnailReady
+                    }
+
+                    Image {
                         id: thumbnail
                         anchors.fill: parent
                         source: model.thumbnailUrl || ""
+                        sourceSize.width: itemSize
+                        sourceSize.height: itemSize
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -155,7 +169,7 @@ Item {
                         Rectangle {
                             anchors.fill: parent
                             color: "#1b1b1b"
-                            visible: thumbnail.status !== Image.Ready
+                            visible: delegateRoot.showPlaceholder
                             
                             BusyIndicator {
                                 anchors.centerIn: parent

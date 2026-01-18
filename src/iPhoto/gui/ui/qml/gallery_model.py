@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import logging
+import sqlite3
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -28,6 +31,28 @@ except ImportError:
     except ImportError:
         from iPhoto.library.manager import LibraryManager
 
+try:
+    from iPhoto.cache.index_store import IndexStore
+    from iPhoto.media_classifier import classify_media
+    from iPhoto.gui.ui.tasks.asset_loader_worker import compute_album_path
+except ImportError:
+    from src.iPhoto.cache.index_store import IndexStore
+    from src.iPhoto.media_classifier import classify_media
+    from src.iPhoto.gui.ui.tasks.asset_loader_worker import compute_album_path
+
+
+logger = logging.getLogger(__name__)
+
+# Micro thumbnails are expected to be 16x16 JPEGs; guard against unexpectedly large blobs.
+MAX_MICRO_THUMBNAIL_BYTES = 16 * 1024
+# Base64 expands the payload by ~33%; allow extra headroom for data URL overhead.
+MAX_MICRO_THUMBNAIL_URL_BYTES = 32 * 1024
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+WEBP_RIFF = b"RIFF"
+WEBP_MAGIC = b"WEBP"
+GIF87A_MAGIC = b"GIF87a"
+GIF89A_MAGIC = b"GIF89a"
+
 
 class GalleryRoles(IntEnum):
     """Custom roles for the gallery model exposed to QML."""
@@ -41,6 +66,7 @@ class GalleryRoles(IntEnum):
     IsFavoriteRole = Qt.ItemDataRole.UserRole + 7
     DurationRole = Qt.ItemDataRole.UserRole + 8
     IndexRole = Qt.ItemDataRole.UserRole + 9
+    MicroThumbnailUrlRole = Qt.ItemDataRole.UserRole + 10
 
 
 @dataclass
@@ -53,6 +79,7 @@ class GalleryItem:
     is_pano: bool = False
     is_favorite: bool = False
     duration: float = 0.0
+    micro_thumbnail_url: str = ""
 
 
 class GalleryModel(QAbstractListModel):
@@ -92,6 +119,7 @@ class GalleryModel(QAbstractListModel):
             GalleryRoles.IsFavoriteRole: QByteArray(b"isFavorite"),
             GalleryRoles.DurationRole: QByteArray(b"duration"),
             GalleryRoles.IndexRole: QByteArray(b"itemIndex"),
+            GalleryRoles.MicroThumbnailUrlRole: QByteArray(b"microThumbnailUrl"),
         }
     
     def rowCount(self, parent: QModelIndex | None = None) -> int:  # noqa: N802
@@ -129,6 +157,8 @@ class GalleryModel(QAbstractListModel):
             return item.duration
         elif role == GalleryRoles.IndexRole:
             return row
+        elif role == GalleryRoles.MicroThumbnailUrlRole:
+            return item.micro_thumbnail_url
         
         return None
     
@@ -156,8 +186,9 @@ class GalleryModel(QAbstractListModel):
         self._items.clear()
         self._current_path = album_path
         
-        # Scan directory for media files
-        self._scan_directory(album_path)
+        # Prefer index store for fast loading and micro thumbnails
+        if not self._load_from_index(album_path, include_subalbums=True):
+            self._scan_directory(album_path)
         
         self.endResetModel()
         self.countChanged.emit()
@@ -179,11 +210,13 @@ class GalleryModel(QAbstractListModel):
         self._items.clear()
         self._current_path = root
         
-        # Recursively scan library for media files
-        self._scan_directory_recursive(root)
-        
-        # Sort by modification time (newest first)
-        self._items.sort(key=lambda x: x.file_path.stat().st_mtime, reverse=True)
+        # Prefer index store for fast loading and micro thumbnails
+        if not self._load_from_index(root, include_subalbums=True):
+            # Recursively scan library for media files
+            self._scan_directory_recursive(root)
+
+            # Sort by modification time (newest first)
+            self._items.sort(key=lambda x: x.file_path.stat().st_mtime, reverse=True)
         
         self.endResetModel()
         self.countChanged.emit()
@@ -262,6 +295,95 @@ class GalleryModel(QAbstractListModel):
                 duration=self._get_video_duration(path),
             )
             self._items.append(item)
+
+    def _load_from_index(self, album_root: Path, *, include_subalbums: bool) -> bool:
+        """Load assets from the global index store when available."""
+        library_root = self._library.root()
+        if library_root is None:
+            return False
+        try:
+            index_root, album_path = compute_album_path(album_root, library_root)
+        except (OSError, ValueError) as exc:
+            logger.warning("Gallery index path computation failed for %s: %s", album_root, exc)
+            return False
+
+        try:
+            store = IndexStore(index_root)
+            rows = store.read_album_assets(
+                album_path,
+                include_subalbums=include_subalbums,
+                sort_by_date=True,
+                filter_hidden=True,
+            )
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            logger.warning("Gallery index load failed for %s: %s", album_root, exc)
+            return False
+        try:
+            for row in rows:
+                item = self._item_from_row(index_root, row)
+                if item is not None:
+                    self._items.append(item)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            logger.warning("Gallery index iteration failed for %s: %s", album_root, exc)
+            return False
+
+        return True
+
+    def _item_from_row(self, index_root: Path, row: dict[str, Any]) -> GalleryItem | None:
+        """Convert a database row into a GalleryItem."""
+        rel = row.get("rel")
+        if not isinstance(rel, str) or not rel:
+            return None
+
+        try:
+            index_root_resolved = index_root.resolve()
+            file_path = (index_root / rel).resolve()
+            file_path.relative_to(index_root_resolved)
+        except (OSError, ValueError):
+            return None
+        is_image, is_video = classify_media(row)
+        if not (is_image or is_video):
+            return None
+
+        duration = row.get("dur")
+        duration_value = float(duration) if isinstance(duration, (int, float)) else 0.0
+
+        micro_url = ""
+        micro_blob = row.get("micro_thumbnail")
+        if isinstance(micro_blob, (bytes, bytearray, memoryview)):
+            micro_url = self._micro_thumbnail_url(bytes(micro_blob))
+
+        return GalleryItem(
+            file_path=file_path,
+            is_video=is_video,
+            is_live=bool(row.get("live_partner_rel")),
+            is_pano=bool(row.get("is_pano", False)),
+            is_favorite=bool(row.get("is_favorite")) or bool(row.get("featured")),
+            duration=duration_value,
+            micro_thumbnail_url=micro_url,
+        )
+
+    @staticmethod
+    def _micro_thumbnail_url(blob: bytes) -> str:
+        """Return a data URL for micro thumbnail bytes."""
+        if len(blob) > MAX_MICRO_THUMBNAIL_BYTES:
+            return ""
+        estimated_encoded_len = ((len(blob) + 2) // 3) * 4
+        if estimated_encoded_len > MAX_MICRO_THUMBNAIL_URL_BYTES:
+            return ""
+        encoded = base64.b64encode(blob).decode("ascii")
+        mime = GalleryModel._micro_thumbnail_mime(blob)
+        return f"data:{mime};base64,{encoded}"
+
+    @staticmethod
+    def _micro_thumbnail_mime(blob: bytes) -> str:
+        if blob.startswith(PNG_MAGIC):
+            return "image/png"
+        if len(blob) >= 12 and blob.startswith(WEBP_RIFF) and blob[8:12] == WEBP_MAGIC:
+            return "image/webp"
+        if blob.startswith(GIF87A_MAGIC) or blob.startswith(GIF89A_MAGIC):
+            return "image/gif"
+        return "image/jpeg"
     
     def _check_is_live(self, path: Path) -> bool:
         """Check if the image is part of a Live Photo."""

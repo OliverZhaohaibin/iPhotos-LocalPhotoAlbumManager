@@ -12,7 +12,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot, QTimer
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
 
 # Import application context - use absolute imports for consistency
@@ -278,17 +278,18 @@ def main(argv: list[str] | None = None) -> int:
     
     arguments = list(sys.argv if argv is None else argv)
     
-    # Set application attributes before creating QGuiApplication
+    # Set application attributes before creating QApplication
     # This improves startup robustness on various platforms
     try:
         from PySide6.QtCore import Qt
-        QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        QApplication.setHighDpiScaleFactorRoundingPolicy(
             Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
         )
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeMenuBar, True)
     except Exception:
         pass  # Attribute may not exist in older Qt versions
     
-    app = QGuiApplication(arguments)
+    app = QApplication(arguments)
     app.setApplicationName("iPhoto")
     app.setOrganizationName("iPhotron")
     
