@@ -32,15 +32,37 @@ ApplicationWindow {
     property string currentAlbumTitle: ""
     property int sidebarWidth: 220
 
-    menuBar: MenuBar {
-        id: appMenuBar
+    header: ToolBar {
+        id: headerBar
+        contentHeight: menuButtonHeight
         background: Rectangle {
             color: sidebarBackground
             border.color: separatorColor
             border.width: 1
         }
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 8
+            spacing: 6
+
+            ToolButton {
+                id: fileButton
+                text: qsTr("File")
+                font.pixelSize: menuFontSize
+                onClicked: fileMenu.popup(fileButton)
+            }
+
+            ToolButton {
+                id: settingsButton
+                text: qsTr("Settings")
+                font.pixelSize: menuFontSize
+                onClicked: settingsMenu.popup(settingsButton)
+            }
+        }
+
         Menu {
-            title: qsTr("File")
+            id: fileMenu
             MenuItem { text: qsTr("Open Album Folder…"); onTriggered: albumFolderDialog.open() }
             MenuSeparator {}
             MenuItem { text: qsTr("Set Basic Library…"); onTriggered: libraryFolderDialog.open() }
@@ -56,8 +78,9 @@ ApplicationWindow {
                 }
             }
         }
+
         Menu {
-            title: qsTr("Settings")
+            id: settingsMenu
             MenuItem { text: qsTr("Show Filmstrip"); checkable: true; checked: true }
             MenuSeparator {}
             Menu {

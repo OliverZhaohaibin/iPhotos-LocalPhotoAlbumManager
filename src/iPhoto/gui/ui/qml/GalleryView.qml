@@ -120,7 +120,7 @@ Item {
             cellWidth: cellSize
             cellHeight: cellSize
             clip: true
-            cacheBuffer: cellSize * 6
+            cacheBuffer: Math.max(0, cellSize * 6)
             
             // Smooth scrolling
             flickableDirection: Flickable.VerticalFlick
