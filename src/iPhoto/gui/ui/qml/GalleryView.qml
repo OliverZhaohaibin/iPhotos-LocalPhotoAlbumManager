@@ -134,6 +134,7 @@ Item {
                 id: delegateRoot
                 width: cellSize
                 height: cellSize
+                property bool thumbnailReady: thumbnail.status === Image.Ready
                 
                 // Thumbnail container with gap
                 Rectangle {
@@ -149,7 +150,7 @@ Item {
                         anchors.fill: parent
                         source: model.microThumbnailUrl || ""
                         fillMode: Image.PreserveAspectCrop
-                        visible: source !== "" && thumbnail.status !== Image.Ready
+                        visible: source !== "" && !delegateRoot.thumbnailReady
                     }
 
                     Image {
@@ -166,7 +167,7 @@ Item {
                         Rectangle {
                             anchors.fill: parent
                             color: "#1b1b1b"
-                            visible: thumbnail.status !== Image.Ready && !microThumbnail.visible
+                            visible: !delegateRoot.thumbnailReady && !microThumbnail.visible
                             
                             BusyIndicator {
                                 anchors.centerIn: parent

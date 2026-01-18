@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import sqlite3
 from dataclasses import dataclass
 from enum import IntEnum
@@ -43,6 +44,9 @@ except ImportError:
         from iPhoto.cache.index_store import IndexStore
         from iPhoto.media_classifier import classify_media
         from iPhoto.gui.ui.tasks.asset_loader_worker import compute_album_path
+
+
+logger = logging.getLogger(__name__)
 
 
 class GalleryRoles(IntEnum):
@@ -294,7 +298,8 @@ class GalleryModel(QAbstractListModel):
             return False
         try:
             index_root, album_path = compute_album_path(album_root, library_root)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            logger.warning("Gallery index path computation failed for %s: %s", album_root, exc)
             return False
 
         try:
@@ -305,14 +310,16 @@ class GalleryModel(QAbstractListModel):
                 sort_by_date=True,
                 filter_hidden=True,
             )
-        except (OSError, ValueError, sqlite3.Error):
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            logger.warning("Gallery index load failed for %s: %s", album_root, exc)
             return False
         try:
             for row in rows:
                 item = self._item_from_row(index_root, row)
                 if item is not None:
                     self._items.append(item)
-        except (OSError, ValueError, sqlite3.Error):
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            logger.warning("Gallery index iteration failed for %s: %s", album_root, exc)
             return False
 
         return True
@@ -323,7 +330,12 @@ class GalleryModel(QAbstractListModel):
         if not isinstance(rel, str) or not rel:
             return None
 
-        file_path = index_root / rel
+        try:
+            index_root_resolved = index_root.resolve()
+            file_path = (index_root / rel).resolve()
+            file_path.relative_to(index_root_resolved)
+        except (OSError, ValueError):
+            return None
         is_image, is_video = classify_media(row)
         if not (is_image or is_video):
             return None
@@ -350,7 +362,18 @@ class GalleryModel(QAbstractListModel):
     def _micro_thumbnail_url(blob: bytes) -> str:
         """Return a data URL for micro thumbnail bytes."""
         encoded = base64.b64encode(blob).decode("ascii")
-        return f"data:image/jpeg;base64,{encoded}"
+        mime = GalleryModel._micro_thumbnail_mime(blob)
+        return f"data:{mime};base64,{encoded}"
+
+    @staticmethod
+    def _micro_thumbnail_mime(blob: bytes) -> str:
+        if blob.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if blob.startswith(b"RIFF") and blob[8:12] == b"WEBP":
+            return "image/webp"
+        if blob.startswith(b"GIF87a") or blob.startswith(b"GIF89a"):
+            return "image/gif"
+        return "image/jpeg"
     
     def _check_is_live(self, path: Path) -> bool:
         """Check if the image is part of a Live Photo."""
