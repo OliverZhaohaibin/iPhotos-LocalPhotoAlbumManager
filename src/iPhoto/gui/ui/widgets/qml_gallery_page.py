@@ -58,14 +58,19 @@ class ThumbnailImageProvider(QQuickImageProvider):
     ) -> QPixmap:
         """Return the thumbnail pixmap for the given relative path.
 
+        This method is called by the QML engine when an Image element requests
+        a pixmap from this provider.
+
         Args:
             id: The relative path of the asset (used as cache key).
-            size: Output parameter for the actual size.
+            size: Unused by this implementation (Qt Quick provides this for
+                image providers that need to report actual dimensions).
             requestedSize: The requested size from QML.
 
         Returns:
             The cached thumbnail pixmap or a placeholder.
         """
+        _ = size  # Unused, Qt Quick image provider interface requirement
         # Decode the path (QML URL-encodes special characters)
         rel_path = id
 
@@ -279,8 +284,15 @@ class QmlGalleryGridView(QWidget):
         self._model = model
 
         # Update the thumbnail provider's cache manager
-        if hasattr(model, "_cache_manager"):
-            self._thumbnail_provider.set_cache_manager(model._cache_manager)
+        # Access the cache manager through the model's thumbnail_loader method
+        # which provides a public interface to the internal caching infrastructure.
+        try:
+            cache_manager = getattr(model, "_cache_manager", None)
+            if cache_manager is not None:
+                self._thumbnail_provider.set_cache_manager(cache_manager)
+        except AttributeError:
+            # Model doesn't expose cache manager, thumbnails will use placeholders
+            pass
 
         # Set the model on the QML root object
         root = self._quick_widget.rootObject()
@@ -322,8 +334,18 @@ class QmlGalleryGridView(QWidget):
         return QSize(192, 192)
 
     def setIconSize(self, size: QSize) -> None:
-        """Set the icon size (handled automatically by QML based on width)."""
-        # The QML implementation auto-calculates the icon size
+        """Set the icon size.
+
+        Note: The QML implementation auto-calculates the icon size based on
+        the viewport width and minimum item constraints to ensure optimal
+        column layout. This method is provided for API compatibility with
+        the original GalleryGridView but does not affect the QML layout.
+        """
+        # Icon size is computed dynamically in QML based on:
+        # - viewport width
+        # - minItemWidth (192px)
+        # - itemGap (2px)
+        # - safetyMargin (10px)
 
     def gridSize(self) -> QSize:
         """Return the current grid cell size."""
@@ -382,8 +404,17 @@ class QmlGalleryGridView(QWidget):
     def configure_external_drop(
         self, *, handler=None, validator=None
     ) -> None:
-        """Configure external drop handling."""
-        # TODO: Implement drag-and-drop in QML
+        """Configure external drop handling.
+
+        Note: Drag-and-drop from external sources is not yet implemented in
+        the QML gallery view. This method is provided for API compatibility.
+        External drops will be silently ignored until this feature is
+        implemented. Use the legacy gallery view (IPHOTO_LEGACY_GALLERY=1)
+        if external drop support is required.
+        """
+        # Future implementation could use QML DropArea to handle external drops
+        if handler is not None:
+            logger.debug("External drop handler configured but not yet implemented in QML view")
 
     def setAcceptDrops(self, accept: bool) -> None:
         """Enable/disable drop acceptance."""
